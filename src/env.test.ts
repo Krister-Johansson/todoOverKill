@@ -48,7 +48,7 @@ describe('env', () => {
     vi.stubEnv('DATABASE_URL', 'not-a-url')
 
     await expect(loadEnv()).rejects.toThrow(
-      '  - DATABASE_URL: must be a postgresql:// URL',
+      '  - DATABASE_URL: must be a postgresql:// URL with a host',
     )
   })
 
@@ -56,8 +56,24 @@ describe('env', () => {
     vi.stubEnv('DATABASE_URL_TEST', 'http://localhost:5434/todo_over_kill')
 
     await expect(loadEnv()).rejects.toThrow(
-      '  - DATABASE_URL_TEST: must be a postgresql:// URL',
+      '  - DATABASE_URL_TEST: must be a postgresql:// URL with a host',
     )
+  })
+
+  it('rejects a postgres URL without a host', async () => {
+    vi.stubEnv('DATABASE_URL', 'postgresql:///todo_over_kill')
+
+    await expect(loadEnv()).rejects.toThrow(
+      '  - DATABASE_URL: must be a postgresql:// URL with a host',
+    )
+  })
+
+  it('names its error so vite.config.ts can recognise it', async () => {
+    vi.stubEnv('DATABASE_URL', undefined)
+
+    await expect(loadEnv()).rejects.toMatchObject({
+      name: 'InvalidEnvironmentError',
+    })
   })
 
   it('accepts the postgres:// scheme', async () => {
@@ -75,6 +91,16 @@ describe('env', () => {
 
     expect(env.OPENROUTER_API_KEY).toBeUndefined()
     expect(env.OPENROUTER_MODEL).toBe('openai/gpt-4o-mini')
+  })
+
+  it('leaves empty variables in process.env alone', async () => {
+    vi.stubEnv('OPENROUTER_API_KEY', '')
+    vi.stubEnv('HTTP_PROXY', '')
+
+    await loadEnv()
+
+    expect(process.env.OPENROUTER_API_KEY).toBe('')
+    expect(process.env.HTTP_PROXY).toBe('')
   })
 
   it('passes a configured model through', async () => {

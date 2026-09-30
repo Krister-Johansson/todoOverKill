@@ -3,7 +3,8 @@ services:
     image: postgres:17
     restart: unless-stopped
     ports:
-      - '5434:5432'
+      # Loopback only: the credentials are fixed and the app is single-user.
+      - '127.0.0.1:5434:5432'
     environment:
       POSTGRES_USER: todo
       POSTGRES_PASSWORD: todo
@@ -13,7 +14,8 @@ services:
       # Runs once, on an empty volume. Creates the database for DATABASE_URL_TEST.
       - ./docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U todo -d todo_over_kill']
+      # Check over TCP. The socket is up while the init scripts still run.
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U todo -d todo_over_kill']
       interval: 5s
       timeout: 5s
       retries: 10

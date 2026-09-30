@@ -1,0 +1,263 @@
+# Feature backlog
+
+Each entry is one GitHub issue and one pull request (or one PR in a stack). Entries are small on purpose: a few files, one concern, reviewable in under 15 minutes. "Depends on" lists the entries that must be merged first. The number in front of each entry is the backlog id; the GitHub issue number is recorded next to it once the issue exists.
+
+Every UI entry inherits the definition of done in `CLAUDE.md`: keyboard walkthrough, axe clean, both themes, 400% zoom, tests.
+
+## Milestone 0: foundation
+
+### F01 Scaffold the TanStack Start app (#1)
+Run the TanStack CLI create command from `architecture.md` (into a temporary directory if the CLI refuses a non-empty folder, then move the result here), keep `docs/` and `CLAUDE.md`, switch to pnpm, add `typecheck`, `lint`, `test`, `test:e2e`, `db:migrate`, `db:seed` scripts. Remove the demo routes the add-ons generate.
+Acceptance: `pnpm install && pnpm dev` serves an empty page at localhost:3000; `pnpm lint` and `pnpm typecheck` pass; README lists the commands.
+
+### F02 PostgreSQL in Docker and environment validation (#2)
+Add `docker-compose.yml` (PostgreSQL on 5434, named volume), `.env.example`, and a `t3env` schema for `DATABASE_URL`, `DATABASE_URL_TEST`, `OPENROUTER_API_KEY` (optional), `OPENROUTER_MODEL` (optional, default set).
+Depends on: F01.
+Acceptance: `docker compose up -d` starts the database; the app fails at startup with a readable message when `DATABASE_URL` is missing.
+
+### F03 Prisma schema and first migration (#3)
+Model Project (with unique `key` and `nextTaskNumber`), Status, Task, Subtask, Label, TaskLabel, Comment, Activity as in `architecture.md`. Add the Prisma client singleton in `src/server/db.ts`.
+Depends on: F02.
+Acceptance: `pnpm db:migrate` creates the tables; a unit test connects and counts zero projects.
+
+### F04 Seed script with demo data (#4)
+Two projects (keys TOK and DEMO), default statuses, about 30 tasks with a spread of priorities, due dates, labels, subtasks, and comments, plus activity rows.
+Depends on: F03.
+Acceptance: `pnpm db:seed` is idempotent (re-running does not duplicate rows).
+
+### F05 Theme tokens with AAA contrast and a contrast check (#5)
+Define light and dark theme CSS variables in `src/styles.css` (background, surface, text, muted text, border, primary, focus ring, and priority and status accents). Write `scripts/check-contrast.ts` that computes the ratio for every documented pair and fails under 7:1 for text and 3:1 for UI. Wire it into `pnpm lint`.
+Depends on: F01.
+Acceptance: the script passes for both themes; the pairs it checks are listed in the script.
+
+### F06 Test harness: Vitest, Playwright, axe, CI (#6)
+Vitest with a test database reset helper; Playwright with an `expectAccessible(page)` helper that runs axe with the WCAG 2.2 AAA tag set; a GitHub Actions workflow that runs lint, typecheck, unit, and e2e against a PostgreSQL service.
+Depends on: F03.
+Acceptance: CI is green on an empty app; the axe helper fails a page with a deliberate violation (covered by one test).
+
+### F07 App shell: sidebar, top bar, landmarks, skip link (#7)
+The `_app` layout with `nav` (projects list placeholder, Dashboard, Settings, Help), `header` (breadcrumbs placeholder, search placeholder), `main`, a skip link, and a polite `aria-live` region provided through context.
+Depends on: F05, F06.
+Acceptance: axe clean; Tab order starts at the skip link; landmarks are labelled.
+
+### F08 Theme switch and motion preferences (#8)
+Theme toggle (system, light, dark) persisted in `localStorage`, applied before first paint. `useReducedMotion` hook combining the OS setting and an in-app override. Motion presets in `src/lib/motion.ts` (durations, easings, fade, scale-in) that return zero-duration variants when reduced.
+Depends on: F07.
+Acceptance: switching theme does not flash; with the in-app override set to "reduce", the presets report zero durations (unit test).
+
+## Milestone 1: projects and tasks
+
+### F09 Projects service and schemas (#9)
+`src/schemas/project.ts` and `src/server/projects.ts`: create (with default statuses), list, get, update, archive, restore. Activity rows for create and archive.
+Depends on: F03.
+Acceptance: unit tests for each function, including that create adds four statuses and that archived projects are excluded from list by default.
+
+### F10 Projects in the sidebar and create-project dialog (#10)
+Sidebar lists projects from a loader; "New project" opens a dialog with name, key (auto-suggested from the name, editable), colour; TanStack Form with Zod; errors inline and summarised.
+Depends on: F07, F09.
+Acceptance: creating a project focuses the new sidebar entry; the live region announces "Project X created".
+
+### F11 Statuses service (#11)
+`src/server/statuses.ts`: list for project, rename, reorder, add, delete (refusing when tasks exist in it).
+Depends on: F09.
+Acceptance: unit tests, including the delete refusal.
+
+### F12 Tasks service with per-project numbering and activity (#12)
+`src/schemas/task.ts` and `src/server/tasks.ts`: create (assigns `number` from `Project.nextTaskNumber` in one transaction), get, list with filters (status, priority, label, due range, text), update, move (status and order), complete, delete. Every mutation writes an Activity row.
+Depends on: F11.
+Acceptance: unit tests; concurrent creates in one project produce unique numbers.
+
+### F13 Board view, read only (#13)
+`projects.$projectId.board` renders statuses as columns (`h2` each) with task cards (key, title, priority icon and text, due date, label chips). Cards are links to the task route.
+Depends on: F10, F12.
+Acceptance: axe clean; cards are 44 px tall minimum; column order follows `Status.order`.
+
+### F14 Create task dialog and the `c` shortcut (#14)
+Dialog with title, description, status, priority, due date, labels placeholder. Opens from a button in the top bar and with `c` when focus is outside text fields. Project is pre-filled from the route.
+Depends on: F13.
+Acceptance: the new card appears in the right column without reload; focus lands on it; announcement made.
+
+### F15 Move task with a "Move to" menu and keyboard (#15)
+Each card has a Move menu (dropdown listing statuses, plus "Move up" and "Move down"). Optimistic update through TanStack Query.
+Depends on: F13.
+Acceptance: keyboard-only test moves a card between columns; live region announces "Moved TOK-12 to In progress".
+
+### F16 Drag and drop on the board (#16)
+`@dnd-kit` with pointer and keyboard sensors, drop animation through the motion presets, Escape cancels. The Move menu from F15 stays.
+Depends on: F15, F08.
+Acceptance: dragging with the keyboard sensor works (Space, arrows, Space); reduced motion removes the drop animation.
+
+### F17 Task detail page and board dialog (#17)
+`tasks.$taskId` full page, and the same component in a dialog when `?task=` is set on the board. Shows every field, description as Markdown, and an edit form for title, description, priority, due date, status.
+Depends on: F14.
+Acceptance: opening from the board and closing returns focus to the card; direct navigation renders the page; title is "Task · Project · todoOverKill".
+
+### F18 Subtasks (#18)
+Service (`src/server/subtasks.ts`) plus a checklist in task detail: add, toggle, rename, reorder, delete. Card shows "2 of 5 done".
+Depends on: F17.
+Acceptance: toggling is optimistic; checkbox targets are 44 px; unit tests for the service.
+
+### F19 Labels (#19)
+Service plus a label picker (combobox, multi-select) in the task form and task detail; label management in project settings placeholder. Chip shows text and colour with 3:1 border.
+Depends on: F17.
+Acceptance: unit tests; the combobox follows the ARIA combobox pattern and axe is clean.
+
+### F20 Comments (#20)
+Service plus a comment list and composer in task detail. Markdown rendered with a safe subset. Edit and delete own comment (there is only one user).
+Depends on: F17.
+Acceptance: posting focuses the new comment; the composer has a visible label.
+
+### F21 Activity log in task detail (#21)
+Renders Activity rows as readable sentences with relative and absolute times.
+Depends on: F17.
+Acceptance: every activity type from F12 has a sentence; time elements carry `datetime`.
+
+### F22 List view (#22)
+`projects.$projectId.list` with TanStack Table: sortable columns (key, title, status, priority, due, updated), row is a link, headers are buttons with `aria-sort`.
+Depends on: F13.
+Acceptance: keyboard sorting works; the table has a caption.
+
+### F23 Filters in the URL (#23)
+Filter bar on board and list: status, priority, label, due (overdue, today, this week), text. State in search params validated with Zod; results count announced.
+Depends on: F22, F19.
+Acceptance: reload keeps filters; clearing resets the URL; announcement made.
+
+### F24 Dashboard (#24)
+Index route: due today, overdue, recent activity across projects, and a per-project progress row.
+Depends on: F21, F23.
+Acceptance: each section has a heading; empty states have text, not just an icon.
+
+### F25 Search service and command palette (#25)
+`src/server/search.ts` (projects and tasks by text) and a command palette (`cmd/ctrl+k`) listing actions (new task, go to project, switch theme) and search results.
+Depends on: F24.
+Acceptance: palette follows the combobox/listbox pattern; results announce their count.
+
+### F26 Settings page (#26)
+Theme, motion override, single-key shortcuts on or off, "send when I stop speaking" and "read replies aloud" placeholders (disabled until F41 and F42).
+Depends on: F08.
+Acceptance: every control has a visible label; changes apply immediately and persist.
+
+### F27 Help page (#27)
+Glossary of product terms, keyboard shortcuts table, browser support note for voice and WebMCP.
+Depends on: F07.
+Acceptance: linked from the sidebar in the same position on every page; reading level checked by a human reviewer.
+
+### F28 Delete with undo (#28)
+Delete task and delete comment show a toast with Undo for 10 seconds, then commit. Toast does not auto-dismiss while focused.
+Depends on: F20.
+Acceptance: Undo restores the item and focus; a keyboard-only test covers it.
+
+### F29 Project settings (#29)
+Rename, key, colour, description; edit statuses (rename, reorder, add, delete with the F11 refusal); archive and restore.
+Depends on: F11, F19.
+Acceptance: archive asks for confirmation; restored project reappears in the sidebar.
+
+## Milestone 2: REST API
+
+### F30 REST: projects and statuses (#30)
+Server routes under `/api/v1/projects` and `/api/v1/projects/:id/statuses` using the shared schemas and the error envelope.
+Depends on: F11.
+Acceptance: Vitest requests each route; validation errors return 400 with `issues`.
+
+### F31 REST: tasks (#31)
+`/api/v1/projects/:id/tasks` and `/api/v1/tasks/:id` including move via PATCH.
+Depends on: F30, F12.
+Acceptance: filter query params match F23; tests cover create, move, delete.
+
+### F32 REST: subtasks, labels, comments, activity, search (#32)
+Remaining routes from `architecture.md`.
+Depends on: F31, F18, F19, F20, F25.
+Acceptance: tests per route.
+
+### F33 OpenAPI document and docs page (#33)
+Generate OpenAPI from the Zod schemas, serve at `/api/v1/openapi.json`, render at `/api-docs` with an accessible renderer.
+Depends on: F32.
+Acceptance: the document validates; the page is axe clean.
+
+## Milestone 3: tool definitions and MCP server
+
+### F34 Tool definitions (#34)
+`src/tools/definitions.ts` with `toolDefinition()` for every domain tool and UI tool listed in `architecture.md`, and `src/tools/server.ts` with `.server()` implementations for the data tools.
+Depends on: F18, F20, F25.
+Acceptance: unit tests call each server tool against the test database.
+
+### F35 MCP server: read tools (#35)
+`/api/mcp` server route with `@modelcontextprotocol/sdk` Streamable HTTP; registers `list_projects`, `get_project`, `list_tasks`, `get_task`, `search`.
+Depends on: F34.
+Acceptance: a Vitest test uses the SDK client to list tools and call `list_projects`; `docs/mcp.md` shows how to add the server to Claude Code.
+
+### F36 MCP server: write tools with confirmation (#36)
+Adds the mutating tools. `delete_task` and `archive_project` require `confirm: true` and return a structured error otherwise.
+Depends on: F35.
+Acceptance: tests for a successful move and a refused delete.
+
+### F37 MCP resources and prompt (#37)
+`project://{id}` and `task://{id}` as Markdown; `daily_review` prompt built from the dashboard data.
+Depends on: F36.
+Acceptance: resource reads are tested; the prompt returns text under 2,000 characters for the seed.
+
+## Milestone 4: AI assistant
+
+### F38 Assistant panel with OpenRouter, text only (#38)
+`/api/chat` server route with `chat({ adapter: openRouterText(model) })` streamed as SSE; right-hand `Sheet` with `useChat`, a labelled composer, a Stop button, and a message list under a heading. Missing key shows an explanation.
+Depends on: F34, F26.
+Acceptance: axe clean; streaming can be stopped; e2e uses a mocked SSE response.
+
+### F39 Assistant data tools (#39)
+Pass the server tools from F34 to `chat()`. Render tool calls in the message list with name, status, and result summary.
+Depends on: F38.
+Acceptance: e2e with a mocked model response that calls `list_tasks` renders the tool card.
+
+### F40 Assistant UI tools and approvals (#40)
+`.client()` implementations for `navigate`, `open_task`, `set_filter`, `set_theme`; `needsApproval` tools show an Approve and Deny prompt in the panel. After navigation, focus moves to the page heading and the panel says where it went.
+Depends on: F39.
+Acceptance: e2e covers approve, deny, and a navigation with focus assertion.
+
+## Milestone 5: voice and WebMCP
+
+### F41 Speech to text: microphone toggle (#41)
+`useSpeechRecognition`; microphone toggle button in the top bar (`aria-pressed`, 44 px), key binding, Escape stops; interim text renders into the assistant composer; "send when I stop speaking" setting enabled. Hidden when unsupported.
+Depends on: F40.
+Acceptance: e2e with a mocked `SpeechRecognition` asserts transcript, announcement "Listening", and that nothing is sent without the setting.
+
+### F42 Text to speech: read replies aloud (#42)
+`useSpeechSynthesis`; setting off by default; speaks each completed assistant message; Stop button and Escape cancel; text stays on screen.
+Depends on: F38.
+Acceptance: e2e with a mocked `speechSynthesis` asserts speak and cancel calls; nothing speaks on page load.
+
+### F43 WebMCP registration (#43)
+`src/tools/webmcp.ts` feature-detects `modelContext`, converts each tool's Zod input schema to JSON Schema, registers with an `AbortSignal` bound to the shell, and executes through the server functions or the client implementations. `needsApproval` tools show the same confirmation dialog.
+Depends on: F40.
+Acceptance: unit test of the schema conversion; e2e with a stubbed `modelContext` asserts the registered tool names and a `create_task` round trip.
+
+### F44 WebMCP declarative forms (#44)
+Add `toolname` and `tooldescription` attributes to the create-task form so the browser can drive it declaratively where supported.
+Depends on: F43.
+Acceptance: attributes present; form still submits normally.
+
+## Milestone 6: polish
+
+### F45 Reflow and zoom pass (#45)
+Board becomes stacked columns under 768 px and at 400% zoom; assistant panel becomes full width; no horizontal scroll anywhere.
+Depends on: F40.
+Acceptance: Playwright at 320 px and at 400% zoom asserts `scrollWidth <= clientWidth` on every route.
+
+### F46 Screen reader pass (human task) (#46)
+A person walks every route with VoiceOver; fix names, roles, and announcements. Record findings in `docs/a11y-audit.md`.
+Depends on: F45.
+Acceptance: the audit file lists each route with "pass" or the issue opened for it.
+
+### F47 Empty states and loading skeletons (#47)
+Text-first empty states for every list and pending states with `aria-busy`.
+Depends on: F24.
+Acceptance: axe clean; no layout shift when data arrives (skeleton height matches).
+
+### F48 Page titles and breadcrumbs everywhere (#48)
+Every route sets `title` and breadcrumb items from loader data.
+Depends on: F24.
+Acceptance: e2e asserts the title on each route.
+
+### F49 README (#49)
+Setup, commands, architecture summary with links to `docs/`, how to connect an MCP client, how to try voice and WebMCP in Chrome.
+Depends on: F43.
+Acceptance: a new developer can run the app from the README alone.

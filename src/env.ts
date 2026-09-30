@@ -1,9 +1,20 @@
 import { createEnv } from '@t3-oss/env-core'
+import * as z from 'zod'
 
-// Variables are added in F02 (DATABASE_URL, OPENROUTER_*). The schema stays
-// empty until then so lint, typecheck, and build run without a .env file.
+const postgresUrl = () =>
+  z.url({
+    protocol: /^postgres(ql)?$/,
+    error: (issue) =>
+      issue.input === undefined ? 'is required' : 'must be a postgresql:// URL',
+  })
+
 export const env = createEnv({
-  server: {},
+  server: {
+    DATABASE_URL: postgresUrl(),
+    DATABASE_URL_TEST: postgresUrl(),
+    OPENROUTER_API_KEY: z.string().min(1).optional(),
+    OPENROUTER_MODEL: z.string().min(1).default('openai/gpt-4o-mini'),
+  },
 
   /**
    * The prefix that client-side variables must have. This is enforced both at
@@ -14,14 +25,34 @@ export const env = createEnv({
   client: {},
 
   /**
-   * What object holds the environment variables at runtime. This is usually
-   * `process.env` or `import.meta.env`.
+   * Server variables have no VITE_ prefix, so they never reach
+   * `import.meta.env`. vite.config.ts loads .env into `process.env`.
    */
-  runtimeEnv: import.meta.env,
+  runtimeEnv: process.env,
 
   /**
    * Treat empty strings as undefined so that `KEY=` in a .env file falls back
    * to the schema default instead of failing validation.
    */
   emptyStringAsUndefined: true,
+
+  onValidationError: (issues) => {
+    const lines = issues.map((issue) => {
+      const segment = issue.path?.[0]
+      const name =
+        segment === undefined
+          ? '(root)'
+          : String(typeof segment === 'object' ? segment.key : segment)
+      return `  - ${name}: ${issue.message}`
+    })
+    // Callers print the message: vite.config.ts on dev and preview, Node's
+    // uncaught error output for the built server.
+    throw new Error(
+      [
+        'Invalid environment variables:',
+        ...lines,
+        'Copy .env.example to .env and fill in the values.',
+      ].join('\n'),
+    )
+  },
 })

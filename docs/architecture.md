@@ -170,6 +170,8 @@ Tools marked `needsApproval` (delete, archive) surface a confirmation in the ass
 
 `docker-compose.yml` starts PostgreSQL on port 5434 (5432 and 5433 are already in use on the development machine). `.env.example` documents `DATABASE_URL`, `DATABASE_URL_TEST`, `OPENROUTER_API_KEY`, and `OPENROUTER_MODEL`. Environment variables are validated with `t3env`.
 
+The compose file mounts `docker/init-test-db.sql`, which creates the `todo_over_kill_test` database for `DATABASE_URL_TEST` the first time the volume is initialised. The schema in `src/env.ts` reads `process.env`, because server variables have no `VITE_` prefix and never reach `import.meta.env`. `vite.config.ts` loads `.env` into `process.env`, with variables already set in the shell taking precedence. It also imports the schema when the dev or preview server boots, so a missing or invalid variable stops startup with a readable message. `src/server.ts`, the custom server entry, imports the schema first, so the built server fails when it loads rather than on the first request. `vite build` does not evaluate the schema and runs without a `.env`.
+
 ## Scaffold
 
 The app is created with the TanStack CLI so the add-ons are wired the way the framework expects:

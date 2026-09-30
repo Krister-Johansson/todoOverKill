@@ -1,5 +1,6 @@
-// Runs in Vitest's default jsdom environment on purpose: src/env.ts must still
-// validate server variables when `window` is defined under Vitest.
+// @vitest-environment node
+// Server code runs without `window`. Under jsdom, t3-env treats the module as
+// client code and blocks every server variable, which one test relies on.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const APP_URL = 'postgresql://todo:todo@localhost:5434/todo_over_kill'
@@ -23,12 +24,27 @@ describe('env', () => {
     vi.unstubAllEnvs()
   })
 
-  it('reads server variables under Vitest even though window exists', async () => {
-    expect(typeof window).toBe('object')
-
+  it('reads server variables on the server', async () => {
     const env = await loadEnv()
 
     expect(env.DATABASE_URL).toBe(APP_URL)
+  })
+
+  it('blocks server variables in client code', async () => {
+    vi.stubGlobal('window', {})
+
+    try {
+      // Not through loadEnv: resolving a promise with the env object reads its
+      // `then` property, which the client guard also blocks.
+      vi.resetModules()
+      const module = await import('#/env')
+
+      expect(() => module.env.DATABASE_URL).toThrow(
+        /server-side environment variable/,
+      )
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('names a missing DATABASE_URL and points at .env.example', async () => {
@@ -72,6 +88,46 @@ describe('env', () => {
 
     await expect(loadEnv()).rejects.toThrow(
       '  - DATABASE_URL: must be a postgresql:// URL with a host',
+    )
+  })
+
+  it('reports one problem per variable', async () => {
+    vi.stubEnv('DATABASE_URL', 'mysql:///todo')
+
+    const error = await loadEnv().catch((e: unknown) => e)
+
+    expect((error as Error).message.match(/ {2}- DATABASE_URL:/g)).toHaveLength(
+      1,
+    )
+  })
+
+  it('accepts a Unix socket given as a host query parameter', async () => {
+    const socketUrl =
+      'postgresql://todo@/todo_over_kill?host=/var/run/postgresql'
+    vi.stubEnv('DATABASE_URL', socketUrl)
+
+    const env = await loadEnv()
+
+    expect(env.DATABASE_URL).toBe(socketUrl)
+  })
+
+  it.each([
+    ['a trailing space', `${APP_URL} `],
+    ['a carriage return', `${APP_URL}\r`],
+    ['a tab', `postgresql://todo:todo@local\thost:5434/todo_over_kill`],
+  ])('rejects a URL with %s instead of trimming it', async (_, value) => {
+    vi.stubEnv('DATABASE_URL', value)
+
+    await expect(loadEnv()).rejects.toThrow(
+      '  - DATABASE_URL: must not contain spaces or line breaks',
+    )
+  })
+
+  it('says that shell variables override .env', async () => {
+    vi.stubEnv('DATABASE_URL', undefined)
+
+    await expect(loadEnv()).rejects.toThrow(
+      'Variables exported in your shell override .env.',
     )
   })
 

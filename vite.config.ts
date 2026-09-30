@@ -1,5 +1,4 @@
 import { defineConfig } from 'vite'
-import type { Plugin } from 'vite'
 import { devtools } from '@tanstack/devtools-vite'
 
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
@@ -16,54 +15,41 @@ const bootState = globalThis as typeof globalThis & {
 }
 
 /**
- * Loads .env into process.env and, for the dev and preview servers, validates
- * it with the schema in src/env.ts.
- *
- * TanStack Start's `tanstack-start-core:load-env` plugin also copies .env into
- * process.env in configResolved, with the same mode and root. That copy is
- * harmless: this plugin is listed first, so its synchronous loadDotEnv call
- * runs before Start's hook, which then writes the same values again. Start's
- * copy never removes keys, which is why this plugin exists: loadDotEnv drops
- * keys deleted from .env when Vite restarts the dev server.
+ * Imports the schema in src/env.ts. On first boot an invalid environment
+ * prints the list of variables and exits. On a restart after a .env edit,
+ * process.env is put back to its previous values and the error is rethrown:
+ * Vite logs "server restart failed" and the old server keeps running with the
+ * environment it was started with.
  */
-function environment(): Plugin {
-  return {
-    name: 'todo-over-kill:environment',
-    enforce: 'pre',
-    async configResolved(config) {
-      loadDotEnv(config.mode, config.root)
-
-      // `vite build` does not evaluate the schema and needs no .env.
-      if (config.command !== 'serve') return
-
-      try {
-        await import('./src/env.ts')
-        bootState.__todoOverKillBooted = true
-      } catch (error) {
-        // Anything other than the list of invalid variables, such as a syntax
-        // error in env.ts, keeps its stack trace.
-        if (!(error instanceof Error)) throw error
-        if (error.name !== 'InvalidEnvironmentError') throw error
-        // On a restart after a .env edit, throw a plain error: Vite prints its
-        // message, logs "server restart failed", and keeps the old server up.
-        if (bootState.__todoOverKillBooted) throw new Error(error.message)
-        // On first boot, print only the list and stop.
-        console.error(error.message)
-        process.exit(1)
-      }
-    },
+async function validateEnvironment(restore: () => void) {
+  try {
+    await import('./src/env.ts')
+    bootState.__todoOverKillBooted = true
+  } catch (error) {
+    restore()
+    // Anything other than the list of invalid variables, such as a syntax
+    // error in env.ts, keeps its stack trace.
+    if (!(error instanceof Error)) throw error
+    if (error.name !== 'InvalidEnvironmentError') throw error
+    if (bootState.__todoOverKillBooted) throw new Error(error.message)
+    console.error(error.message)
+    process.exit(1)
   }
 }
 
-const config = defineConfig({
-  resolve: { tsconfigPaths: true },
-  plugins: [
-    environment(),
-    devtools(),
-    tailwindcss(),
-    tanstackStart(),
-    viteReact(),
-  ],
-})
+export default defineConfig(async ({ command, mode }) => {
+  // The config function runs before any plugin hook, so this is always the
+  // first write of .env into process.env. TanStack Start's load-env plugin
+  // copies .env again in configResolved, but by then every key is already set
+  // to the value it would write, so its copy changes nothing. Only this loader
+  // removes keys that were deleted from .env since the last restart.
+  const restore = loadDotEnv(mode, process.cwd())
 
-export default config
+  // `vite build` does not evaluate the schema and needs no .env.
+  if (command === 'serve') await validateEnvironment(restore)
+
+  return {
+    resolve: { tsconfigPaths: true },
+    plugins: [devtools(), tailwindcss(), tanstackStart(), viteReact()],
+  }
+})

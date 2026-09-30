@@ -76,6 +76,19 @@ describe('loadDotEnv', () => {
     expect(process.env.TODO_B).toBe('second')
   })
 
+  it('restores the previous values and keys when asked', () => {
+    writeDotEnv('TODO_A=first\n')
+    loadDotEnv('development', root, state)
+
+    writeDotEnv('TODO_B=second\n')
+    const restore = loadDotEnv('development', root, state)
+    restore()
+
+    expect(process.env.TODO_A).toBe('first')
+    expect(process.env.TODO_B).toBeUndefined()
+    expect(state.__todoOverKillEnvKeys).toEqual(new Set(['TODO_A']))
+  })
+
   it('keeps the key set on globalThis by default', () => {
     writeDotEnv('TODO_A=from-file\n')
     const global = globalThis as DotEnvState

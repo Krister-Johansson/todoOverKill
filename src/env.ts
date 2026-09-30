@@ -1,15 +1,37 @@
 import { createEnv } from '@t3-oss/env-core'
 import * as z from 'zod'
 
+/**
+ * Returns the problem with a PostgreSQL connection URL, or undefined when it is
+ * fine. The check runs on the raw string and the schema passes it through
+ * unchanged, so `env.DATABASE_URL` and `process.env.DATABASE_URL` (which Prisma
+ * and pg read) never differ.
+ */
+function postgresUrlProblem(value: string) {
+  // The URL parser drops surrounding spaces, tabs, and line breaks, so a stray
+  // space or a Windows line ending in .env would pass here and reach Prisma.
+  if (/\s/.test(value)) return 'must not contain spaces or line breaks'
+  // libpq allows `postgresql://user@/db?host=/socket/dir`, which the URL parser
+  // rejects because of the empty host after the credentials. They do not
+  // affect the checks below, so drop them before parsing.
+  const url = URL.parse(value.replace(/^([a-z]+:\/\/)[^/?#]*@/i, '$1'))
+  const valid =
+    url !== null &&
+    (url.protocol === 'postgresql:' || url.protocol === 'postgres:') &&
+    (url.hostname !== '' || Boolean(url.searchParams.get('host')))
+  return valid ? undefined : 'must be a postgresql:// URL with a host'
+}
+
 const postgresUrl = () =>
-  z.url({
-    protocol: /^postgres(ql)?$/,
-    hostname: /.+/,
-    error: (issue) =>
-      issue.input === undefined
-        ? 'is required'
-        : 'must be a postgresql:// URL with a host',
-  })
+  z
+    .string({
+      error: (issue) =>
+        issue.input === undefined ? 'is required' : 'must be a string',
+    })
+    .superRefine((value, ctx) => {
+      const problem = postgresUrlProblem(value)
+      if (problem) ctx.addIssue({ code: 'custom', message: problem })
+    })
 
 export const env = createEnv({
   server: {
@@ -26,15 +48,6 @@ export const env = createEnv({
   clientPrefix: 'VITE_',
 
   client: {},
-
-  /**
-   * t3-env decides this from `typeof window`. Vitest's jsdom environment
-   * defines `window`, which would make every unit test of server code look
-   * client-side and fail on the first server variable it reads.
-   */
-  isServer:
-    typeof window === 'undefined' ||
-    (typeof process !== 'undefined' && Boolean(process.env.VITEST)),
 
   /**
    * Server variables have no VITE_ prefix, so they never reach
@@ -67,7 +80,11 @@ export const env = createEnv({
       [
         'Invalid environment variables:',
         ...lines,
-        'Copy .env.example to .env and fill in the values.',
+        'pnpm dev and pnpm preview read .env: copy .env.example to .env and',
+        'fill in the values. Variables exported in your shell override .env.',
+        'Anything else that loads the built dist/server/server.js does not',
+        'read .env and must set the variables itself, for example with',
+        'node --env-file=.env.',
       ].join('\n'),
     )
     // vite.config.ts checks the name to tell this apart from other failures.

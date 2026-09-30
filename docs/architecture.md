@@ -175,7 +175,7 @@ Tools marked `needsApproval` (delete, archive) surface a confirmation in the ass
 The app is created with the TanStack CLI so the add-ons are wired the way the framework expects:
 
 ```bash
-npx @tanstack/cli create . --framework react --toolchain eslint --add-ons shadcn,prisma,tanstack-query,form,table,t3env,ai,mcp -y
+npx @tanstack/cli@latest create app --framework react --toolchain eslint --add-ons shadcn,prisma,tanstack-query,form,table,t3env,ai,mcp --package-manager pnpm --no-git --target-dir "$TMP/app" -y
 ```
 
-The `ai` and `mcp` add-ons give a starting chat route and MCP route; both are then rewritten to use `src/tools/`.
+The CLI refuses a non-empty folder unless given `--force`, which overwrites files, so F01 generated the app in a temporary directory and copied it into the repository. F01 then removed the demo routes, components, and data that the add-ons generate, including the demo chat and MCP routes from the `ai` and `mcp` add-ons. F35 (`/api/mcp`) and F38 (the assistant chat route) write those routes against `src/tools/`.

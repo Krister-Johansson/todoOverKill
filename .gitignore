@@ -8,3 +8,10 @@ dist/
 test-results/
 playwright-report/
 .DS_Store
+dist-ssr/
+*.local
+.nitro/
+.wrangler/
+.vinxi/
+__unconfig*
+src/generated/

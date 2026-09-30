@@ -28,6 +28,15 @@ export const env = createEnv({
   client: {},
 
   /**
+   * t3-env decides this from `typeof window`. Vitest's jsdom environment
+   * defines `window`, which would make every unit test of server code look
+   * client-side and fail on the first server variable it reads.
+   */
+  isServer:
+    typeof window === 'undefined' ||
+    (typeof process !== 'undefined' && Boolean(process.env.VITEST)),
+
+  /**
    * Server variables have no VITE_ prefix, so they never reach
    * `import.meta.env`. vite.config.ts loads .env into `process.env`.
    * The copy matters: emptyStringAsUndefined deletes keys from this object,

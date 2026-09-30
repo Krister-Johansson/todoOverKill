@@ -1,6 +1,5 @@
-// @vitest-environment node
-// jsdom defines `window`, which makes t3-env treat the run as client-side and
-// skip validation of server variables.
+// Runs in Vitest's default jsdom environment on purpose: src/env.ts must still
+// validate server variables when `window` is defined under Vitest.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const APP_URL = 'postgresql://todo:todo@localhost:5434/todo_over_kill'
@@ -22,6 +21,14 @@ describe('env', () => {
 
   afterEach(() => {
     vi.unstubAllEnvs()
+  })
+
+  it('reads server variables under Vitest even though window exists', async () => {
+    expect(typeof window).toBe('object')
+
+    const env = await loadEnv()
+
+    expect(env.DATABASE_URL).toBe(APP_URL)
   })
 
   it('names a missing DATABASE_URL and points at .env.example', async () => {

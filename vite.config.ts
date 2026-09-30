@@ -1,4 +1,5 @@
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig } from 'vite'
+import type { Plugin } from 'vite'
 import { devtools } from '@tanstack/devtools-vite'
 
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
@@ -6,49 +7,63 @@ import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import viteReact from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-// Vite re-evaluates this file when it restarts the dev server after a .env
-// edit, but process.env lives on. Keep the keys that came from .env on
-// globalThis so each load can drop them before reading .env again.
-const envState = globalThis as typeof globalThis & {
-  __todoOverKillEnvKeys?: Set<string>
+import { loadDotEnv } from './src/lib/load-dot-env.ts'
+
+// Set once the dev or preview server has booted with a valid environment. Kept
+// on globalThis because Vite re-evaluates this file on every restart.
+const bootState = globalThis as typeof globalThis & {
+  __todoOverKillBooted?: boolean
 }
 
-function loadDotEnv(mode: string) {
-  const previous = envState.__todoOverKillEnvKeys ?? new Set<string>()
-  for (const key of previous) delete process.env[key]
+/**
+ * Loads .env into process.env and, for the dev and preview servers, validates
+ * it with the schema in src/env.ts.
+ *
+ * TanStack Start's `tanstack-start-core:load-env` plugin also copies .env into
+ * process.env in configResolved, with the same mode and root. That copy is
+ * harmless: this plugin is listed first, so its synchronous loadDotEnv call
+ * runs before Start's hook, which then writes the same values again. Start's
+ * copy never removes keys, which is why this plugin exists: loadDotEnv drops
+ * keys deleted from .env when Vite restarts the dev server.
+ */
+function environment(): Plugin {
+  return {
+    name: 'todo-over-kill:environment',
+    enforce: 'pre',
+    async configResolved(config) {
+      loadDotEnv(config.mode, config.root)
 
-  // loadEnv gives keys already in process.env precedence, so variables set in
-  // the shell win over .env.
-  const shellKeys = new Set(Object.keys(process.env))
-  const loaded = loadEnv(mode, import.meta.dirname, '')
-  const fromFile = Object.keys(loaded).filter((key) => !shellKeys.has(key))
-  for (const key of fromFile) process.env[key] = loaded[key]
-  envState.__todoOverKillEnvKeys = new Set(fromFile)
-}
+      // `vite build` does not evaluate the schema and needs no .env.
+      if (config.command !== 'serve') return
 
-const config = defineConfig(async ({ command, mode }) => {
-  loadDotEnv(mode)
-
-  // Validate the environment when the dev or preview server boots, so a
-  // missing variable stops startup. `vite build` does not need a .env.
-  if (command === 'serve') {
-    try {
-      await import('./src/env.ts')
-    } catch (error) {
-      // Print only the list of invalid variables. Any other failure, such as a
-      // syntax error in env.ts, keeps its stack trace.
-      if (error instanceof Error && error.name === 'InvalidEnvironmentError') {
+      try {
+        await import('./src/env.ts')
+        bootState.__todoOverKillBooted = true
+      } catch (error) {
+        // Anything other than the list of invalid variables, such as a syntax
+        // error in env.ts, keeps its stack trace.
+        if (!(error instanceof Error)) throw error
+        if (error.name !== 'InvalidEnvironmentError') throw error
+        // On a restart after a .env edit, throw a plain error: Vite prints its
+        // message, logs "server restart failed", and keeps the old server up.
+        if (bootState.__todoOverKillBooted) throw new Error(error.message)
+        // On first boot, print only the list and stop.
         console.error(error.message)
         process.exit(1)
       }
-      throw error
-    }
+    },
   }
+}
 
-  return {
-    resolve: { tsconfigPaths: true },
-    plugins: [devtools(), tailwindcss(), tanstackStart(), viteReact()],
-  }
+const config = defineConfig({
+  resolve: { tsconfigPaths: true },
+  plugins: [
+    environment(),
+    devtools(),
+    tailwindcss(),
+    tanstackStart(),
+    viteReact(),
+  ],
 })
 
 export default config

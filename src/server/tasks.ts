@@ -49,6 +49,42 @@ function statusNotFound(id: string) {
   return new NotFoundError(`No status with id ${id} in this project.`)
 }
 
+function labelNotFound(id: string) {
+  return new NotFoundError(`No label with id ${id} in this project.`)
+}
+
+/**
+ * The first of `labelIds` that is not a label of the project, or undefined
+ * when they all are. Without a project it looks only for labels that exist.
+ */
+async function missingLabel(
+  client: Prisma.TransactionClient,
+  labelIds: Array<string>,
+  projectId?: string,
+) {
+  if (labelIds.length === 0) return undefined
+  const found = await client.label.findMany({
+    where: { id: { in: labelIds }, projectId },
+    select: { id: true },
+  })
+  const ids = new Set(found.map((label) => label.id))
+  return labelIds.find((labelId) => !ids.has(labelId))
+}
+
+/**
+ * A label deleted between the check and the TaskLabel write trips the
+ * foreign key (P2003). Returns that label's NotFoundError, or `error`
+ * unchanged when it is anything else.
+ */
+async function orDeletedLabel(
+  error: unknown,
+  labelIds: Array<string> | undefined,
+) {
+  if (!labelIds || !isPrismaError(error, 'P2003')) return error
+  const missing = await missingLabel(db, labelIds)
+  return missing ? labelNotFound(missing) : error
+}
+
 /**
  * Runs `work` and turns Prisma's P2025, which a write raises when the task was
  * deleted after the transaction read it, into the task's NotFoundError.
@@ -93,15 +129,15 @@ function orderAt(orders: Array<number>, index: number | undefined) {
 // not a mutation and writes no row.
 
 /**
- * Creates a task with the project's next number and a `task.created` activity
- * row, in one transaction. A task created in a done-category status starts
- * completed. Archived projects accept tasks. Throws
- * NotFoundError for an unknown project or a status outside it, and
- * ConflictError when the project has no statuses.
+ * Creates a task with the project's next number, its labels, and a
+ * `task.created` activity row, in one transaction. A task created in a
+ * done-category status starts completed. Archived projects accept tasks.
+ * Throws NotFoundError for an unknown project or a status or label outside it,
+ * and ConflictError when the project has no statuses.
  */
 export async function createTask(projectId: string, input: CreateTaskInput) {
   const id = projectIdSchema.parse(projectId)
-  const { statusId, dueDate, ...data } = createTaskSchema.parse(input)
+  const { statusId, dueDate, labelIds, ...data } = createTaskSchema.parse(input)
   try {
     return await db.$transaction(
       async (tx) => {
@@ -127,6 +163,8 @@ export async function createTask(projectId: string, input: CreateTaskInput) {
             'The project has no statuses. Add a status first.',
           )
         }
+        const missing = await missingLabel(tx, labelIds ?? [], id)
+        if (missing) throw labelNotFound(missing)
         const { _max } = await tx.task.aggregate({
           where: { statusId: status.id },
           _max: { order: true },
@@ -141,6 +179,9 @@ export async function createTask(projectId: string, input: CreateTaskInput) {
             dueDate: dueDate ? toCalendarDate(dueDate) : null,
             order: (_max.order ?? 0) + 1,
             completedAt: status.category === 'done' ? new Date() : null,
+            labels: labelIds && {
+              create: labelIds.map((labelId) => ({ labelId })),
+            },
           },
           include: withRelations,
         })
@@ -162,7 +203,7 @@ export async function createTask(projectId: string, input: CreateTaskInput) {
   } catch (error) {
     // The failed update aborts the transaction, so the catch sits outside it.
     if (isPrismaError(error, 'P2025')) throw projectNotFound(id)
-    throw error
+    throw await orDeletedLabel(error, labelIds)
   }
 }
 
@@ -227,49 +268,79 @@ export async function listTasks(projectId: string, input: ListTasksInput = {}) {
 
 /**
  * Changes the given fields and leaves the rest alone; `null` clears the
- * description or due date. Writes a `task.updated` row naming the fields that
- * changed. A patch that changes nothing writes nothing. Throws NotFoundError.
+ * description or due date. `labelIds` is the whole new label set, in any
+ * order, and only the difference is written. Writes a `task.updated` row
+ * naming the fields that changed, `labels` among them. A patch that changes
+ * nothing writes nothing. Throws NotFoundError for an unknown task or a label
+ * outside its project.
  */
 export async function updateTask(id: string, patch: UpdateTaskInput) {
   const taskId = taskIdSchema.parse(id)
-  const { dueDate, ...data } = updateTaskSchema.parse(patch)
-  return orTaskNotFound(taskId, () =>
-    db.$transaction(async (tx) => {
-      const task = await tx.task.findUnique({
-        where: { id: taskId },
-        include: withRelations,
-      })
-      if (!task) throw taskNotFound(taskId)
-      const changes: Prisma.TaskUpdateInput = {}
-      const fields: Array<string> = []
-      for (const field of ['title', 'description', 'priority'] as const) {
-        const value = data[field]
-        if (value !== undefined && value !== task[field]) {
-          Object.assign(changes, { [field]: value })
-          fields.push(field)
+  const { dueDate, labelIds, ...data } = updateTaskSchema.parse(patch)
+  try {
+    return await orTaskNotFound(taskId, () =>
+      db.$transaction(async (tx) => {
+        const task = await tx.task.findUnique({
+          where: { id: taskId },
+          include: withRelations,
+        })
+        if (!task) throw taskNotFound(taskId)
+        const changes: Prisma.TaskUpdateInput = {}
+        const fields: Array<string> = []
+        for (const field of ['title', 'description', 'priority'] as const) {
+          const value = data[field]
+          if (value !== undefined && value !== task[field]) {
+            Object.assign(changes, { [field]: value })
+            fields.push(field)
+          }
         }
-      }
-      if (dueDate !== undefined && dueDate !== fromCalendarDate(task.dueDate)) {
-        changes.dueDate = dueDate === null ? null : toCalendarDate(dueDate)
-        fields.push('dueDate')
-      }
-      if (fields.length === 0) return flatten(task)
-      const updated = await tx.task.update({
-        where: { id: taskId },
-        data: changes,
-        include: withRelations,
-      })
-      await tx.activity.create({
-        data: {
-          projectId: task.projectId,
-          taskId,
-          type: ACTIVITY_TYPES.taskUpdated,
-          payload: { number: task.number, fields },
-        },
-      })
-      return flatten(updated)
-    }),
-  )
+        if (
+          dueDate !== undefined &&
+          dueDate !== fromCalendarDate(task.dueDate)
+        ) {
+          changes.dueDate = dueDate === null ? null : toCalendarDate(dueDate)
+          fields.push('dueDate')
+        }
+        if (labelIds) {
+          const current = new Set(task.labels.map(({ label }) => label.id))
+          const wanted = new Set(labelIds)
+          const added = labelIds.filter((labelId) => !current.has(labelId))
+          const removed = [...current].filter((labelId) => !wanted.has(labelId))
+          const missing = await missingLabel(tx, added, task.projectId)
+          if (missing) throw labelNotFound(missing)
+          if (added.length > 0 || removed.length > 0) {
+            changes.labels = {
+              deleteMany:
+                removed.length > 0 ? { labelId: { in: removed } } : undefined,
+              create:
+                added.length > 0
+                  ? added.map((labelId) => ({ labelId }))
+                  : undefined,
+            }
+            fields.push('labels')
+          }
+        }
+        if (fields.length === 0) return flatten(task)
+        const updated = await tx.task.update({
+          where: { id: taskId },
+          data: changes,
+          include: withRelations,
+        })
+        await tx.activity.create({
+          data: {
+            projectId: task.projectId,
+            taskId,
+            type: ACTIVITY_TYPES.taskUpdated,
+            payload: { number: task.number, fields },
+          },
+        })
+        return flatten(updated)
+      }),
+    )
+  } catch (error) {
+    // The failed write aborts the transaction, so the catch sits outside it.
+    throw await orDeletedLabel(error, labelIds)
+  }
 }
 
 /**

@@ -3,6 +3,7 @@
 // client code and blocks every server variable.
 import { beforeEach, describe, expect, it } from 'vitest'
 
+import type { Prisma } from '#/generated/prisma/client'
 import { db } from '#/server/db'
 import { ConflictError, NotFoundError } from '#/server/errors'
 import { archiveProject, createProject } from '#/server/projects'
@@ -60,11 +61,33 @@ async function columnOf(statusId: string) {
  * the task, which the uncommitted delete does not hide, then waits on the row
  * lock when it writes, and finds the row gone once the delete commits.
  */
-async function deleteDuring(taskId: string, action: () => Promise<unknown>) {
+function deleteDuring(taskId: string, action: () => Promise<unknown>) {
+  return whileDeleting(
+    (tx) => tx.task.delete({ where: { id: taskId } }),
+    action,
+  )
+}
+
+/**
+ * Runs `action` while another transaction deletes the label. The action finds
+ * the label, then waits on its row lock when the TaskLabel foreign key checks
+ * it, and finds it gone once the delete commits.
+ */
+function deleteLabelDuring(labelId: string, action: () => Promise<unknown>) {
+  return whileDeleting(
+    (tx) => tx.label.delete({ where: { id: labelId } }),
+    action,
+  )
+}
+
+async function whileDeleting(
+  remove: (tx: Prisma.TransactionClient) => Promise<unknown>,
+  action: () => Promise<unknown>,
+) {
   let attempt: Promise<unknown> = Promise.resolve()
   let settled = false
   await db.$transaction(async (tx) => {
-    await tx.task.delete({ where: { id: taskId } })
+    await remove(tx)
     attempt = action().finally(() => {
       settled = true
     })
@@ -237,6 +260,72 @@ describe('createTask', () => {
 
     await expect(attempt).rejects.toBeInstanceOf(ConflictError)
     await expect(nextTaskNumberOf(project.id)).resolves.toBe(1)
+  })
+
+  it('attaches the given labels and returns them sorted by name', async () => {
+    const project = await createWebsite()
+    const design = await createLabel(project.id, 'design')
+    const bug = await createLabel(project.id, 'bug')
+    let id = ''
+
+    const rows = await newActivity(project.id, async () => {
+      const task = await createTask(project.id, {
+        title: 'Write copy',
+        labelIds: [design.id, bug.id],
+      })
+      id = task.id
+      expect(task.labels).toEqual([bug, design])
+    })
+
+    expect(rows).toEqual([
+      {
+        type: 'task.created',
+        payload: { number: 1, title: 'Write copy' },
+        taskId: id,
+      },
+    ])
+  })
+
+  it.each([
+    ['another project', true],
+    ['no project', false],
+  ])(
+    'throws NotFoundError for a label of %s and writes nothing',
+    async (_, inOther) => {
+      const project = await createWebsite()
+      const design = await createLabel(project.id, 'design')
+      const other = await createProject({ name: 'Other', key: 'OTH' })
+      const foreign = inOther
+        ? (await createLabel(other.id, 'design')).id
+        : UNKNOWN_ID
+
+      const attempt = createTask(project.id, {
+        title: 'Write copy',
+        labelIds: [design.id, foreign],
+      })
+
+      await expect(attempt).rejects.toBeInstanceOf(NotFoundError)
+      await expect(attempt).rejects.toMatchObject({
+        message: `No label with id ${foreign} in this project.`,
+      })
+      await expect(db.task.count()).resolves.toBe(0)
+      await expect(nextTaskNumberOf(project.id)).resolves.toBe(1)
+    },
+  )
+
+  it('throws NotFoundError when a label is deleted before the write', async () => {
+    const project = await createWebsite()
+    const design = await createLabel(project.id, 'design')
+
+    const attempt = deleteLabelDuring(design.id, () =>
+      createTask(project.id, { title: 'Write copy', labelIds: [design.id] }),
+    )
+
+    await expect(attempt).rejects.toBeInstanceOf(NotFoundError)
+    await expect(attempt).rejects.toMatchObject({
+      message: `No label with id ${design.id} in this project.`,
+    })
+    await expect(db.task.count()).resolves.toBe(0)
   })
 
   it('rejects invalid input without writing anything', async () => {
@@ -491,6 +580,123 @@ describe('updateTask', () => {
     })
 
     expect(rows).toEqual([])
+  })
+
+  it('replaces the label set and writes a task.updated row naming labels', async () => {
+    const project = await createWebsite()
+    const design = await createLabel(project.id, 'design')
+    const bug = await createLabel(project.id, 'bug')
+    const copy = await createLabel(project.id, 'copy')
+    const task = await createTask(project.id, {
+      title: 'Write copy',
+      labelIds: [design.id, bug.id],
+    })
+
+    const rows = await newActivity(project.id, async () => {
+      const updated = await updateTask(task.id, {
+        labelIds: [copy.id, design.id],
+      })
+      expect(updated.labels).toEqual([copy, design])
+    })
+
+    expect(rows).toEqual([
+      {
+        type: 'task.updated',
+        payload: { number: 1, fields: ['labels'] },
+        taskId: task.id,
+      },
+    ])
+    expect((await getTask(task.id)).labels).toEqual([copy, design])
+  })
+
+  it('names labels after the other changed fields', async () => {
+    const project = await createWebsite()
+    const design = await createLabel(project.id, 'design')
+    const task = await createTask(project.id, { title: 'Write copy' })
+
+    const rows = await newActivity(project.id, () =>
+      updateTask(task.id, { title: 'Write the copy', labelIds: [design.id] }),
+    )
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        payload: { number: 1, fields: ['title', 'labels'] },
+      }),
+    ])
+  })
+
+  it('clears the labels with an empty list', async () => {
+    const project = await createWebsite()
+    const design = await createLabel(project.id, 'design')
+    const task = await createTask(project.id, {
+      title: 'Write copy',
+      labelIds: [design.id],
+    })
+
+    const updated = await updateTask(task.id, { labelIds: [] })
+
+    expect(updated.labels).toEqual([])
+    await expect(db.taskLabel.count()).resolves.toBe(0)
+    await expect(db.label.count()).resolves.toBe(1)
+  })
+
+  it('writes nothing for the same labels in another order', async () => {
+    const project = await createWebsite()
+    const design = await createLabel(project.id, 'design')
+    const bug = await createLabel(project.id, 'bug')
+    const task = await createTask(project.id, {
+      title: 'Write copy',
+      labelIds: [design.id, bug.id],
+    })
+
+    const rows = await newActivity(project.id, async () => {
+      await expect(
+        updateTask(task.id, { labelIds: [bug.id, design.id] }),
+      ).resolves.toEqual(task)
+    })
+
+    expect(rows).toEqual([])
+  })
+
+  it("throws NotFoundError for another project's label and leaves the labels alone", async () => {
+    const project = await createWebsite()
+    const design = await createLabel(project.id, 'design')
+    const other = await createProject({ name: 'Other', key: 'OTH' })
+    const foreign = await createLabel(other.id, 'bug')
+    const task = await createTask(project.id, {
+      title: 'Write copy',
+      labelIds: [design.id],
+    })
+
+    const rows = await newActivity(project.id, async () => {
+      const attempt = updateTask(task.id, {
+        title: 'Write the copy',
+        labelIds: [foreign.id],
+      })
+      await expect(attempt).rejects.toBeInstanceOf(NotFoundError)
+      await expect(attempt).rejects.toMatchObject({
+        message: `No label with id ${foreign.id} in this project.`,
+      })
+    })
+
+    expect(rows).toEqual([])
+    await expect(getTask(task.id)).resolves.toEqual(task)
+  })
+
+  it('throws NotFoundError when a label is deleted before the write', async () => {
+    const project = await createWebsite()
+    const design = await createLabel(project.id, 'design')
+    const task = await createTask(project.id, { title: 'Write copy' })
+
+    const attempt = deleteLabelDuring(design.id, () =>
+      updateTask(task.id, { labelIds: [design.id] }),
+    )
+
+    await expect(attempt).rejects.toBeInstanceOf(NotFoundError)
+    await expect(attempt).rejects.toMatchObject({
+      message: `No label with id ${design.id} in this project.`,
+    })
+    await expect(getTask(task.id)).resolves.toEqual(task)
   })
 
   it('throws NotFoundError for an unknown id', async () => {

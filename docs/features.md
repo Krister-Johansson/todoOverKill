@@ -107,10 +107,25 @@ Service (`src/server/subtasks.ts`) plus a checklist in task detail: add, toggle,
 Depends on: F17.
 Acceptance: toggling is optimistic; checkbox targets are 44 px; unit tests for the service.
 
-### F19 Labels (#19)
-Service plus a label picker (combobox, multi-select) in the task form and task detail; label management in project settings placeholder. Chip shows text and colour with 3:1 border.
+### F19 Labels service and labelIds on tasks (#19)
+The backend for labels, with no UI. `src/schemas/label.ts` (name trimmed to 1 to 50 characters, colour from `PROJECT_COLORS`, a `labelIds` array of unique ids), `src/server/labels.ts` (`listLabels` by name, `createLabel` with NotFoundError for the project and ConflictError on a duplicate name, `deleteLabel`), and `labelIds` on task create and update: create attaches them in its transaction, and update treats them as the whole new set, writes only the difference, names `labels` in the `task.updated` fields, and writes nothing for an unchanged set. A label outside the project is a NotFoundError. The REST task POST and PATCH accept `labelIds` through the shared schemas. `listLabelsFn` and `labelsQueryOptions(projectId)` let F23 and F59 read labels. The chip moved to F58, the picker to F59, and label management to F60.
 Depends on: F17.
-Acceptance: unit tests; the combobox follows the ARIA combobox pattern and axe is clean.
+Acceptance: unit tests cover the labels service (list, create, duplicate-name conflict, delete) and task create and update with `labelIds`, including the `task.updated` row naming `labels` and the no-op case; through REST, POST with `labelIds`, PATCH `labelIds` replaces the set, a label from another project is a 404, and an unknown key is still a 400 (route tests and one e2e round trip).
+
+### F58 Label chip and label colours on the checked palette (#81)
+`CHIP_SURFACES` in `src/lib/project-colors.ts` names the theme tokens a project or label colour may be painted on, and the palette test checks every colour at 3:1 on each of them in both themes. Seed label colours move onto the palette. A `LabelChip` (text, an `aria-hidden` colour dot, and a 2 px border in the label colour on a transparent background) replaces the inline chips on the board card and the task page.
+Depends on: F19.
+Acceptance: the chip border reaches 3:1 on the page, card, popover, and sidebar surfaces in light and dark themes (palette test); the board card and the task page render labels through `LabelChip` and axe stays clean on both; `pnpm db:seed` stays idempotent and seeds palette colours only.
+
+### F59 Label picker in the New task dialog and on the task page (#82)
+A hand-written multi-select combobox following the WAI-ARIA APG editable combobox pattern, with selected labels as chips and 44 px "Remove <name>" buttons. It replaces the disabled Labels group in the New task dialog. On the task page it saves at once through `setTaskLabelsFn` with an optimistic update, announces "Labels of KEY-N saved", and reverts with an announced error on failure.
+Depends on: F19, F58.
+Acceptance: a user can pick several labels with the keyboard alone in the dialog and add or remove one on the task page, and the change is announced and survives a reload; the input and listbox carry the combobox ARIA attributes (unit test); axe is clean on the dialog and the task page with the listbox open and an option active, in light and dark themes, with no horizontal scroll at 320 px.
+
+### F60 Project settings page with label management (#83)
+`projects.$projectId.settings` with a Labels section: the labels with their colour names and a Delete button that asks for confirmation and says how many tasks lose the label, and an Add label form with a name and named colour swatches. `createLabelFn` and `deleteLabelFn` server functions, and a Settings link in the project views nav. The other project settings arrive with F29.
+Depends on: F19, F58.
+Acceptance: a user can add a label with a name and a named colour, and delete one after confirming, with the keyboard alone; a duplicate name shows the conflict message in the focused summary; axe is clean on the page and with the delete confirmation open, in light and dark themes, with no horizontal scroll at 320 px.
 
 ### F20 Comments (#20)
 Service plus a comment list and composer in task detail. Markdown rendered with a safe subset. Edit and delete own comment (there is only one user).
@@ -159,7 +174,7 @@ Acceptance: Undo restores the item and focus; a keyboard-only test covers it.
 
 ### F29 Project settings (#29)
 Rename, key, colour, description; edit statuses (rename, reorder, add, delete with the F11 refusal); archive and restore.
-Depends on: F11, F19.
+Depends on: F11, F60.
 Acceptance: archive asks for confirmation; restored project reappears in the sidebar.
 
 ## Milestone 2: REST API

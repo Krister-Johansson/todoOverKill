@@ -73,6 +73,23 @@ describe('createTaskSchema', () => {
       )
     },
   )
+
+  it('accepts labelIds', () => {
+    expect(
+      createTaskSchema.parse({ title: 'Write copy', labelIds: ['l1', 'l2'] })
+        .labelIds,
+    ).toEqual(['l1', 'l2'])
+  })
+
+  it('rejects a repeated label id', () => {
+    const result = createTaskSchema.safeParse({
+      title: 'Write copy',
+      labelIds: ['l1', 'l1'],
+    })
+    expect(result.error?.issues.map((issue) => issue.path)).toEqual([
+      ['labelIds'],
+    ])
+  })
 })
 
 describe('updateTaskSchema', () => {
@@ -88,6 +105,19 @@ describe('updateTaskSchema', () => {
 
   it('rejects a null title', () => {
     expect(updateTaskSchema.safeParse({ title: null }).success).toBe(false)
+  })
+
+  it('accepts labelIds as the new set', () => {
+    expect(updateTaskSchema.parse({ labelIds: ['l1', 'l2'] })).toEqual({
+      labelIds: ['l1', 'l2'],
+    })
+  })
+
+  it('rejects a repeated label id', () => {
+    const result = updateTaskSchema.safeParse({ labelIds: ['l1', 'l1'] })
+    expect(result.error?.issues.map((issue) => issue.path)).toEqual([
+      ['labelIds'],
+    ])
   })
 })
 
@@ -292,6 +322,10 @@ describe('listTasksQuerySchema', () => {
 describe('patchTaskSchema', () => {
   it('accepts an empty patch', () => {
     expect(patchTaskSchema.parse({})).toEqual({})
+  })
+
+  it('accepts an empty labelIds, which clears the labels', () => {
+    expect(patchTaskSchema.parse({ labelIds: [] })).toEqual({ labelIds: [] })
   })
 
   it('accepts fields and a move together', () => {

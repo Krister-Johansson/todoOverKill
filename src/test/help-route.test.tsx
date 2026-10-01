@@ -58,6 +58,8 @@ describe('help route', () => {
     await renderPage()
 
     const contents = screen.getByRole('navigation', { name: 'On this page' })
+    expect(within(contents).getAllByRole('listitem')).toHaveLength(3)
+    expect(contents.querySelector('ul')?.getAttribute('role')).toBe('list')
     expect(
       within(contents)
         .getAllByRole('link')
@@ -94,6 +96,18 @@ describe('help route', () => {
     expect(document.getElementById('term-backlog')?.textContent).toBe('Backlog')
   })
 
+  it('uses the word overdue and spells out abbreviations (3.1.4)', async () => {
+    await renderPage()
+
+    const definitionOf = (id: string) =>
+      document.getElementById(id)?.nextElementSibling?.textContent ?? ''
+    expect(definitionOf('term-due-date')).toContain('overdue')
+    expect(definitionOf('term-mcp')).toContain('AI (artificial intelligence)')
+    expect(definitionOf('term-rest-api')).toContain(
+      'Representational State Transfer Application Programming Interface',
+    )
+  })
+
   it('marks glossary terms for features that have not shipped', async () => {
     await renderPage()
 
@@ -109,6 +123,12 @@ describe('help route', () => {
     await renderPage()
 
     const table = screen.getByRole('table', { name: 'Keys and what they do' })
+    // If the table overflows, the keyboard can focus and scroll its container.
+    const container = screen.getByRole('region', {
+      name: 'Keyboard shortcuts table',
+    })
+    expect(container.contains(table)).toBe(true)
+    expect(container.getAttribute('tabindex')).toBe('0')
     expect(
       within(table)
         .getAllByRole('columnheader')
@@ -153,8 +173,20 @@ describe('help route', () => {
     const choice = keysCell(
       'Pick an option in a group, such as Theme in Settings.',
     )
-    expect(choice.textContent).toBe('↑ or ↓ or ← or →')
     expect(choice.querySelector('kbd[data-slot="kbd-group"]')).toBeNull()
+    // Each arrow glyph is hidden from screen readers and named in text.
+    expect(
+      Array.from(choice.querySelectorAll('[aria-hidden="true"]')).map(
+        (glyph) => glyph.textContent,
+      ),
+    ).toEqual(['↑', '↓', '←', '→'])
+    expect(
+      Array.from(choice.querySelectorAll('.sr-only')).map(
+        (name) => name.textContent,
+      ),
+    ).toEqual(['Up arrow', 'Down arrow', 'Left arrow', 'Right arrow'])
+    // jsdom's name computation trims the " or " joiners, so the cell's full
+    // accessible name is checked in tests/e2e/help.spec.ts instead.
 
     expect(keysCell('Close a dialog.').textContent).toBe('Escape')
   })

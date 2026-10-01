@@ -106,10 +106,15 @@ test('Tab continues from the section the contents link jumped to', async ({
   await page.keyboard.press('Enter')
   await expect(page.locator('section#shortcuts')).toBeFocused()
 
+  // The table's scroll container is the next stop, then the Settings link.
+  await page.keyboard.press('Tab')
+  await expect(
+    page.getByRole('region', { name: 'Keyboard shortcuts table' }),
+  ).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(
     page
-      .getByRole('region', { name: 'Keyboard shortcuts' })
+      .getByRole('region', { name: 'Keyboard shortcuts', exact: true })
       .getByRole('link', { name: 'Settings' }),
   ).toBeFocused()
 })
@@ -123,9 +128,15 @@ test('the shortcuts table has a caption and key caps', async ({ page }) => {
   await expect(table.locator('kbd[data-slot="kbd"]').first()).toBeVisible()
   // The joiner between caps is visible text, not just spacing.
   const keyCells = table.locator('tbody td:first-child')
-  for (const keys of ['Shift+Tab', 'Tab then Enter', '↑ or ↓ or ← or →']) {
+  for (const keys of ['Shift+Tab', 'Tab then Enter']) {
     await expect(keyCells.filter({ hasText: keys })).toBeVisible()
   }
+  // The arrow glyphs are hidden from screen readers and named in text.
+  await expect(
+    table.getByRole('cell', {
+      name: 'Up arrow or Down arrow or Left arrow or Right arrow',
+    }),
+  ).toBeVisible()
   await expect(
     table.getByText('Not available yet. Arrives in a later release.'),
   ).toHaveCount(2)

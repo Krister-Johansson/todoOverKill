@@ -82,7 +82,7 @@ const terms: Array<{
     id: 'due-date',
     term: 'Due date',
     definition:
-      'The day a task should be done by. A task is late once that day has passed.',
+      'The day a task should be done by. A task is overdue once that day has passed.',
   },
   {
     id: 'label',
@@ -129,7 +129,7 @@ const terms: Array<{
     id: 'mcp',
     term: 'MCP',
     definition:
-      'Model Context Protocol. A common way for AI tools, such as Claude Code, to read and change your tasks.',
+      'Model Context Protocol. A common way for AI (artificial intelligence) tools, such as Claude Code, to read and change your tasks.',
     later: true,
   },
   {
@@ -143,7 +143,7 @@ const terms: Array<{
     id: 'rest-api',
     term: 'REST API',
     definition:
-      'Web addresses that other programs can call to read and change your projects and tasks.',
+      'Short for Representational State Transfer Application Programming Interface. In plain words, a set of web addresses that other programs can call to read and change your projects and tasks.',
     later: true,
   },
 ]
@@ -204,7 +204,9 @@ function HelpPage() {
           which browsers can use voice and WebMCP.
         </p>
         <nav aria-label="On this page">
-          <ul className="flex flex-col">
+          {/* Tailwind removes the bullets, and Safari then drops the list
+              role, so it is set again (1.3.1). */}
+          <ul role="list" className="flex flex-col">
             {Object.entries(sections).map(([id, label]) => (
               <li key={id}>
                 {/* A plain fragment link, like the skip link: the browser
@@ -245,7 +247,16 @@ function HelpPage() {
           Everything in the app works with a keyboard. These are the keys to
           know.
         </p>
-        <Table>
+        {/* The table wraps at 320 px, but text spacing or a large font can
+            still make it overflow, so its container can take focus and be
+            scrolled from the keyboard. */}
+        <Table
+          containerProps={{
+            tabIndex: 0,
+            role: 'region',
+            'aria-label': 'Keyboard shortcuts table',
+          }}
+        >
           <TableCaption>Keys and what they do</TableCaption>
           <TableHeader>
             <TableRow>
@@ -304,6 +315,15 @@ function LaterNote() {
 
 const joiners = { combo: '+', sequence: ' then ', any: ' or ' } as const
 
+// A glyph alone has no reliable spoken name: some screen readers skip it or
+// read only the joiners. Each one gets a hidden text name instead (1.1.1).
+const keyNames: Record<string, string> = {
+  '↑': 'Up arrow',
+  '↓': 'Down arrow',
+  '←': 'Left arrow',
+  '→': 'Right arrow',
+}
+
 /**
  * Draws a row's keys as key caps with a visible joiner, so a reader can tell
  * a chord (Shift+Tab) from a sequence (Tab then Enter) and from a choice
@@ -311,9 +331,18 @@ const joiners = { combo: '+', sequence: ' then ', any: ' or ' } as const
  */
 function ShortcutKeys({ keys, kind }: Pick<Shortcut, 'keys' | 'kind'>) {
   const caps = keys.map((key, index) => (
-    <Fragment key={key}>
+    <Fragment key={`${index}-${key}`}>
       {index > 0 && kind ? <span>{joiners[kind]}</span> : null}
-      <Kbd>{key}</Kbd>
+      <Kbd>
+        {key in keyNames ? (
+          <>
+            <span aria-hidden="true">{key}</span>
+            <span className="sr-only">{keyNames[key]}</span>
+          </>
+        ) : (
+          key
+        )}
+      </Kbd>
     </Fragment>
   ))
 

@@ -1,6 +1,7 @@
 import { TaskCard } from './task-card'
 
 import type { BoardTask } from './task-card'
+import type { MoveProject } from './task-move-menu'
 
 /**
  * One status on the board: a section named by its h2, with the task count
@@ -14,7 +15,7 @@ export function BoardColumn({
 }: {
   status: { id: string; name: string }
   tasks: Array<BoardTask>
-  project: { name: string; key: string }
+  project: MoveProject & { name: string }
   today: string
 }) {
   const headingId = `board-column-${status.id}`
@@ -35,12 +36,14 @@ export function BoardColumn({
       </h2>
       {tasks.length > 0 ? (
         <ul className="flex flex-col gap-2">
-          {tasks.map((task) => (
+          {tasks.map((task, position) => (
             <TaskCard
               key={task.id}
               task={task}
               project={project}
               today={today}
+              position={position}
+              count={tasks.length}
             />
           ))}
         </ul>

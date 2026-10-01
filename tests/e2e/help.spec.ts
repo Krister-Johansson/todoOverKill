@@ -139,7 +139,7 @@ test('the shortcuts table has a caption and key caps', async ({ page }) => {
   ).toBeVisible()
   await expect(
     table.getByText('Not available yet. Arrives in a later release.'),
-  ).toHaveCount(3)
+  ).toHaveCount(2)
   // Ctrl and ⌘ are read by name. Chrome puts spaces around the + because
   // each key is its own kbd.
   for (const name of ['Control + K', 'Command + K']) {

@@ -15,7 +15,7 @@ export type CreateProjectResult =
   | { ok: true; project: Awaited<ReturnType<typeof createProject>> }
   | { ok: false; code: 'conflict'; message: string }
 
-function hasCode(error: unknown, code: string): error is Error {
+export function hasCode(error: unknown, code: string): error is Error {
   return error instanceof Error && 'code' in error && error.code === code
 }
 

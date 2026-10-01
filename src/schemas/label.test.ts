@@ -50,6 +50,15 @@ describe('labelIdsSchema', () => {
     )
   })
 
+  it('accepts 50 ids and rejects 51', () => {
+    const ids = Array.from({ length: 51 }, (_, index) => `label-${index}`)
+    expect(labelIdsSchema.parse(ids.slice(0, 50))).toHaveLength(50)
+    const result = labelIdsSchema.safeParse(ids)
+    expect(result.error?.issues[0].message).toBe(
+      'A task can have 50 labels or fewer.',
+    )
+  })
+
   it('rejects an empty id', () => {
     expect(labelIdsSchema.safeParse(['']).success).toBe(false)
   })

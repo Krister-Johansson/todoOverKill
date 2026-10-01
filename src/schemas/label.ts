@@ -1,6 +1,6 @@
 import * as z from 'zod'
 
-import { PROJECT_COLORS } from '#/lib/project-colors'
+import { projectColorName } from '#/lib/project-colors'
 
 export const labelIdSchema = z.string().min(1)
 
@@ -9,10 +9,6 @@ export const labelNameSchema = z
   .trim()
   .min(1, { error: 'Name is required.' })
   .max(50, { error: 'Name must be 50 characters or fewer.' })
-
-const paletteValues = new Set<string>(
-  PROJECT_COLORS.map((color) => color.value),
-)
 
 /**
  * A colour from the project palette, stored in lower case. Only createLabel
@@ -23,7 +19,7 @@ const paletteValues = new Set<string>(
 export const labelColorSchema = z
   .string()
   .toLowerCase()
-  .refine((value) => paletteValues.has(value), {
+  .refine((value) => projectColorName(value) !== undefined, {
     error: 'Colour must be one of the project colours.',
   })
 
@@ -35,6 +31,7 @@ export const createLabelSchema = z.object({
 /** A task's whole label set. Empty clears it. */
 export const labelIdsSchema = z
   .array(labelIdSchema)
+  .max(50, { error: 'A task can have 50 labels or fewer.' })
   .refine((ids) => new Set(ids).size === ids.length, {
     error: 'Each label may appear only once.',
   })

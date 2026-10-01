@@ -366,19 +366,59 @@ test('switching views keeps the filters, and the board drops the sort', async ({
 
 test('an invalid filter in the URL shows every task', async ({ page }) => {
   const { project } = await seedProject('Invalid')
-  await open(
-    page,
-    project.id,
-    'board',
-    '?priority=huge&due=soon&status=nope&label=nope',
-  )
+  await open(page, project.id, 'board', '?priority=huge&due=soon')
   await expect.poll(() => references(boardCards(page))).toHaveLength(5)
   await expect(field(page, 'Priority')).toHaveValue('')
-  await expect(field(page, 'Status')).toHaveValue('')
+  await expect(field(page, 'Due')).toHaveValue('')
   await expect(clearButton(page)).toHaveAttribute('aria-disabled', 'true')
 
   await open(page, project.id, 'list', '?priority=huge&due=soon')
   await expect(page.getByRole('table').getByRole('link')).toHaveCount(5)
+})
+
+test('Clear filters removes a status or label the project does not have', async ({
+  page,
+}) => {
+  const { project } = await seedProject('Stale')
+  const label = await db.label.create({
+    data: { projectId: project.id, name: 'Gone', color: '#2563eb' },
+  })
+  await db.label.delete({ where: { id: label.id } })
+  await open(page, project.id, 'board', `?status=gone&label=${label.id}`)
+  await expect.poll(() => references(boardCards(page))).toHaveLength(5)
+  await expect(field(page, 'Status')).toHaveValue('')
+  await expect(field(page, 'Label')).toHaveValue('')
+
+  await tabTo(page, clearButton(page))
+  await expect(clearButton(page)).toHaveAttribute('aria-disabled', 'false')
+  await page.keyboard.press('Enter')
+  await expect.poll(() => urlSearch(page)).toEqual({})
+  await expect(liveRegion(page)).toHaveText('Showing all 5 tasks')
+})
+
+test('Escape in the text field removes the text filter', async ({ page }) => {
+  const { project } = await seedProject('Escape')
+  await open(page, project.id, 'list', '?priority=high&q=login')
+  await expect(page.getByRole('table').getByRole('link')).toHaveCount(1)
+
+  await tabTo(page, textField(page))
+  await page.keyboard.press('Escape')
+  await expect(textField(page)).toHaveValue('')
+  await expect.poll(() => urlSearch(page)).toEqual({ priority: 'high' })
+  await expect(liveRegion(page)).toHaveText('Showing 2 of 5 tasks')
+  await expect(page.getByRole('table').getByRole('link')).toHaveCount(2)
+  await expect(textField(page)).toBeFocused()
+
+  // Text typed but not applied goes when a select applies a change.
+  await page.keyboard.type('signup')
+  await pick(page, 'Due', 'o', 'Overdue')
+  await expect
+    .poll(() => urlSearch(page))
+    .toEqual({
+      priority: 'high',
+      due: 'overdue',
+    })
+  await expect(textField(page)).toHaveValue('')
 })
 
 test('Move up and Move down under a filter use the place in the whole column', async ({
@@ -421,6 +461,43 @@ test('Move up and Move down under a filter use the place in the whole column', a
   await expect
     .poll(() => references(column(page, 'Backlog')))
     .toEqual([`${key}-1`, `${key}-3`, `${key}-2`])
+})
+
+test('a card moved out of the filter leaves focus on the results line', async ({
+  page,
+}) => {
+  const { project, key, status } = await seedProject('Move out')
+  await open(page, project.id, 'board', `?status=${status('Backlog').id}`)
+  await expect.poll(() => references(boardCards(page))).toHaveLength(3)
+  // Records every message the live region shows, in order.
+  await page.evaluate(() => {
+    const region = document.querySelector('[aria-live="polite"]')!
+    const said: Array<string> = []
+    Object.assign(window, { said })
+    new MutationObserver(() => {
+      const text = region.textContent
+      if (text) said.push(text)
+    }).observe(region, { childList: true, characterData: true, subtree: true })
+  })
+
+  await openMenu(page, `${key}-1`)
+  await page.keyboard.press('ArrowDown')
+  await expect(
+    menu(page).getByRole('menuitemradio', { name: 'In progress' }),
+  ).toBeFocused()
+  await page.keyboard.press('Enter')
+
+  const results = bar(page).getByText('Showing 2 of 5 tasks')
+  await expect(results).toBeFocused()
+  await expect
+    .poll(() => references(boardCards(page)))
+    .toEqual([`${key}-2`, `${key}-3`])
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as unknown as { said: Array<string> }).said),
+    )
+    .toEqual([`Moved ${key}-1 to In progress`, 'Showing 2 of 5 tasks'])
+  await expect(results).toBeFocused()
 })
 
 for (const theme of ['light', 'dark'] as const) {

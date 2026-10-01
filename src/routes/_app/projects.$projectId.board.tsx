@@ -1,6 +1,6 @@
-import { useSuspenseQuery } from '@tanstack/react-query'
+import { useIsMutating, useSuspenseQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { BoardColumn } from '#/components/app/board-column'
 import { useAnnounce } from '#/components/app/live-region'
@@ -14,8 +14,11 @@ import {
   clearedFilters,
   filterAnnouncement,
   filterTasks,
+  hasActiveFilters,
   matchesFilters,
+  pickFilters,
   resolveFilters,
+  sameFilters,
   taskFilterSearchSchema,
 } from '#/lib/task-filter'
 
@@ -43,6 +46,13 @@ export const Route = createFileRoute('/_app/projects/$projectId/board')({
   component: BoardPage,
 })
 
+/**
+ * How long the board waits, once no change is in flight, before it says the
+ * new count, so the change's own message (such as "Moved KEY-1 to Done") is
+ * spoken first rather than replaced.
+ */
+const COUNT_ANNOUNCE_DELAY = 1000
+
 function BoardPage() {
   const { projectId } = Route.useParams()
   const { today } = Route.useLoaderData()
@@ -61,6 +71,41 @@ function BoardPage() {
     () => filterTasks(tasks, filters, today).length,
     [tasks, filters, today],
   )
+
+  // A change that is not a filter change, such as a move to a status the
+  // filter hides, can take a card out of view. Its Move button leaves with
+  // it, so focus that fell to the page goes to the results line (2.4.3), and
+  // the new count is said once nothing is in flight. A failed move puts the
+  // card back, and then the count is not said.
+  const resultsRef = useRef<HTMLParagraphElement>(null)
+  const last = useRef({ filters, shown })
+  const shownBefore = useRef<number | null>(null)
+  const mutating = useIsMutating()
+  useEffect(() => {
+    const previous = last.current
+    last.current = { filters, shown }
+    if (!sameFilters(previous.filters, filters)) {
+      shownBefore.current = null
+      return
+    }
+    if (shown >= previous.shown) return
+    shownBefore.current ??= previous.shown
+    const active = document.activeElement
+    if (active === null || active === document.body) {
+      resultsRef.current?.focus()
+    }
+  }, [filters, shown])
+  useEffect(() => {
+    if (shownBefore.current === null || mutating > 0) return
+    const timer = window.setTimeout(() => {
+      // A filter change since then said its own count and reset this.
+      if (shownBefore.current !== null && shownBefore.current !== shown) {
+        announce(filterAnnouncement(shown, tasks.length))
+      }
+      shownBefore.current = null
+    }, COUNT_ANNOUNCE_DELAY)
+    return () => window.clearTimeout(timer)
+  }, [mutating, shown, tasks.length, announce])
 
   // Replace, so Back leaves the board instead of stepping through filters.
   // The page keeps its scroll position, and focus stays on the control.
@@ -107,12 +152,14 @@ function BoardPage() {
     <div className="flex min-w-0 flex-col gap-4">
       <TaskFilterBar
         filters={filters}
+        active={hasActiveFilters(pickFilters(search))}
         statuses={project.statuses}
         labels={labels}
         shown={shown}
         total={tasks.length}
         onChange={applyFilters}
         onClear={() => applyFilters(clearedFilters())}
+        resultsRef={resultsRef}
       />
       <div
         ref={regionRef}

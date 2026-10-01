@@ -204,10 +204,11 @@ describe('TASK_COMPARATORS', () => {
 describe('the list route', () => {
   it('sorts only for a valid column and direction in its search', async () => {
     const { Route } = await import('#/routes/_app/projects.$projectId.list')
+    // The route's schema adds the filters (src/lib/task-filter.ts) to
+    // listSearchSchema, so the sort is checked through the route's own.
     const validate = Route.options.validateSearch
-    expect(validate).toBe(listSearchSchema)
     const sortingFor = async (raw: Record<string, unknown>) => {
-      const result = await listSearchSchema['~standard'].validate(raw)
+      const result = await validate['~standard'].validate(raw)
       if (result.issues) throw new Error('validateSearch rejected the URL')
       return searchToSorting(result.value)
     }

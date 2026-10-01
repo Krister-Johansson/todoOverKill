@@ -14,6 +14,9 @@ import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppHelpRouteImport } from './routes/_app/help'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppProjectsProjectIdRouteImport } from './routes/_app/projects.$projectId'
+import { Route as AppTasksTaskIdRouteImport } from './routes/_app/tasks.$taskId'
+import { Route as AppProjectsProjectIdIndexRouteImport } from './routes/_app/projects.$projectId.index'
+import { Route as AppProjectsProjectIdBoardRouteImport } from './routes/_app/projects.$projectId.board'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -39,18 +42,40 @@ const AppProjectsProjectIdRoute = AppProjectsProjectIdRouteImport.update({
   path: '/projects/$projectId',
   getParentRoute: () => AppRoute,
 } as any)
+const AppTasksTaskIdRoute = AppTasksTaskIdRouteImport.update({
+  id: '/tasks/$taskId',
+  path: '/tasks/$taskId',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppProjectsProjectIdIndexRoute =
+  AppProjectsProjectIdIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AppProjectsProjectIdRoute,
+  } as any)
+const AppProjectsProjectIdBoardRoute =
+  AppProjectsProjectIdBoardRouteImport.update({
+    id: '/board',
+    path: '/board',
+    getParentRoute: () => AppProjectsProjectIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/help': typeof AppHelpRoute
   '/settings': typeof AppSettingsRoute
-  '/projects/$projectId': typeof AppProjectsProjectIdRoute
+  '/projects/$projectId': typeof AppProjectsProjectIdRouteWithChildren
+  '/tasks/$taskId': typeof AppTasksTaskIdRoute
+  '/projects/$projectId/board': typeof AppProjectsProjectIdBoardRoute
+  '/projects/$projectId/': typeof AppProjectsProjectIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/help': typeof AppHelpRoute
   '/settings': typeof AppSettingsRoute
   '/': typeof AppIndexRoute
-  '/projects/$projectId': typeof AppProjectsProjectIdRoute
+  '/tasks/$taskId': typeof AppTasksTaskIdRoute
+  '/projects/$projectId/board': typeof AppProjectsProjectIdBoardRoute
+  '/projects/$projectId': typeof AppProjectsProjectIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -58,13 +83,29 @@ export interface FileRoutesById {
   '/_app/help': typeof AppHelpRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/': typeof AppIndexRoute
-  '/_app/projects/$projectId': typeof AppProjectsProjectIdRoute
+  '/_app/projects/$projectId': typeof AppProjectsProjectIdRouteWithChildren
+  '/_app/tasks/$taskId': typeof AppTasksTaskIdRoute
+  '/_app/projects/$projectId/board': typeof AppProjectsProjectIdBoardRoute
+  '/_app/projects/$projectId/': typeof AppProjectsProjectIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/help' | '/settings' | '/projects/$projectId'
+  fullPaths:
+    | '/'
+    | '/help'
+    | '/settings'
+    | '/projects/$projectId'
+    | '/tasks/$taskId'
+    | '/projects/$projectId/board'
+    | '/projects/$projectId/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/help' | '/settings' | '/' | '/projects/$projectId'
+  to:
+    | '/help'
+    | '/settings'
+    | '/'
+    | '/tasks/$taskId'
+    | '/projects/$projectId/board'
+    | '/projects/$projectId'
   id:
     | '__root__'
     | '/_app'
@@ -72,6 +113,9 @@ export interface FileRouteTypes {
     | '/_app/settings'
     | '/_app/'
     | '/_app/projects/$projectId'
+    | '/_app/tasks/$taskId'
+    | '/_app/projects/$projectId/board'
+    | '/_app/projects/$projectId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -115,21 +159,57 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppProjectsProjectIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/tasks/$taskId': {
+      id: '/_app/tasks/$taskId'
+      path: '/tasks/$taskId'
+      fullPath: '/tasks/$taskId'
+      preLoaderRoute: typeof AppTasksTaskIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/projects/$projectId/': {
+      id: '/_app/projects/$projectId/'
+      path: '/'
+      fullPath: '/projects/$projectId/'
+      preLoaderRoute: typeof AppProjectsProjectIdIndexRouteImport
+      parentRoute: typeof AppProjectsProjectIdRoute
+    }
+    '/_app/projects/$projectId/board': {
+      id: '/_app/projects/$projectId/board'
+      path: '/board'
+      fullPath: '/projects/$projectId/board'
+      preLoaderRoute: typeof AppProjectsProjectIdBoardRouteImport
+      parentRoute: typeof AppProjectsProjectIdRoute
+    }
   }
 }
+
+interface AppProjectsProjectIdRouteChildren {
+  AppProjectsProjectIdBoardRoute: typeof AppProjectsProjectIdBoardRoute
+  AppProjectsProjectIdIndexRoute: typeof AppProjectsProjectIdIndexRoute
+}
+
+const AppProjectsProjectIdRouteChildren: AppProjectsProjectIdRouteChildren = {
+  AppProjectsProjectIdBoardRoute: AppProjectsProjectIdBoardRoute,
+  AppProjectsProjectIdIndexRoute: AppProjectsProjectIdIndexRoute,
+}
+
+const AppProjectsProjectIdRouteWithChildren =
+  AppProjectsProjectIdRoute._addFileChildren(AppProjectsProjectIdRouteChildren)
 
 interface AppRouteChildren {
   AppHelpRoute: typeof AppHelpRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppIndexRoute: typeof AppIndexRoute
-  AppProjectsProjectIdRoute: typeof AppProjectsProjectIdRoute
+  AppProjectsProjectIdRoute: typeof AppProjectsProjectIdRouteWithChildren
+  AppTasksTaskIdRoute: typeof AppTasksTaskIdRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppHelpRoute: AppHelpRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppIndexRoute: AppIndexRoute,
-  AppProjectsProjectIdRoute: AppProjectsProjectIdRoute,
+  AppProjectsProjectIdRoute: AppProjectsProjectIdRouteWithChildren,
+  AppTasksTaskIdRoute: AppTasksTaskIdRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

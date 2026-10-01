@@ -29,7 +29,10 @@ src/
     _app/tasks.$taskId.tsx  Task detail (full page; also rendered in a dialog)
     _app/settings.tsx
     _app/help.tsx
-    api/v1/...              REST server routes
+    api/v1/...              REST server routes, with their Vitest files next to them
+    api/v1/projects.ts      GET list, POST create
+    api/v1/projects.$projectId.ts           GET, PATCH, DELETE (archive)
+    api/v1/projects.$projectId.statuses.ts  GET
     api/mcp.ts              MCP server route
     api/chat.ts             TanStack AI chat route
     api/openapi[.]json.ts
@@ -48,7 +51,7 @@ src/
     errors.ts               NotFoundError and ConflictError, thrown by services
     db.ts                   Prisma client singleton
     seed.ts                 Demo data for pnpm db:seed (projects TOK and DEMO)
-  fns/                      createServerFn wrappers used by routes and client tools, plus their TanStack Query options
+  fns/                      createServerFn wrappers used by page routes and client tools, plus their TanStack Query options; REST handlers call src/server directly
     projects.ts             listProjectsFn, getProjectFn, createProjectFn; projectsQueryOptions, projectQueryOptions
   tools/
     definitions.ts          toolDefinition() for every domain tool (name, description, Zod in/out)
@@ -57,13 +60,13 @@ src/
     webmcp.ts               Registers tools on document.modelContext
     mcp.ts                  Maps definitions onto @modelcontextprotocol/sdk McpServer
   schemas/                  Zod schemas shared by forms, REST, MCP, and tools: project.ts, status.ts
-  lib/                      Utilities: dates, cn, keyboard helpers, motion presets, speech, project-key (key suggestion), project-colors (the project colour palette)
+  lib/                      Utilities: dates, cn, keyboard helpers, motion presets, speech, project-key (key suggestion), project-colors (the project colour palette), rest (the REST error envelope: handle, errorResponse, readJsonBody)
   hooks/                    useReducedMotion, useHotkeys, useSpeechRecognition, useSpeechSynthesis
 prisma/
   schema.prisma
   migrations/
   seed.ts                   Entry for pnpm db:seed: loads .env, calls src/server/seed.ts
-  test/                     Vitest and Playwright helpers: database setup and reset
+  test/                     Vitest and Playwright helpers: database setup and reset, callRoute (rest.ts) for REST handler tests
 prisma.config.ts            Prisma CLI config: loads .env, schema and migrations paths, seed command
 docs/
 tests/
@@ -98,7 +101,7 @@ The activity log is append-only and written by the service layer, never directly
 
 `src/server/*.ts` exports plain async functions. Each takes the schema's input type (`z.input`), parses it again with the shared Zod schema from `src/schemas/`, and returns plain objects, so a caller that skips validation still gets trimmed strings and an upper-case project key. Invalid input throws a `ZodError`. The services are the only place that touches Prisma. Server functions, REST handlers, MCP tools, and AI tools are thin: parse input with the shared Zod schema, call the service, shape the response.
 
-Services do not leak Prisma error codes. A missing record throws `NotFoundError` (`code: 'not_found'`) and a unique-rule clash, such as a taken project key, throws `ConflictError` (`code: 'conflict'`), both from `src/server/errors.ts`. The transports map these two classes, and `ZodError`, to their own error shapes.
+Services do not leak Prisma error codes. A missing record throws `NotFoundError` (`code: 'not_found'`) and a unique-rule clash, such as a taken project key, throws `ConflictError` (`code: 'conflict'`), both from `src/server/errors.ts`. The transports map these two classes, and `ZodError`, to their own error shapes. The REST handlers share one mapping, `errorResponse` in `src/lib/rest.ts`, described under REST API.
 
 The projects service creates every project with `DEFAULT_STATUSES` (Backlog, Todo, In progress, Done) and its `project.created` row in one transaction. `listProjects` leaves archived projects out unless `includeArchived` is true. Archiving an archived project and restoring one that is not archived change nothing. The seed imports `DEFAULT_STATUSES` and `ACTIVITY_TYPES` from the services, so demo data and real data cannot drift apart.
 
@@ -126,13 +129,25 @@ The statuses service lists a project's statuses in board order and adds, renames
 
 Base path `/api/v1`, implemented as TanStack Start server routes (`createFileRoute` with `server.handlers`). JSON in and out. No auth. Errors return `{ error: { code, message, issues? } }`.
 
+A handler parses the query or body with the shared Zod schema, calls the service, and returns `Response.json`. Its body runs inside `handle()` from `src/lib/rest.ts`, which turns a thrown error into the envelope:
+
+| Thrown                                 | Status | `code`                                                                  |
+| -------------------------------------- | ------ | ----------------------------------------------------------------------- |
+| `ZodError`                             | 400    | `validation`, with the Zod `issues` (each has a `path` and a `message`) |
+| Body that is not JSON (`readJsonBody`) | 400    | `invalid_json`                                                          |
+| `NotFoundError`                        | 404    | `not_found`                                                             |
+| `ConflictError`                        | 409    | `conflict`                                                              |
+| anything else                          | 500    | `internal`; the error is logged and its message is not sent             |
+
+A success returns the bare resource or array, not a wrapper. Create returns 201, everything else 200. `GET /projects` leaves archived projects out unless the query has `includeArchived=true` (`listProjectsQuerySchema`, a `z.stringbool()` that also reads `1`/`0` and `yes`/`no`; any other value is a 400). `DELETE /projects/:id` archives and returns the archived project; a second DELETE returns it unchanged. Start runs only the handlers of the deepest matching route, so `/projects/:id` does not inherit the GET and POST of `/projects`. Status writes and restoring a project are not on REST yet.
+
 ```
-GET    /projects                 list
+GET    /projects                 list; ?includeArchived=true
 POST   /projects                 create
-GET    /projects/:id
+GET    /projects/:id             with statuses
 PATCH  /projects/:id
 DELETE /projects/:id             archive (soft)
-GET    /projects/:id/statuses
+GET    /projects/:id/statuses    board order
 GET    /projects/:id/tasks       filters: status, priority, label, due, q
 POST   /projects/:id/tasks
 GET    /tasks/:id
@@ -187,6 +202,7 @@ Tools marked `needsApproval` (delete, archive) surface a confirmation in the ass
 - Vitest runs two projects from `vitest.config.ts`. The `server` project covers test files under `src/server/`, `src/fns/`, `src/tools/`, and `src/routes/api/`. It runs in Node against the real test database (`DATABASE_URL_TEST`), one file at a time, and `src/test/setup-server.ts` empties every table with `resetDatabase` from `src/test/db.ts` before each file. The `client` project runs every other test file in jsdom, in parallel. A file in the client project that imports server code still needs the `// @vitest-environment node` docblock.
 - Playwright for user flows. Every spec that opens a page or dialog calls `expectAccessible(page)` from `tests/e2e/accessibility.ts`. It runs `@axe-core/playwright` with the tags `wcag2a`, `wcag2aa`, `wcag2aaa`, `wcag21a`, `wcag21aa`, and `wcag22aa` and fails with a list of every violating element. axe has no `wcag22aaa` tag. `tests/e2e/accessibility.spec.ts` checks that the helper fails a page with a missing `alt`.
 - `playwright.config.ts` builds the app and serves it with `vite preview` on port 3100, with `DATABASE_URL` set to `DATABASE_URL_TEST`, so e2e runs never touch the app database. It runs Chromium only, because voice and WebMCP exist only in Chrome. Playwright starts the web server before its global setup. That is safe because the app opens its Prisma connection on the first query. The global setup in `tests/e2e/global-setup.ts` then migrates the test database and empties it, once per run. Specs that write data clean up after themselves or use names no other spec uses.
+- REST routes are tested in Vitest by calling the route's handler with a `Request` through `callRoute` in `src/test/rest.ts`, because Start's fetch handler needs the Vite plugin's virtual modules and does not boot under Vitest. `tests/e2e/api.spec.ts` sends real requests to the preview server, which covers what the handler tests cannot: that each route is in the route tree and not shadowed by its parent. `vite.config.ts` sets `routeFileIgnorePattern` so the route generator skips `*.test.ts` files under `src/routes/`.
 - A keyboard-only smoke test walks the main flows with Tab, Enter, Space, arrows, and Escape only.
 - Speech APIs are mocked in Playwright with `page.addInitScript`; tests assert the transcript flow, not recognition quality.
 - Contrast is checked in CI by a script that reads the theme CSS variables and computes ratios for every foreground and background pair.

@@ -14,6 +14,9 @@ import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppHelpRouteImport } from './routes/_app/help'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppProjectsProjectIdRouteImport } from './routes/_app/projects.$projectId'
+import { Route as ApiV1ProjectsRouteImport } from './routes/api/v1/projects'
+import { Route as ApiV1ProjectsProjectIdRouteImport } from './routes/api/v1/projects.$projectId'
+import { Route as ApiV1ProjectsProjectIdStatusesRouteImport } from './routes/api/v1/projects.$projectId.statuses'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -39,18 +42,40 @@ const AppProjectsProjectIdRoute = AppProjectsProjectIdRouteImport.update({
   path: '/projects/$projectId',
   getParentRoute: () => AppRoute,
 } as any)
+const ApiV1ProjectsRoute = ApiV1ProjectsRouteImport.update({
+  id: '/api/v1/projects',
+  path: '/api/v1/projects',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiV1ProjectsProjectIdRoute = ApiV1ProjectsProjectIdRouteImport.update({
+  id: '/$projectId',
+  path: '/$projectId',
+  getParentRoute: () => ApiV1ProjectsRoute,
+} as any)
+const ApiV1ProjectsProjectIdStatusesRoute =
+  ApiV1ProjectsProjectIdStatusesRouteImport.update({
+    id: '/statuses',
+    path: '/statuses',
+    getParentRoute: () => ApiV1ProjectsProjectIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/help': typeof AppHelpRoute
   '/settings': typeof AppSettingsRoute
   '/projects/$projectId': typeof AppProjectsProjectIdRoute
+  '/api/v1/projects': typeof ApiV1ProjectsRouteWithChildren
+  '/api/v1/projects/$projectId': typeof ApiV1ProjectsProjectIdRouteWithChildren
+  '/api/v1/projects/$projectId/statuses': typeof ApiV1ProjectsProjectIdStatusesRoute
 }
 export interface FileRoutesByTo {
   '/help': typeof AppHelpRoute
   '/settings': typeof AppSettingsRoute
   '/': typeof AppIndexRoute
   '/projects/$projectId': typeof AppProjectsProjectIdRoute
+  '/api/v1/projects': typeof ApiV1ProjectsRouteWithChildren
+  '/api/v1/projects/$projectId': typeof ApiV1ProjectsProjectIdRouteWithChildren
+  '/api/v1/projects/$projectId/statuses': typeof ApiV1ProjectsProjectIdStatusesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -59,12 +84,29 @@ export interface FileRoutesById {
   '/_app/settings': typeof AppSettingsRoute
   '/_app/': typeof AppIndexRoute
   '/_app/projects/$projectId': typeof AppProjectsProjectIdRoute
+  '/api/v1/projects': typeof ApiV1ProjectsRouteWithChildren
+  '/api/v1/projects/$projectId': typeof ApiV1ProjectsProjectIdRouteWithChildren
+  '/api/v1/projects/$projectId/statuses': typeof ApiV1ProjectsProjectIdStatusesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/help' | '/settings' | '/projects/$projectId'
+  fullPaths:
+    | '/'
+    | '/help'
+    | '/settings'
+    | '/projects/$projectId'
+    | '/api/v1/projects'
+    | '/api/v1/projects/$projectId'
+    | '/api/v1/projects/$projectId/statuses'
   fileRoutesByTo: FileRoutesByTo
-  to: '/help' | '/settings' | '/' | '/projects/$projectId'
+  to:
+    | '/help'
+    | '/settings'
+    | '/'
+    | '/projects/$projectId'
+    | '/api/v1/projects'
+    | '/api/v1/projects/$projectId'
+    | '/api/v1/projects/$projectId/statuses'
   id:
     | '__root__'
     | '/_app'
@@ -72,10 +114,14 @@ export interface FileRouteTypes {
     | '/_app/settings'
     | '/_app/'
     | '/_app/projects/$projectId'
+    | '/api/v1/projects'
+    | '/api/v1/projects/$projectId'
+    | '/api/v1/projects/$projectId/statuses'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
+  ApiV1ProjectsRoute: typeof ApiV1ProjectsRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -115,6 +161,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppProjectsProjectIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/api/v1/projects': {
+      id: '/api/v1/projects'
+      path: '/api/v1/projects'
+      fullPath: '/api/v1/projects'
+      preLoaderRoute: typeof ApiV1ProjectsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/projects/$projectId': {
+      id: '/api/v1/projects/$projectId'
+      path: '/$projectId'
+      fullPath: '/api/v1/projects/$projectId'
+      preLoaderRoute: typeof ApiV1ProjectsProjectIdRouteImport
+      parentRoute: typeof ApiV1ProjectsRoute
+    }
+    '/api/v1/projects/$projectId/statuses': {
+      id: '/api/v1/projects/$projectId/statuses'
+      path: '/statuses'
+      fullPath: '/api/v1/projects/$projectId/statuses'
+      preLoaderRoute: typeof ApiV1ProjectsProjectIdStatusesRouteImport
+      parentRoute: typeof ApiV1ProjectsProjectIdRoute
+    }
   }
 }
 
@@ -134,8 +201,35 @@ const AppRouteChildren: AppRouteChildren = {
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
+interface ApiV1ProjectsProjectIdRouteChildren {
+  ApiV1ProjectsProjectIdStatusesRoute: typeof ApiV1ProjectsProjectIdStatusesRoute
+}
+
+const ApiV1ProjectsProjectIdRouteChildren: ApiV1ProjectsProjectIdRouteChildren =
+  {
+    ApiV1ProjectsProjectIdStatusesRoute: ApiV1ProjectsProjectIdStatusesRoute,
+  }
+
+const ApiV1ProjectsProjectIdRouteWithChildren =
+  ApiV1ProjectsProjectIdRoute._addFileChildren(
+    ApiV1ProjectsProjectIdRouteChildren,
+  )
+
+interface ApiV1ProjectsRouteChildren {
+  ApiV1ProjectsProjectIdRoute: typeof ApiV1ProjectsProjectIdRouteWithChildren
+}
+
+const ApiV1ProjectsRouteChildren: ApiV1ProjectsRouteChildren = {
+  ApiV1ProjectsProjectIdRoute: ApiV1ProjectsProjectIdRouteWithChildren,
+}
+
+const ApiV1ProjectsRouteWithChildren = ApiV1ProjectsRoute._addFileChildren(
+  ApiV1ProjectsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
+  ApiV1ProjectsRoute: ApiV1ProjectsRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

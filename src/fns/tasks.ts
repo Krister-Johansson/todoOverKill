@@ -8,8 +8,15 @@ import { projectIdSchema } from '#/schemas/project'
 import { listTasksSchema, taskIdSchema } from '#/schemas/task'
 import { getTask, listTasks } from '#/server/tasks'
 
-function isNotFound(error: unknown) {
-  return error instanceof Error && 'code' in error && error.code === 'not_found'
+/** Turns the service's NotFoundError into the route's 404. */
+async function orNotFound<T>(load: () => Promise<T>): Promise<T> {
+  try {
+    return await load()
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'not_found')
+      throw notFound()
+    throw error
+  }
 }
 
 /** A project's tasks in board order. A missing project is the route's 404. */
@@ -20,26 +27,14 @@ export const listTasksFn = createServerFn({ method: 'GET' })
       filters: listTasksSchema.optional(),
     }),
   )
-  .handler(async ({ data }) => {
-    try {
-      return await listTasks(data.projectId, data.filters)
-    } catch (error) {
-      if (isNotFound(error)) throw notFound()
-      throw error
-    }
-  })
+  .handler(({ data }) =>
+    orNotFound(() => listTasks(data.projectId, data.filters)),
+  )
 
 /** One task with its status and labels. A missing task is the route's 404. */
 export const getTaskFn = createServerFn({ method: 'GET' })
   .inputValidator(taskIdSchema)
-  .handler(async ({ data: id }) => {
-    try {
-      return await getTask(id)
-    } catch (error) {
-      if (isNotFound(error)) throw notFound()
-      throw error
-    }
-  })
+  .handler(({ data: id }) => orNotFound(() => getTask(id)))
 
 /** Under the project's key, so invalidating a project refreshes its tasks. */
 export function tasksQueryOptions(projectId: string) {

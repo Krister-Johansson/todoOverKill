@@ -78,7 +78,15 @@ describe('TaskCardContent', () => {
   it('lists the labels', () => {
     renderCard()
     const items = within(screen.getByRole('list')).getAllByRole('listitem')
-    expect(items.map((item) => item.textContent)).toEqual(['Bug', 'Design'])
+    // Each chip starts with a comma that only screen readers get.
+    expect(items.map((item) => item.textContent)).toEqual([', Bug', ', Design'])
+  })
+
+  it('separates the parts of the link name with commas', () => {
+    renderCard()
+    expect(screen.getByTestId('card').textContent).toBe(
+      'WEB-7, Fix the footer, High, Due Oct 1, 2026, Overdue, Bug, Design',
+    )
   })
 
   it('renders no list without labels', () => {

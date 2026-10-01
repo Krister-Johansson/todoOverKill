@@ -22,6 +22,14 @@ type CardProps = {
 }
 
 /**
+ * A comma only screen readers get. The card is one link, so its parts make one
+ * accessible name, and flex layout puts no text between them.
+ */
+function Pause() {
+  return <span className="sr-only">, </span>
+}
+
+/**
  * What a card shows, without the link, so it renders outside a router. The
  * priority and the overdue state are words, with colour and an icon as extra
  * cues, and a completed task is never overdue. A label's own colour appears
@@ -41,7 +49,9 @@ export function TaskCardContent({ task, project, today }: CardProps) {
       >
         {reference}
       </abbr>
+      <Pause />
       <span className="min-w-0 font-medium break-words">{task.title}</span>
+      <Pause />
       <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
         <span
           className={`inline-flex items-center gap-1 ${priority.className}`}
@@ -50,13 +60,19 @@ export function TaskCardContent({ task, project, today }: CardProps) {
           {priority.label}
         </span>
         {task.dueDate ? (
-          <span>
-            Due{' '}
-            <time dateTime={task.dueDate}>{formatDueDate(task.dueDate)}</time>
-          </span>
+          <>
+            <Pause />
+            <span>
+              Due{' '}
+              <time dateTime={task.dueDate}>{formatDueDate(task.dueDate)}</time>
+            </span>
+          </>
         ) : null}
         {task.dueDate && !task.completedAt && isPastDay(task.dueDate, today) ? (
-          <span className="font-medium text-destructive">Overdue</span>
+          <>
+            <Pause />
+            <span className="font-medium text-destructive">Overdue</span>
+          </>
         ) : null}
       </span>
       {task.labels.length > 0 ? (
@@ -66,6 +82,7 @@ export function TaskCardContent({ task, project, today }: CardProps) {
               key={label.id}
               className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full border border-border px-2 text-xs"
             >
+              <Pause />
               <span
                 aria-hidden="true"
                 className="size-2 shrink-0 rounded-full"

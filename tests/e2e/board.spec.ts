@@ -178,7 +178,16 @@ test('cards link to their task and show its details', async ({ page }) => {
   await expect(overdueCard).toContainText('High')
   await expect(overdueCard).toContainText('Due Jan 1, 2000')
   await expect(overdueCard).toContainText('Overdue')
-  await expect(overdueCard.getByRole('listitem')).toHaveText(['Bug', 'Design'])
+  await expect(overdueCard.getByRole('listitem')).toHaveText([
+    /Bug$/,
+    /Design$/,
+  ])
+  // Hidden commas keep the parts of the name apart for screen readers.
+  await expect(overdueCard).toHaveAccessibleName(
+    new RegExp(
+      `^${project.key}-1\\s*,\\s*Ship the overdue fix\\s*,\\s*High\\s*,\\s*Due Jan 1, 2000\\s*,\\s*Overdue\\s*,\\s*Bug\\s*,\\s*Design$`,
+    ),
+  )
 
   const plainCard = board(page).getByRole('link', { name: /Write the plain/ })
   await expect(plainCard).toHaveAttribute('href', `/tasks/${plain.id}`)
@@ -207,6 +216,8 @@ test('a wide board scrolls inside its region, not the page', async ({
   const project = await seedWideBoard('Wide')
   await openBoard(page, project.id)
   await expect(board(page).getByRole('heading', { level: 2 })).toHaveCount(6)
+  // Focusable only once it overflows, so keyboard users can scroll it.
+  await expect(board(page)).toHaveAttribute('tabindex', '0')
 
   await expectAccessible(page)
   const overflows = await board(page).evaluate(
@@ -232,6 +243,8 @@ test('a card is reached by Tab and opened with Enter', async ({ page }) => {
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(
     `${project.key}-1 Ship the overdue fix`,
   )
+  // The temporary task page is a new page until F17 replaces it.
+  await expectAccessible(page)
 })
 
 test('the bare project URL opens the board', async ({ page }) => {
@@ -257,4 +270,6 @@ test('the columns stack at 320 px without horizontal scrolling', async ({
   expect(first && second).toBeTruthy()
   expect(second!.y).toBeGreaterThanOrEqual(first!.y + first!.height)
   expect(await hasHorizontalPageScroll(page)).toBe(false)
+  // Stacked columns do not scroll sideways, so the region is no Tab stop.
+  await expect(board(page)).not.toHaveAttribute('tabindex')
 })

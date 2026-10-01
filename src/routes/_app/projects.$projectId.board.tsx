@@ -1,5 +1,6 @@
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { BoardColumn } from '#/components/app/board-column'
 import { projectQueryOptions } from '#/fns/projects'
@@ -7,6 +8,7 @@ import { tasksQueryOptions } from '#/fns/tasks'
 import { toCalendarDay } from '#/lib/dates'
 
 import type { BoardTask } from '#/components/app/task-card'
+import type { RefObject } from 'react'
 
 // The read-only board. It sets no head, so the tab keeps the layout's project
 // title.
@@ -29,24 +31,35 @@ function BoardPage() {
   const { data: project } = useSuspenseQuery(projectQueryOptions(projectId))
   const { data: tasks } = useSuspenseQuery(tasksQueryOptions(projectId))
 
-  const byStatus = new Map<string, Array<BoardTask>>()
-  for (const task of tasks) {
-    const column = byStatus.get(task.statusId)
-    if (column) column.push(task)
-    else byStatus.set(task.statusId, [task])
-  }
+  const byStatus = useMemo(() => {
+    const map = new Map<string, Array<BoardTask>>()
+    for (const task of tasks) {
+      const column = map.get(task.statusId)
+      if (column) column.push(task)
+      else map.set(task.statusId, [task])
+    }
+    return map
+  }, [tasks])
+
+  const regionRef = useRef<HTMLDivElement>(null)
+  const rowRef = useRef<HTMLDivElement>(null)
+  const scrollable = useOverflowsX(regionRef, rowRef)
 
   // From md the columns sit in a row that scrolls inside this region, never
-  // the page. The region is focusable so keyboard users can scroll it even
-  // when it holds no links.
+  // the page. The region takes focus only while it overflows, so keyboard
+  // users can scroll it then and meet no extra Tab stop otherwise.
   return (
     <div
+      ref={regionRef}
       role="region"
       aria-label="Board columns"
-      tabIndex={0}
+      tabIndex={scrollable ? 0 : undefined}
       className="min-w-0 md:overflow-x-auto md:pb-2"
     >
-      <div className="flex flex-col gap-4 md:flex-row md:items-start">
+      <div
+        ref={rowRef}
+        className="flex flex-col gap-4 md:flex-row md:items-start"
+      >
         {/* getProject returns the statuses sorted by Status.order. */}
         {project.statuses.map((status) => (
           <BoardColumn
@@ -60,4 +73,30 @@ function BoardPage() {
       </div>
     </div>
   )
+}
+
+/**
+ * Whether the region is wider inside than out. It watches the region and its
+ * content, so a resize, a zoom change, or a new column updates it. False on
+ * the server and until the first measurement.
+ */
+function useOverflowsX(
+  regionRef: RefObject<HTMLElement | null>,
+  contentRef: RefObject<HTMLElement | null>,
+) {
+  const [overflows, setOverflows] = useState(false)
+
+  useEffect(() => {
+    const region = regionRef.current
+    const content = contentRef.current
+    if (!region || !content) return
+    const measure = () => setOverflows(region.scrollWidth > region.clientWidth)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(region)
+    observer.observe(content)
+    return () => observer.disconnect()
+  }, [regionRef, contentRef])
+
+  return overflows
 }

@@ -5,6 +5,7 @@ import * as z from 'zod'
 
 import {
   InvalidJsonError,
+  UnsupportedMediaTypeError,
   errorResponse,
   handle,
   readJsonBody,
@@ -15,10 +16,10 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function jsonRequest(body: string) {
+function jsonRequest(body: string, contentType = 'application/json') {
   return new Request('http://localhost/api', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': contentType },
     body,
   })
 }
@@ -28,6 +29,33 @@ describe('readJsonBody', () => {
     await expect(readJsonBody(jsonRequest('{"a":1}'))).resolves.toEqual({
       a: 1,
     })
+  })
+
+  it('accepts a charset parameter and any letter case', async () => {
+    const request = jsonRequest('{"a":1}', 'Application/JSON; charset=utf-8')
+
+    await expect(readJsonBody(request)).resolves.toEqual({ a: 1 })
+  })
+
+  it.each([
+    'text/plain',
+    'application/x-www-form-urlencoded',
+    'multipart/form-data',
+  ])('throws UnsupportedMediaTypeError for %s', async (contentType) => {
+    await expect(
+      readJsonBody(jsonRequest('{"a":1}', contentType)),
+    ).rejects.toBeInstanceOf(UnsupportedMediaTypeError)
+  })
+
+  it('throws UnsupportedMediaTypeError without a Content-Type', async () => {
+    const request = new Request('http://localhost/api', {
+      method: 'POST',
+      body: new Uint8Array([123, 125]),
+    })
+
+    await expect(readJsonBody(request)).rejects.toBeInstanceOf(
+      UnsupportedMediaTypeError,
+    )
   })
 
   it.each(['', '{name:'])('throws InvalidJsonError for %j', async (body) => {
@@ -59,6 +87,18 @@ describe('errorResponse', () => {
       error: {
         code: 'invalid_json',
         message: 'The request body must be valid JSON.',
+      },
+    })
+  })
+
+  it('maps UnsupportedMediaTypeError to 415 unsupported_media_type', async () => {
+    const response = errorResponse(new UnsupportedMediaTypeError())
+
+    expect(response.status).toBe(415)
+    expect(await response.json()).toEqual({
+      error: {
+        code: 'unsupported_media_type',
+        message: 'The request body must be sent as application/json.',
       },
     })
   })

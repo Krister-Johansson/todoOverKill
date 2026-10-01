@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 import { expect, test } from '@playwright/test'
 
 import { createTestPrismaClient } from '../../src/test/db.ts'
@@ -8,8 +10,9 @@ import { createTestPrismaClient } from '../../src/test/db.ts'
 //
 // Other specs run in parallel and render the sidebar's project list, so the
 // whole flow is one test that archives its project at the end, and the key is
-// one no other spec uses.
-const run = Math.random().toString(36).slice(2, 6).toUpperCase()
+// one no other spec uses. Four hex digits always fit the key rule
+// (a letter, then 1 to 9 letters or digits).
+const run = randomUUID().slice(0, 4).toUpperCase()
 const key = `R${run}`
 const name = `REST ${run}`
 

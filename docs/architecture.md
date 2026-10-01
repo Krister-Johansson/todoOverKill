@@ -131,13 +131,16 @@ Base path `/api/v1`, implemented as TanStack Start server routes (`createFileRou
 
 A handler parses the query or body with the shared Zod schema, calls the service, and returns `Response.json`. Its body runs inside `handle()` from `src/lib/rest.ts`, which turns a thrown error into the envelope:
 
-| Thrown                                 | Status | `code`                                                                  |
-| -------------------------------------- | ------ | ----------------------------------------------------------------------- |
-| `ZodError`                             | 400    | `validation`, with the Zod `issues` (each has a `path` and a `message`) |
-| Body that is not JSON (`readJsonBody`) | 400    | `invalid_json`                                                          |
-| `NotFoundError`                        | 404    | `not_found`                                                             |
-| `ConflictError`                        | 409    | `conflict`                                                              |
-| anything else                          | 500    | `internal`; the error is logged and its message is not sent             |
+| Thrown                                                               | Status | `code`                                                                  |
+| -------------------------------------------------------------------- | ------ | ----------------------------------------------------------------------- |
+| `ZodError`                                                           | 400    | `validation`, with the Zod `issues` (each has a `path` and a `message`) |
+| Body that is not JSON (`readJsonBody`)                               | 400    | `invalid_json`                                                          |
+| Body whose `Content-Type` is not `application/json` (`readJsonBody`) | 415    | `unsupported_media_type`                                                |
+| `NotFoundError`                                                      | 404    | `not_found`                                                             |
+| `ConflictError`                                                      | 409    | `conflict`                                                              |
+| anything else                                                        | 500    | `internal`; the error is logged and its message is not sent             |
+
+POST and PATCH must send `Content-Type: application/json` (a `charset` parameter is fine). Without it, a page on another site could post a `text/plain` body with `mode: 'no-cors'`, which the browser sends without a CORS preflight. Requiring JSON forces the preflight, which fails because the API sends no CORS headers.
 
 A success returns the bare resource or array, not a wrapper. Create returns 201, everything else 200. `GET /projects` leaves archived projects out unless the query has `includeArchived=true` (`listProjectsQuerySchema`, a `z.stringbool()` that also reads `1`/`0` and `yes`/`no`; any other value is a 400). `DELETE /projects/:id` archives and returns the archived project; a second DELETE returns it unchanged. Start runs only the handlers of the deepest matching route, so `/projects/:id` does not inherit the GET and POST of `/projects`. Status writes and restoring a project are not on REST yet.
 

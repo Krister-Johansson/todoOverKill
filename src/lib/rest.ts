@@ -5,7 +5,13 @@ import { ConflictError, NotFoundError } from '#/server/errors'
 /** The body of every REST error response. */
 export type ErrorBody = {
   error: {
-    code: 'validation' | 'invalid_json' | 'not_found' | 'conflict' | 'internal'
+    code:
+      | 'validation'
+      | 'invalid_json'
+      | 'unsupported_media_type'
+      | 'not_found'
+      | 'conflict'
+      | 'internal'
     message: string
     issues?: Array<z.core.$ZodIssue>
   }
@@ -21,8 +27,32 @@ export class InvalidJsonError extends Error {
   }
 }
 
-/** The parsed JSON body. An empty or malformed body throws InvalidJsonError. */
+/** Thrown by readJsonBody when the body is not sent as application/json. */
+export class UnsupportedMediaTypeError extends Error {
+  readonly code = 'unsupported_media_type'
+
+  constructor() {
+    super('The request body must be sent as application/json.')
+    this.name = 'UnsupportedMediaTypeError'
+  }
+}
+
+/**
+ * The parsed JSON body. A Content-Type other than application/json throws
+ * UnsupportedMediaTypeError, and an empty or malformed body throws
+ * InvalidJsonError.
+ *
+ * Requiring application/json means a cross-site page cannot write through a
+ * text/plain "simple" request: the browser has to send a CORS preflight first,
+ * and the API sends no CORS headers, so the preflight fails.
+ */
 export async function readJsonBody(request: Request): Promise<unknown> {
+  const mediaType = request.headers
+    .get('content-type')
+    ?.split(';')[0]
+    .trim()
+    .toLowerCase()
+  if (mediaType !== 'application/json') throw new UnsupportedMediaTypeError()
   try {
     return await request.json()
   } catch {
@@ -45,6 +75,9 @@ export function errorResponse(error: unknown): Response {
   }
   if (error instanceof InvalidJsonError) {
     return errorJson(400, { code: error.code, message: error.message })
+  }
+  if (error instanceof UnsupportedMediaTypeError) {
+    return errorJson(415, { code: error.code, message: error.message })
   }
   if (error instanceof NotFoundError) {
     return errorJson(404, { code: error.code, message: error.message })

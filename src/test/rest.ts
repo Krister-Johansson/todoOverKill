@@ -22,13 +22,15 @@ type CallOptions = {
   params?: Record<string, string>
   /** Sent as JSON. A string is sent as is, for malformed-body tests. */
   body?: unknown
+  /** The body's Content-Type. Defaults to application/json. */
+  contentType?: string
 }
 
 /** The response status and its parsed JSON body. */
 export async function callRoute(
   route: RouteWithHandlers,
   method: Method,
-  { url, params = {}, body }: CallOptions,
+  { url, params = {}, body, contentType = 'application/json' }: CallOptions,
 ) {
   // The routes use the object form of handlers, not createHandlers.
   const handlers = route.options.server?.handlers as
@@ -41,7 +43,7 @@ export async function callRoute(
     ...(body === undefined
       ? {}
       : {
-          headers: { 'content-type': 'application/json' },
+          headers: { 'content-type': contentType },
           body: typeof body === 'string' ? body : JSON.stringify(body),
         }),
   })

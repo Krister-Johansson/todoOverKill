@@ -123,6 +123,18 @@ describe('POST /api/v1/projects', () => {
     expect(json.error.code).toBe('invalid_json')
   })
 
+  it('returns 415 for a text/plain body and creates nothing', async () => {
+    const { status, json } = await callRoute(projectsRoute, 'POST', {
+      url: '/api/v1/projects',
+      body: { name: 'Website', key: 'WEB' },
+      contentType: 'text/plain',
+    })
+
+    expect(status).toBe(415)
+    expect(json.error.code).toBe('unsupported_media_type')
+    expect(await db.project.count()).toBe(0)
+  })
+
   it('returns 409 conflict for a key another project uses', async () => {
     await createProject({ name: 'Website', key: 'WEB' })
 

@@ -21,8 +21,9 @@ export const ACTIVITY_TYPES = {
 export type ActivityType = (typeof ACTIVITY_TYPES)[keyof typeof ACTIVITY_TYPES]
 
 /**
- * A task's activity rows, oldest first, with the id breaking ties between
- * rows written in the same moment. A deleted task's rows keep only their
+ * A task's activity rows, oldest first. The id only makes ties between rows
+ * of the same moment stable; it is random, so their order is arbitrary, not
+ * write order. A deleted task's rows keep only their
  * project, so they are not part of this read. Throws NotFoundError for an
  * unknown task.
  */

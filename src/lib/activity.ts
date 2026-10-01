@@ -35,6 +35,8 @@ const SENTENCES: { [T in ActivityTypeName]: (payload: Payload<T>) => string } =
     // rather than dropping the whole sentence.
     'task.updated': ({ fields }) =>
       `Changed ${fieldList.format(fields.map((field) => FIELD_WORDS[field] ?? field))}.`,
+    // The payload holds status names, not ids, so a reorder is told apart by
+    // name: a move between two statuses that share a name reads as one.
     'task.moved': ({ from, to }) =>
       from === to
         ? `Reordered within ${from}.`

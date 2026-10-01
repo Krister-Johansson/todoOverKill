@@ -142,6 +142,16 @@ export function CreateTaskDialog({ project }: { project: TaskProject }) {
     },
   })
 
+  // When a refetch drops the chosen status, for example after a failed create
+  // because it was deleted, pick the first one, so the select shows what the
+  // next try sends.
+  useEffect(() => {
+    const statusId = form.getFieldValue('statusId')
+    if (!project.statuses.some((status) => status.id === statusId)) {
+      form.setFieldValue('statusId', project.statuses[0]?.id ?? '')
+    }
+  }, [form, project.statuses])
+
   const fieldMeta = useStore(form.store, (state) => state.fieldMeta)
   const attempted = useStore(
     form.store,

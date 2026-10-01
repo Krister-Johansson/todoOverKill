@@ -229,6 +229,36 @@ describe('CreateTaskDialog', () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['projects', 'p1'] })
   })
 
+  it('sends a current status after a refetch drops the chosen one', async () => {
+    create.mockRejectedValueOnce(new Error('No status with id s2.'))
+    create.mockResolvedValueOnce({ ok: true, task: task({ statusId: 's1' }) })
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    })
+    const ui = (statuses: typeof project.statuses) => (
+      <QueryClientProvider client={queryClient}>
+        <LiveRegionProvider>
+          <CreateTaskDialog project={{ ...project, statuses }} />
+        </LiveRegionProvider>
+      </QueryClientProvider>
+    )
+    const { rerender } = render(ui(project.statuses))
+    fireEvent.click(trigger())
+
+    fireEvent.change(title(), { target: { value: 'Write copy' } })
+    fireEvent.change(select('Status'), { target: { value: 's2' } })
+    await submit()
+    expect(create.mock.calls[0][0].data.data.statusId).toBe('s2')
+
+    // The project refetch after the failure no longer has "In progress".
+    const remaining = [project.statuses[0], { id: 's3', name: 'Done' }]
+    rerender(ui(remaining))
+    expect(select('Status').value).toBe('s1')
+
+    await submit()
+    expect(create.mock.calls[1][0].data.data.statusId).toBe('s1')
+  })
+
   it('stays open with the typed values while a create is in flight', async () => {
     let finish: (result: CreateTaskResult) => void = () => undefined
     create.mockReturnValue(

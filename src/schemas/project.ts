@@ -41,6 +41,14 @@ export const listProjectsSchema = z.object({
   includeArchived: z.boolean().default(false),
 })
 
+/**
+ * The query string of GET /api/v1/projects. Query values are strings, so
+ * includeArchived accepts "true" or "false" (and 1/0, yes/no, on/off).
+ */
+export const listProjectsQuerySchema = z.object({
+  includeArchived: z.stringbool().default(false),
+})
+
 // Input types, because the services parse what they are given. For create and
 // update they equal the parsed types; for list, includeArchived is optional.
 export type CreateProjectInput = z.input<typeof createProjectSchema>

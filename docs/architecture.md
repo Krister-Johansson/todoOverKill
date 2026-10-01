@@ -46,6 +46,7 @@ src/
     activity.ts
     search.ts
     db.ts                   Prisma client singleton
+    seed.ts                 Demo data for pnpm db:seed (projects TOK and DEMO)
   fns/                      createServerFn wrappers used by routes and client tools
   tools/
     definitions.ts          toolDefinition() for every domain tool (name, description, Zod in/out)
@@ -59,8 +60,8 @@ src/
 prisma/
   schema.prisma
   migrations/
-  seed.ts
-prisma.config.ts            Prisma CLI config: loads .env, schema and migrations paths
+  seed.ts                   Entry for pnpm db:seed: loads .env, calls src/server/seed.ts
+prisma.config.ts            Prisma CLI config: loads .env, schema and migrations paths, seed command
 docs/
 tests/
   unit/                     Vitest
@@ -163,7 +164,7 @@ Tools marked `needsApproval` (delete, archive) surface a confirmation in the ass
 
 ## Testing
 
-- Vitest against the service layer with a real test database (`DATABASE_URL_TEST`), reset between test files.
+- Vitest against the service layer with a real test database (`DATABASE_URL_TEST`), reset between test files. Until F06 adds the reset, test files run one at a time (`fileParallelism: false`) and each cleans up the rows it creates.
 - Playwright for user flows. Every spec that opens a page or dialog runs `@axe-core/playwright` with WCAG 2.2 AAA tags and fails on any violation.
 - A keyboard-only smoke test walks the main flows with Tab, Enter, Space, arrows, and Escape only.
 - Speech APIs are mocked in Playwright with `page.addInitScript`; tests assert the transcript flow, not recognition quality.
@@ -181,6 +182,8 @@ The config function in `vite.config.ts` loads `.env` into `process.env` with `sr
 `src/server.ts`, the custom server entry, imports the schema first, so `dist/server/server.js` fails when it loads rather than on the first request. It does not read `.env`: outside `pnpm preview` the variables come from the real environment, for example `node --env-file=.env`.
 
 `prisma.config.ts` loads `.env` with the same loader, so shell variables win there too. It passes `DATABASE_URL` to Prisma only when the variable is set. Without it `prisma generate` still runs, which is why `postinstall` can call it on a fresh clone, and the commands that need a database fail with Prisma's own message. Prisma's `env()` helper is not used because it throws while the config loads. The generated client goes to the gitignored `src/generated/prisma`. Since Prisma 7, `prisma migrate dev` does not regenerate it, so `pnpm db:generate` has to run after every schema change. `src/server/db.ts` builds the client on `@prisma/adapter-pg` and connects to `DATABASE_URL_TEST` when `NODE_ENV` is `test` (Vitest sets it) and to `DATABASE_URL` otherwise. Outside production the client is kept on `globalThis`, so dev server reloads reuse one connection pool.
+
+`pnpm db:seed` runs `prisma db seed`, which runs the `migrations.seed` command from `prisma.config.ts`: `tsx prisma/seed.ts`. Plain Node cannot run it, because the seed imports `#/server/db`, which imports `#/env` and the generated client without file extensions, and Node adds none when it resolves subpath imports. `prisma/seed.ts` loads `.env` before importing anything that validates it, then calls `seed()` from `src/server/seed.ts`. The seed owns the projects with keys TOK and DEMO. In one transaction it deletes their tasks, then the projects (deleting a project first could reach a status while tasks still point at it, which the `RESTRICT` key refuses), and creates both again with statuses, labels, about 30 tasks, subtasks, comments, and activity. Re-running it leaves the same data, and other projects are not touched. The transaction has a 60 second timeout instead of Prisma's 5 second default. `seed()` takes a `now` option for the dates, and accepts a transaction client as well as a `PrismaClient`.
 
 `vitest.config.ts` loads `.env` the same way. The config runs in the main process before the global setup and before the worker processes start, and the workers inherit `process.env`, so `src/env.ts` validates in every test file without stubbing. `src/test/global-setup.ts` then runs `prisma migrate deploy` with `DATABASE_URL` set to `DATABASE_URL_TEST`. If nothing accepts a connection on that URL's host and port and the host is local, the setup first runs `docker compose up --detach --wait db` and stops the container when the run ends, so a test run leaves Docker as it found it. It stops with a message when `DATABASE_URL_TEST` is missing or the database cannot be started.
 

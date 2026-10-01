@@ -17,12 +17,13 @@ export function TopBar({ currentPage }: { currentPage: string }) {
   // The project layout's loader fills this cache entry before the page
   // renders, on the server too, so the button is in the first paint and
   // mounting starts no refetch. When the loader found no project the entry is
-  // empty, and this query fetches once without retries before the button
-  // stays hidden.
+  // empty, and this query fetches once, with no retries and no refetch when
+  // the window regains focus, and the button stays hidden.
   const { data: project } = useQuery({
     ...projectQueryOptions(projectId ?? ''),
     enabled: !!projectId,
     refetchOnMount: false,
+    refetchOnWindowFocus: false,
     retry: false,
   })
 

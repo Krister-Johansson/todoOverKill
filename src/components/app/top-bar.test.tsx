@@ -1,4 +1,8 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import {
+  QueryClient,
+  QueryClientProvider,
+  focusManager,
+} from '@tanstack/react-query'
 import {
   Outlet,
   RouterProvider,
@@ -8,6 +12,7 @@ import {
   createRouter,
 } from '@tanstack/react-router'
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -38,6 +43,7 @@ vi.mock('#/fns/tasks', () => ({
 afterEach(() => {
   cleanup()
   fetchProject.mockReset()
+  focusManager.setFocused(undefined)
 })
 
 const project = {
@@ -112,7 +118,7 @@ describe('TopBar', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('fetches a project missing from the cache once, without retries', async () => {
+  it('fetches a project missing from the cache once, without retries or a refetch on focus', async () => {
     fetchProject.mockRejectedValue(new Error('No project with id gone.'))
     const queryClient = await renderAt('/projects/gone')
 
@@ -124,6 +130,14 @@ describe('TopBar', () => {
     )
     expect(fetchProject).toHaveBeenCalledOnce()
     expect(screen.queryByRole('button', { name: 'New task' })).toBeNull()
+
+    // Leaving the window and coming back does not ask again.
+    act(() => {
+      focusManager.setFocused(false)
+      focusManager.setFocused(true)
+    })
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(fetchProject).toHaveBeenCalledOnce()
   })
 
   it('does not fetch a project the loader already cached', async () => {

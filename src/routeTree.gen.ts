@@ -18,6 +18,7 @@ import { Route as AppTasksTaskIdRouteImport } from './routes/_app/tasks.$taskId'
 import { Route as ApiV1ProjectsRouteImport } from './routes/api/v1/projects'
 import { Route as AppProjectsProjectIdIndexRouteImport } from './routes/_app/projects.$projectId.index'
 import { Route as AppProjectsProjectIdBoardRouteImport } from './routes/_app/projects.$projectId.board'
+import { Route as AppProjectsProjectIdListRouteImport } from './routes/_app/projects.$projectId.list'
 import { Route as ApiV1ProjectsProjectIdRouteImport } from './routes/api/v1/projects.$projectId'
 import { Route as ApiV1TasksTaskIdRouteImport } from './routes/api/v1/tasks.$taskId'
 import { Route as ApiV1ProjectsProjectIdStatusesRouteImport } from './routes/api/v1/projects.$projectId.statuses'
@@ -69,6 +70,12 @@ const AppProjectsProjectIdBoardRoute =
     path: '/board',
     getParentRoute: () => AppProjectsProjectIdRoute,
   } as any)
+const AppProjectsProjectIdListRoute =
+  AppProjectsProjectIdListRouteImport.update({
+    id: '/list',
+    path: '/list',
+    getParentRoute: () => AppProjectsProjectIdRoute,
+  } as any)
 const ApiV1ProjectsProjectIdRoute = ApiV1ProjectsProjectIdRouteImport.update({
   id: '/$projectId',
   path: '/$projectId',
@@ -100,6 +107,7 @@ export interface FileRoutesByFullPath {
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/api/v1/projects': typeof ApiV1ProjectsRouteWithChildren
   '/projects/$projectId/board': typeof AppProjectsProjectIdBoardRoute
+  '/projects/$projectId/list': typeof AppProjectsProjectIdListRoute
   '/api/v1/projects/$projectId': typeof ApiV1ProjectsProjectIdRouteWithChildren
   '/api/v1/tasks/$taskId': typeof ApiV1TasksTaskIdRoute
   '/projects/$projectId/': typeof AppProjectsProjectIdIndexRoute
@@ -113,6 +121,7 @@ export interface FileRoutesByTo {
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/api/v1/projects': typeof ApiV1ProjectsRouteWithChildren
   '/projects/$projectId/board': typeof AppProjectsProjectIdBoardRoute
+  '/projects/$projectId/list': typeof AppProjectsProjectIdListRoute
   '/api/v1/projects/$projectId': typeof ApiV1ProjectsProjectIdRouteWithChildren
   '/api/v1/tasks/$taskId': typeof ApiV1TasksTaskIdRoute
   '/projects/$projectId': typeof AppProjectsProjectIdIndexRoute
@@ -129,6 +138,7 @@ export interface FileRoutesById {
   '/_app/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/api/v1/projects': typeof ApiV1ProjectsRouteWithChildren
   '/_app/projects/$projectId/board': typeof AppProjectsProjectIdBoardRoute
+  '/_app/projects/$projectId/list': typeof AppProjectsProjectIdListRoute
   '/api/v1/projects/$projectId': typeof ApiV1ProjectsProjectIdRouteWithChildren
   '/api/v1/tasks/$taskId': typeof ApiV1TasksTaskIdRoute
   '/_app/projects/$projectId/': typeof AppProjectsProjectIdIndexRoute
@@ -145,6 +155,7 @@ export interface FileRouteTypes {
     | '/tasks/$taskId'
     | '/api/v1/projects'
     | '/projects/$projectId/board'
+    | '/projects/$projectId/list'
     | '/api/v1/projects/$projectId'
     | '/api/v1/tasks/$taskId'
     | '/projects/$projectId/'
@@ -158,6 +169,7 @@ export interface FileRouteTypes {
     | '/tasks/$taskId'
     | '/api/v1/projects'
     | '/projects/$projectId/board'
+    | '/projects/$projectId/list'
     | '/api/v1/projects/$projectId'
     | '/api/v1/tasks/$taskId'
     | '/projects/$projectId'
@@ -173,6 +185,7 @@ export interface FileRouteTypes {
     | '/_app/tasks/$taskId'
     | '/api/v1/projects'
     | '/_app/projects/$projectId/board'
+    | '/_app/projects/$projectId/list'
     | '/api/v1/projects/$projectId'
     | '/api/v1/tasks/$taskId'
     | '/_app/projects/$projectId/'
@@ -251,6 +264,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppProjectsProjectIdBoardRouteImport
       parentRoute: typeof AppProjectsProjectIdRoute
     }
+    '/_app/projects/$projectId/list': {
+      id: '/_app/projects/$projectId/list'
+      path: '/list'
+      fullPath: '/projects/$projectId/list'
+      preLoaderRoute: typeof AppProjectsProjectIdListRouteImport
+      parentRoute: typeof AppProjectsProjectIdRoute
+    }
     '/api/v1/projects/$projectId': {
       id: '/api/v1/projects/$projectId'
       path: '/$projectId'
@@ -284,11 +304,13 @@ declare module '@tanstack/react-router' {
 
 interface AppProjectsProjectIdRouteChildren {
   AppProjectsProjectIdBoardRoute: typeof AppProjectsProjectIdBoardRoute
+  AppProjectsProjectIdListRoute: typeof AppProjectsProjectIdListRoute
   AppProjectsProjectIdIndexRoute: typeof AppProjectsProjectIdIndexRoute
 }
 
 const AppProjectsProjectIdRouteChildren: AppProjectsProjectIdRouteChildren = {
   AppProjectsProjectIdBoardRoute: AppProjectsProjectIdBoardRoute,
+  AppProjectsProjectIdListRoute: AppProjectsProjectIdListRoute,
   AppProjectsProjectIdIndexRoute: AppProjectsProjectIdIndexRoute,
 }
 

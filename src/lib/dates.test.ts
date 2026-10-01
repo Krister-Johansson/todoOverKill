@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   dueFilterRange,
+  formatDateTime,
   formatDueDate,
   isPastDay,
   toCalendarDay,
@@ -22,6 +23,14 @@ describe('formatDueDate', () => {
   it('prints the day itself, whatever the zone', () => {
     expect(formatDueDate('2026-10-01')).toBe('Oct 1, 2026')
     expect(formatDueDate('2000-01-01')).toBe('Jan 1, 2000')
+  })
+})
+
+describe('formatDateTime', () => {
+  it('prints the local date and time', () => {
+    expect(formatDateTime(new Date(2026, 9, 1, 14, 5))).toMatch(
+      /^Oct 1, 2026, 2:05\sPM$/,
+    )
   })
 })
 

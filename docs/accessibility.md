@@ -28,7 +28,7 @@ The WCAG 2.2 text is at https://www.w3.org/TR/WCAG22/. Numbers below refer to it
 
 1.4.10 Reflow (AA). At 320 px wide, or 400% zoom, content reflows to one column. The board becomes a stacked list of columns.
 
-1.4.11 Non-text contrast (AA). Borders of inputs, focus rings, icons, and checkbox marks are at least 3:1 against adjacent colours.
+1.4.11 Non-text contrast (AA). Borders of inputs, focus rings, icons, and checkbox marks are at least 3:1 against adjacent colours. Project colours come from the named palette in `src/lib/project-colors.ts`, not a free colour picker; each is at least 3:1 against the page and the sidebar in both themes, which `src/lib/project-colors.test.ts` checks, and the colour's name is shown wherever it is chosen.
 
 1.4.12 Text spacing (AA). No fixed heights on text containers.
 

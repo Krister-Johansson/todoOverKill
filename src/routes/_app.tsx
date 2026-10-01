@@ -4,6 +4,7 @@ import { LiveRegionProvider } from '#/components/app/live-region'
 import { PreferencesProvider } from '#/components/app/preferences'
 import { Sidebar } from '#/components/app/sidebar'
 import { TopBar } from '#/components/app/top-bar'
+import { projectsQueryOptions } from '#/fns/projects'
 
 declare module '@tanstack/react-router' {
   interface StaticDataRouteOption {
@@ -12,7 +13,13 @@ declare module '@tanstack/react-router' {
   }
 }
 
-export const Route = createFileRoute('/_app')({ component: AppShell })
+export const Route = createFileRoute('/_app')({
+  // Fills the sidebar's project list on the server, so it is in the first
+  // paint. The sidebar reads the same query, and a create updates its cache.
+  loader: ({ context }) =>
+    context.queryClient.ensureQueryData(projectsQueryOptions()),
+  component: AppShell,
+})
 
 function AppShell() {
   // The deepest route that names itself is the current page.

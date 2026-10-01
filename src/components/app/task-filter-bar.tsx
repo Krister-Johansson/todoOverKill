@@ -1,13 +1,14 @@
-import { useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '#/components/ui/native-select'
 import { PRIORITY_DISPLAY } from '#/lib/priority'
-import { filterAnnouncement, hasActiveFilters } from '#/lib/task-filter'
+import { filterAnnouncement } from '#/lib/task-filter'
 import { dueFilterSchema, taskPrioritySchema } from '#/schemas/task'
 
+import type { Ref } from 'react'
 import type { TaskFilters } from '#/lib/task-filter'
 
 const DUE_OPTIONS = [
@@ -21,28 +22,38 @@ const DUE_OPTIONS = [
  * filters from its URL and navigates in `onChange` and `onClear`. A select
  * applies at once (3.2.5 allows a change on selection when it does not move
  * focus or open anything); the text applies on Enter or Apply, so the URL
- * does not change per keystroke.
+ * does not change per keystroke. Emptying the field with Escape or its clear
+ * control removes the text filter at once.
+ *
+ * `filters` are the resolved filters the controls show; `active` says whether
+ * the URL holds any filter param, including a stale status or label the
+ * controls cannot show, so Clear filters can still remove it. The results
+ * line takes `resultsRef` and can hold focus, so the board can send focus
+ * there when a card leaves the filter.
  */
 export function TaskFilterBar({
   filters,
+  active,
   statuses,
   labels,
   shown,
   total,
   onChange,
   onClear,
+  resultsRef,
 }: {
   filters: TaskFilters
+  active: boolean
   statuses: ReadonlyArray<{ id: string; name: string }>
   labels: ReadonlyArray<{ id: string; name: string }>
   shown: number
   total: number
   onChange: (next: TaskFilters) => void
   onClear: () => void
+  resultsRef?: Ref<HTMLParagraphElement>
 }) {
   const id = useId()
   const fieldId = (name: string) => `${id}-${name}`
-  const active = hasActiveFilters(filters)
 
   // The typed text, reset when the URL's text changes (Clear, Back, or a
   // reload), so the field never shows text that is not applied.
@@ -52,10 +63,31 @@ export function TaskFilterBar({
     setAppliedText(filters.q)
     setText(filters.q ?? '')
   }
+  const clearable = active || text !== ''
 
+  // Every applied change resets the field to the text it applies, so typed
+  // text that was never applied does not linger beside other filters.
   function change(patch: Partial<TaskFilters>) {
-    onChange({ ...filters, ...patch })
+    const next = { ...filters, ...patch }
+    setText(next.q ?? '')
+    onChange(next)
   }
+
+  // Escape and the field's clear control empty a search field and fire
+  // `search`, which React has no prop for. An empty field then means no text
+  // filter, as it does after Apply.
+  const textRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    const input = textRef.current
+    if (!input) return
+    const onSearch = () => {
+      if (input.value !== '' || filters.q === undefined) return
+      setText('')
+      onChange({ ...filters, q: undefined })
+    }
+    input.addEventListener('search', onSearch)
+    return () => input.removeEventListener('search', onSearch)
+  }, [filters, onChange])
 
   return (
     <form
@@ -144,6 +176,7 @@ export function TaskFilterBar({
           <Label htmlFor={fieldId('q')}>Text</Label>
           <div className="flex min-w-0 gap-2">
             <Input
+              ref={textRef}
               id={fieldId('q')}
               type="search"
               value={text}
@@ -159,16 +192,21 @@ export function TaskFilterBar({
         <Button
           type="button"
           variant="outline"
-          aria-disabled={!active}
+          aria-disabled={!clearable}
           className="aria-disabled:cursor-not-allowed"
           onClick={() => {
+            setText('')
             if (active) onClear()
           }}
         >
           Clear filters
         </Button>
       </div>
-      <p className="text-sm text-muted-foreground">
+      <p
+        ref={resultsRef}
+        tabIndex={-1}
+        className="self-start text-sm text-muted-foreground"
+      >
         {filterAnnouncement(shown, total)}
       </p>
     </form>

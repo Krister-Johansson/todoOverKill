@@ -73,6 +73,11 @@ export function hasActiveFilters(filters: TaskFilters) {
   return FILTER_KEYS.some((key) => filters[key] !== undefined)
 }
 
+/** Whether two sets of filters pick the same tasks, key by key. */
+export function sameFilters(a: TaskFilters, b: TaskFilters) {
+  return FILTER_KEYS.every((key) => a[key] === b[key])
+}
+
 /** Every filter key set to undefined, which the router leaves out of the URL. */
 export function clearedFilters(): TaskFilters {
   return {

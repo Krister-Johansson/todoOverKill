@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { clearedFilters } from '#/lib/task-filter'
+import { clearedFilters, hasActiveFilters } from '#/lib/task-filter'
 
 import { TaskFilterBar } from './task-filter-bar'
 
@@ -22,13 +22,15 @@ const labels = [
 
 function renderBar({
   filters = {},
+  active = hasActiveFilters(filters),
   withLabels = true,
-}: { filters?: TaskFilters; withLabels?: boolean } = {}) {
+}: { filters?: TaskFilters; active?: boolean; withLabels?: boolean } = {}) {
   const onChange = vi.fn()
   const onClear = vi.fn()
   const view = render(
     <TaskFilterBar
       filters={filters}
+      active={active}
       statuses={statuses}
       labels={withLabels ? labels : []}
       shown={3}
@@ -98,6 +100,7 @@ describe('TaskFilterBar', () => {
     rerender(
       <TaskFilterBar
         filters={clearedFilters()}
+        active={false}
         statuses={statuses}
         labels={labels}
         shown={12}
@@ -123,6 +126,69 @@ describe('TaskFilterBar', () => {
     expect(active.getAttribute('aria-disabled')).toBe('false')
     fireEvent.click(active)
     expect(onClear).toHaveBeenCalledOnce()
+  })
+
+  it('clears a stale filter the controls cannot show', () => {
+    const { onClear } = renderBar({ filters: {}, active: true })
+    const clear = screen.getByRole('button', { name: 'Clear filters' })
+    expect(clear.getAttribute('aria-disabled')).toBe('false')
+    fireEvent.click(clear)
+    expect(onClear).toHaveBeenCalledOnce()
+  })
+
+  it('resets unapplied text on Clear and on a select change', () => {
+    const { onChange, onClear } = renderBar({ filters: { q: 'copy' } })
+    const text = screen.getByRole<HTMLInputElement>('searchbox', {
+      name: 'Text',
+    })
+    fireEvent.change(text, { target: { value: 'copy edits' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Due' }), {
+      target: { value: 'today' },
+    })
+    expect(onChange).toHaveBeenLastCalledWith({ q: 'copy', due: 'today' })
+    expect(text.value).toBe('copy')
+
+    fireEvent.change(text, { target: { value: 'login' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+    expect(onClear).toHaveBeenCalledOnce()
+    expect(text.value).toBe('')
+  })
+
+  it('lets Clear empty typed text when no filter is applied', () => {
+    const { onClear } = renderBar()
+    const text = screen.getByRole<HTMLInputElement>('searchbox', {
+      name: 'Text',
+    })
+    fireEvent.change(text, { target: { value: 'login' } })
+    const clear = screen.getByRole('button', { name: 'Clear filters' })
+    expect(clear.getAttribute('aria-disabled')).toBe('false')
+    fireEvent.click(clear)
+    expect(text.value).toBe('')
+    expect(onClear).not.toHaveBeenCalled()
+    expect(clear.getAttribute('aria-disabled')).toBe('true')
+  })
+
+  it('removes the text filter when the field is emptied with search', () => {
+    const { onChange } = renderBar({ filters: { q: 'copy', due: 'week' } })
+    const text = screen.getByRole('searchbox', { name: 'Text' })
+    fireEvent.change(text, { target: { value: '' } })
+    expect(onChange).not.toHaveBeenCalled()
+    fireEvent(text, new Event('search'))
+    expect(onChange).toHaveBeenLastCalledWith({ q: undefined, due: 'week' })
+  })
+
+  it('ignores search while the field still has text', () => {
+    const { onChange } = renderBar({ filters: { q: 'copy' } })
+    const text = screen.getByRole('searchbox', { name: 'Text' })
+    fireEvent.change(text, { target: { value: 'cop' } })
+    fireEvent(text, new Event('search'))
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('lets the results line take focus from script only', () => {
+    renderBar()
+    const results = screen.getByText('Showing 3 of 12 tasks')
+    expect(results.getAttribute('tabindex')).toBe('-1')
   })
 
   it('has no Label field for a project without labels', () => {

@@ -13,6 +13,8 @@ import {
   clearedFilters,
   filterAnnouncement,
   filterTasks,
+  hasActiveFilters,
+  pickFilters,
   resolveFilters,
   taskFilterSearchSchema,
 } from '#/lib/task-filter'
@@ -111,6 +113,7 @@ function ListPage() {
     <div className="flex min-w-0 flex-col gap-4">
       <TaskFilterBar
         filters={filters}
+        active={hasActiveFilters(pickFilters(search))}
         statuses={project.statuses}
         labels={labels}
         shown={shown.length}

@@ -12,6 +12,7 @@ import {
   matchesFilters,
   pickFilters,
   resolveFilters,
+  sameFilters,
   taskFilterSearchSchema,
 } from './task-filter'
 
@@ -123,6 +124,22 @@ describe('hasActiveFilters and clearedFilters', () => {
   it('is false once cleared and true with any filter', () => {
     expect(hasActiveFilters(clearedFilters())).toBe(false)
     expect(hasActiveFilters({ due: 'today' })).toBe(true)
+  })
+
+  it('counts a stale id in the URL as active, so Clear can remove it', () => {
+    const search = { label: 'deleted-label', sort: 'title' }
+    const resolved = resolveFilters(search, [], [])
+    expect(hasActiveFilters(resolved)).toBe(false)
+    expect(hasActiveFilters(pickFilters(search))).toBe(true)
+  })
+})
+
+describe('sameFilters', () => {
+  it('compares the filter keys and ignores the rest', () => {
+    expect(sameFilters({ due: 'today' }, { due: 'today' })).toBe(true)
+    expect(sameFilters({}, clearedFilters())).toBe(true)
+    expect(sameFilters({ due: 'today' }, { due: 'week' })).toBe(false)
+    expect(sameFilters({ q: 'a' }, {})).toBe(false)
   })
 })
 

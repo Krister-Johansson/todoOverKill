@@ -7,35 +7,36 @@
 // - a pair names a token that is missing, or whose value is not oklch(L C H)
 //   without alpha, or is outside the sRGB gamut (the browser would render a
 //   different colour from the one checked);
-// - :root and .dark define different tokens;
+// - :root and .dark define different colour tokens;
 // - a colour token appears in no pair, so a new token cannot skip the check;
-// - a file under src/ lowers the opacity of the ring colour (ring-ring/50),
-//   which renders a colour this script never checked.
+// - a rule other than the top-level :root and .dark sets a theme token or a
+//   colour custom property, such as :root inside @media;
+// - a file under src/ draws a theme colour with an opacity modifier, such as
+//   ring-ring/50 or bg-input/30, which renders a colour this script never saw.
+//
+// The parsing and checks live in src/lib/theme-check.ts, which has unit tests.
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 import {
-  TEXT_MIN,
-  UI_MIN,
-  contrastRatio,
-  isInSrgbGamut,
-  oklchToSrgb,
-  parseOklch,
-} from '../src/lib/contrast.ts'
-import type { Srgb } from '../src/lib/contrast.ts'
+  checkTheme,
+  checkTokenSets,
+  colorTokens,
+  findTranslucentTokens,
+  readThemes,
+} from '../src/lib/theme-check.ts'
+import type { Pair } from '../src/lib/theme-check.ts'
 
-type Kind = 'text' | 'ui'
-type Pair = { fg: string; bg: string; kind: Kind }
-
-/** Tokens in the theme blocks that are not colours. */
-const NON_COLOR_TOKENS = new Set(['radius'])
-
-/** Surfaces a priority or status accent can sit on, as an icon or a label. */
-const ACCENT_SURFACES = [
+/**
+ * Surfaces that text can sit on: the page, raised surfaces, hovered and
+ * selected rows, and the sidebar.
+ */
+const TEXT_SURFACES = [
   'background',
   'card',
   'popover',
   'muted',
+  'secondary',
   'accent',
   'sidebar',
   'sidebar-accent',
@@ -53,16 +54,15 @@ const ACCENTS = [
   'status-done',
 ]
 
-/** Surfaces the focus ring can be drawn over or next to. */
+/**
+ * Surfaces the focus ring can be drawn over or next to, including filled
+ * buttons: 2.4.13 asks for 3:1 against the element and its background.
+ */
 const RING_SURFACES = [
-  'background',
-  'card',
-  'popover',
-  'muted',
-  'accent',
+  ...TEXT_SURFACES,
   'primary',
-  'sidebar',
-  'sidebar-accent',
+  'destructive',
+  'sidebar-primary',
 ]
 
 function text(fg: string, bg: string): Pair {
@@ -76,43 +76,31 @@ function ui(fg: string, bg: string): Pair {
 /** Every pair checked, in both themes. Foreground first, then background. */
 const PAIRS: Array<Pair> = [
   // Body text on the page and on raised surfaces.
-  text('foreground', 'background'),
-  text('foreground', 'card'),
-  text('foreground', 'popover'),
-  text('foreground', 'muted'),
+  ...TEXT_SURFACES.map((bg) => text('foreground', bg)),
   text('card-foreground', 'card'),
   text('popover-foreground', 'popover'),
   // Secondary text, such as descriptions, placeholders and timestamps.
-  text('muted-foreground', 'background'),
-  text('muted-foreground', 'card'),
-  text('muted-foreground', 'popover'),
-  text('muted-foreground', 'muted'),
-  text('muted-foreground', 'accent'),
-  text('muted-foreground', 'sidebar'),
+  ...TEXT_SURFACES.map((bg) => text('muted-foreground', bg)),
   // Text on filled buttons, badges and hovered rows.
   text('primary-foreground', 'primary'),
   text('secondary-foreground', 'secondary'),
   text('accent-foreground', 'accent'),
   text('destructive-foreground', 'destructive'),
-  // Error text and destructive links on the page.
-  text('destructive', 'background'),
-  text('destructive', 'card'),
-  text('destructive', 'popover'),
+  // Error text and destructive links, wherever text can sit.
+  ...TEXT_SURFACES.map((bg) => text('destructive', bg)),
   // Sidebar navigation.
   text('sidebar-foreground', 'sidebar'),
+  text('sidebar-foreground', 'sidebar-accent'),
   text('sidebar-primary-foreground', 'sidebar-primary'),
   text('sidebar-accent-foreground', 'sidebar-accent'),
-  // Priority and status accents on every surface they appear on.
-  ...ACCENTS.flatMap((accent) => ACCENT_SURFACES.map((bg) => text(accent, bg))),
+  // Priority and status accents, as an icon or a label, on every surface.
+  ...ACCENTS.flatMap((accent) => TEXT_SURFACES.map((bg) => text(accent, bg))),
 
-  // Borders of inputs, cards and dividers.
-  ui('border', 'background'),
-  ui('border', 'card'),
-  ui('border', 'popover'),
-  ui('input', 'background'),
-  ui('input', 'card'),
-  ui('input', 'popover'),
+  // Borders of inputs, cards and dividers, on every surface they can sit on.
+  ...TEXT_SURFACES.map((bg) => ui('border', bg)),
+  ...TEXT_SURFACES.map((bg) => ui('input', bg)),
   ui('sidebar-border', 'sidebar'),
+  ui('sidebar-border', 'sidebar-accent'),
   // Filled primary buttons against the page, so the button edge is visible.
   ui('primary', 'background'),
   ui('primary', 'card'),
@@ -123,133 +111,66 @@ const PAIRS: Array<Pair> = [
   ui('sidebar-ring', 'sidebar-primary'),
 ]
 
-/** Utility classes that draw the ring colour at reduced opacity. */
-const TRANSLUCENT_RING = /\b(?:ring|outline)-(?:sidebar-)?ring\/[\w.[\]]+/g
-
-const BLOCK_COMMENT = /\/\*[^]*?\*\//g
-
 const root = fileURLToPath(new URL('..', import.meta.url))
-const stylesPath = `${root}src/styles.css`
+const srcDir = `${root}src/`
 
-const errors: Array<string> = []
-
-function readThemeBlock(css: string, selector: string): Map<string, string> {
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const blocks = [
-    ...css.matchAll(new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]*)\\}`, 'g')),
-  ]
-  const tokens = new Map<string, string>()
-  if (blocks.length !== 1) {
-    errors.push(
-      `src/styles.css: expected one ${selector} block, found ${blocks.length}`,
-    )
-    return tokens
-  }
-  for (const declaration of blocks[0][1].split(';')) {
-    const match = /^\s*--([\w-]+)\s*:\s*([^]*?)\s*$/.exec(declaration)
-    if (match) tokens.set(match[1], match[2])
-  }
-  return tokens
-}
-
-function resolveColors(theme: string, tokens: Map<string, string>) {
-  const colors = new Map<string, Srgb>()
-  for (const [name, value] of tokens) {
-    if (NON_COLOR_TOKENS.has(name)) continue
-    try {
-      const oklch = parseOklch(value)
-      if (!isInSrgbGamut(oklch)) {
-        errors.push(`${theme}: --${name} ${value} is outside the sRGB gamut`)
-        continue
-      }
-      colors.set(name, oklchToSrgb(oklch))
-    } catch (error) {
-      errors.push(`${theme}: --${name}: ${(error as Error).message}`)
-    }
-  }
-  return colors
-}
-
-function checkTheme(theme: string, tokens: Map<string, string>): number {
-  const colors = resolveColors(theme, tokens)
-  let failures = 0
-
+function printTheme(theme: string, tokens: Map<string, string>) {
+  const { results, errors } = checkTheme(tokens, PAIRS)
   console.log(`\n${theme}`)
   console.log(
     `  ${'foreground'.padEnd(28)} ${'background'.padEnd(16)} ${'ratio'.padStart(6)}   min  result`,
   )
-  for (const { fg, bg, kind } of PAIRS) {
-    const fgColor = colors.get(fg)
-    const bgColor = colors.get(bg)
-    if (!fgColor || !bgColor) {
-      for (const [name, color] of [
-        [fg, fgColor],
-        [bg, bgColor],
-      ] as const) {
-        if (!color && !tokens.has(name)) {
-          errors.push(`${theme}: --${name} is used in PAIRS but not defined`)
-        }
-      }
-      failures++
-      continue
-    }
-    const min = kind === 'text' ? TEXT_MIN : UI_MIN
-    const ratio = contrastRatio(fgColor, bgColor)
-    const pass = ratio >= min
-    if (!pass) failures++
+  for (const { fg, bg, min, ratio, pass } of results) {
     // Rounded down, so a 6.996 that fails is not printed as 7.00.
-    const shown = (Math.floor(ratio * 100) / 100).toFixed(2)
+    const shown =
+      ratio === undefined ? '-' : (Math.floor(ratio * 100) / 100).toFixed(2)
     console.log(
       `  ${fg.padEnd(28)} ${bg.padEnd(16)} ${shown.padStart(6)}  ${String(min).padStart(3)}:1  ${pass ? 'pass' : 'FAIL'}`,
     )
   }
-  return failures
-}
-
-function checkTokenSets(light: Map<string, string>, dark: Map<string, string>) {
-  for (const [name, here, there] of [
-    [':root', light, dark],
-    ['.dark', dark, light],
-  ] as const) {
-    for (const token of here.keys()) {
-      if (NON_COLOR_TOKENS.has(token) || there.has(token)) continue
-      errors.push(`--${token} is defined in ${name} but not in the other theme`)
-    }
-  }
-
-  const paired = new Set(PAIRS.flatMap(({ fg, bg }) => [fg, bg]))
-  for (const token of new Set([...light.keys(), ...dark.keys()])) {
-    if (NON_COLOR_TOKENS.has(token) || paired.has(token)) continue
-    errors.push(`--${token} is not checked by any pair in PAIRS`)
+  return {
+    failures: results.filter(({ pass }) => !pass).length,
+    errors: errors.map((error) => `${theme}: ${error}`),
   }
 }
 
-function checkRingOpacity() {
-  const srcDir = `${root}src/`
+function checkSources(tokens: Array<string>): Array<string> {
+  const errors: Array<string> = []
   const files = readdirSync(srcDir, { recursive: true, encoding: 'utf8' })
   for (const file of files) {
-    if (!/\.(?:tsx?|css)$/.test(file) || file.startsWith('generated')) continue
-    // Block comments may name the forbidden classes, as src/styles.css does.
-    const source = readFileSync(srcDir + file, 'utf8').replace(
-      BLOCK_COMMENT,
-      '',
-    )
-    for (const [match] of source.matchAll(TRANSLUCENT_RING)) {
+    // Tests are not rendered, and theme-check.test.ts names the classes.
+    if (!/\.(?:tsx?|css)$/.test(file) || /\.test\.tsx?$/.test(file)) continue
+    if (file.startsWith('generated')) continue
+    const source = readFileSync(srcDir + file, 'utf8')
+    for (const match of findTranslucentTokens(
+      source,
+      tokens,
+      !file.endsWith('.css'),
+    )) {
       errors.push(
-        `src/${file}: ${match} lowers the ring opacity; use the full colour`,
+        `src/${file}: ${match} draws a theme colour at reduced opacity; use the full token`,
       )
     }
   }
+  return errors
 }
 
-const css = readFileSync(stylesPath, 'utf8').replace(BLOCK_COMMENT, '')
-const light = readThemeBlock(css, ':root')
-const dark = readThemeBlock(css, '.dark')
+const themes = readThemes(readFileSync(`${srcDir}styles.css`, 'utf8'))
+const light = printTheme('light (:root)', themes.light)
+const dark = printTheme('dark (.dark)', themes.dark)
+const tokens = new Set([
+  ...colorTokens(themes.light),
+  ...colorTokens(themes.dark),
+])
 
-checkTokenSets(light, dark)
-checkRingOpacity()
-const failures =
-  checkTheme('light (:root)', light) + checkTheme('dark (.dark)', dark)
+const failures = light.failures + dark.failures
+const errors = [
+  ...themes.errors.map((error) => `src/styles.css: ${error}`),
+  ...checkTokenSets(themes.light, themes.dark, PAIRS),
+  ...light.errors,
+  ...dark.errors,
+  ...checkSources([...tokens]),
+]
 
 for (const error of errors) console.error(`error: ${error}`)
 if (failures > 0 || errors.length > 0) {

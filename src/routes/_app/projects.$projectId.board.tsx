@@ -1,14 +1,14 @@
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 import { BoardColumn } from '#/components/app/board-column'
 import { projectQueryOptions } from '#/fns/projects'
 import { tasksQueryOptions } from '#/fns/tasks'
+import { useOverflowsX } from '#/hooks/use-overflows-x'
 import { toCalendarDay } from '#/lib/dates'
 
 import type { BoardTask } from '#/components/app/task-card'
-import type { RefObject } from 'react'
 
 // The read-only board. It sets no head, so the tab keeps the layout's project
 // title.
@@ -89,31 +89,4 @@ function BoardPage() {
       </div>
     </div>
   )
-}
-
-/**
- * Whether the region is wider inside than out. It watches the region and its
- * content, so a resize, a zoom change, or a different number of columns
- * updates it. The content must size to its children for the last one. False on
- * the server and until the first measurement.
- */
-function useOverflowsX(
-  regionRef: RefObject<HTMLElement | null>,
-  contentRef: RefObject<HTMLElement | null>,
-) {
-  const [overflows, setOverflows] = useState(false)
-
-  useEffect(() => {
-    const region = regionRef.current
-    const content = contentRef.current
-    if (!region || !content) return
-    const measure = () => setOverflows(region.scrollWidth > region.clientWidth)
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(region)
-    observer.observe(content)
-    return () => observer.disconnect()
-  }, [regionRef, contentRef])
-
-  return overflows
 }

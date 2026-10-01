@@ -8,7 +8,7 @@ The WCAG 2.2 text is at https://www.w3.org/TR/WCAG22/. Numbers below refer to it
 
 1.1.1 Non-text content (A). Every icon-only button has an `aria-label`. Decorative icons are `aria-hidden`. Project colour swatches carry the colour name in text.
 
-1.3.1 Info and relationships (A). Semantic HTML first: `nav`, `main`, `header`, lists for lists, tables for tabular data, `h1` to `h3` in order. The board is a list of lists, each column an `h2`. Form fields are associated with labels with `for`/`id`, never placeholder-only.
+1.3.1 Info and relationships (A). Semantic HTML first: `nav`, `main`, `header`, lists for lists, tables for tabular data, `h1` to `h3` in order. The board is a list of lists, each column an `h2`. The list view is a data table with a `caption` naming the project and its task count, `th scope="col"` on every column, and `aria-sort` on the sorted column's `th` only; the button inside each header changes the sort. Form fields are associated with labels with `for`/`id`, never placeholder-only.
 
 1.3.2 Meaningful sequence (A). DOM order matches visual order. No CSS `order` tricks that break reading order.
 
@@ -26,7 +26,7 @@ The WCAG 2.2 text is at https://www.w3.org/TR/WCAG22/. Numbers below refer to it
 
 1.4.8 Visual presentation (AAA). Line width of prose (task descriptions, comments, assistant replies) is capped at 80 characters; text is not justified; line height is at least 1.5; paragraph spacing at least 1.5 times line height; text resizes to 200% without horizontal scroll; foreground and background are user-selectable through the theme.
 
-1.4.10 Reflow (AA). At 320 px wide, or 400% zoom, content reflows to one column. The board becomes a stacked list of columns.
+1.4.10 Reflow (AA). At 320 px wide, or 400% zoom, content reflows to one column. The board becomes a stacked list of columns. A data table is exempt from one-column reflow, because it needs two dimensions to make sense, so the list view keeps its columns. The page still never scrolls sideways: cells wrap, and a table that is still too wide scrolls inside its container, which is then a focusable region labelled "Task table" so the keyboard can scroll it.
 
 1.4.11 Non-text contrast (AA). Borders of inputs, focus rings, icons, and checkbox marks are at least 3:1 against adjacent colours. Project colours come from the named palette in `src/lib/project-colors.ts`, not a free colour picker; each is at least 3:1 against the page and the sidebar in both themes, which `src/lib/project-colors.test.ts` checks, and the colour's name is shown wherever it is chosen.
 

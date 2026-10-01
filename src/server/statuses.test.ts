@@ -13,6 +13,7 @@ import {
   renameStatus,
   reorderStatuses,
 } from '#/server/statuses'
+import { createTask } from '#/server/tasks'
 import { resetDatabase } from '#/test/db'
 
 const UNKNOWN_ID = 'no-such-id'
@@ -31,13 +32,6 @@ async function boardOf(projectId: string) {
     select: { name: true, order: true },
   })
   return statuses
-}
-
-/** The tasks service (F12) does not exist yet, so tests write tasks directly. */
-function createTask(projectId: string, statusId: string) {
-  return db.task.create({
-    data: { projectId, statusId, number: 1, title: 'Write copy', order: 1 },
-  })
 }
 
 describe('listStatuses', () => {
@@ -252,7 +246,10 @@ describe('deleteStatus', () => {
   it('throws ConflictError while a task uses the status and keeps both', async () => {
     const project = await createWebsite()
     const todo = project.statuses[1]
-    const task = await createTask(project.id, todo.id)
+    const task = await createTask(project.id, {
+      title: 'Write copy',
+      statusId: todo.id,
+    })
 
     const attempt = deleteStatus(todo.id)
 
@@ -273,7 +270,10 @@ describe('deleteStatus', () => {
   it('deletes the status once its tasks have moved', async () => {
     const project = await createWebsite()
     const [backlog, todo] = project.statuses
-    const task = await createTask(project.id, todo.id)
+    const task = await createTask(project.id, {
+      title: 'Write copy',
+      statusId: todo.id,
+    })
     await expect(deleteStatus(todo.id)).rejects.toBeInstanceOf(ConflictError)
 
     await db.task.update({

@@ -6,13 +6,16 @@ import {
   createRoute,
   createRouter,
 } from '@tanstack/react-router'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { Route } from '#/routes/_app/tasks.$taskId'
 
 vi.mock('#/fns/tasks', () => ({
   taskQueryOptions: (id: string) => ({ queryKey: ['tasks', id] }),
+  taskActivityQueryOptions: (id: string) => ({
+    queryKey: ['tasks', id, 'activity'],
+  }),
 }))
 
 vi.mock('#/fns/projects', () => ({
@@ -54,6 +57,21 @@ const task = {
   labels: [],
 }
 
+const activity = [
+  {
+    id: 'a1',
+    type: 'task.created',
+    payload: { number: 7, title: 'Fix the footer' },
+    createdAt: new Date('2026-09-20T09:30:00.000Z'),
+  },
+  {
+    id: 'a2',
+    type: 'task.updated',
+    payload: { number: 7, fields: ['description', 'labels'] },
+    createdAt: new Date('2026-09-25T16:45:00.000Z'),
+  },
+]
+
 type HeadInput = Parameters<NonNullable<typeof Route.options.head>>[0]
 
 function title(loaderData: unknown) {
@@ -72,6 +90,7 @@ async function renderPage() {
   const queryClient = new QueryClient()
   queryClient.setQueryData(['tasks', task.id], task)
   queryClient.setQueryData(['projects', project.id], project)
+  queryClient.setQueryData(['tasks', task.id, 'activity'], activity)
   const rootRoute = createRootRoute()
   const appRoute = createRoute({ getParentRoute: () => rootRoute, id: '_app' })
   const routeTree = rootRoute.addChildren([
@@ -79,7 +98,10 @@ async function renderPage() {
       createRoute({
         getParentRoute: () => appRoute,
         path: 'tasks/$taskId',
-        loader: () => ({ today: '2026-10-01' }),
+        loader: () => ({
+          today: '2026-10-01',
+          now: '2026-10-01T12:00:00.000Z',
+        }),
         component: Route.options.component,
       }),
       createRoute({
@@ -121,5 +143,28 @@ describe('task route', () => {
       screen.getByRole('heading', { level: 2, name: 'Description' }),
     ).toBeTruthy()
     expect(screen.getByText('bold').tagName).toBe('STRONG')
+  })
+
+  it('shows the activity below the detail, counted from the loader now', async () => {
+    await renderPage()
+    const region = screen.getByRole('region', { name: 'Activity' })
+    expect(
+      within(region).getByRole('heading', { level: 2, name: 'Activity' }),
+    ).toBeTruthy()
+    expect(
+      within(region)
+        .getAllByRole('listitem')
+        .map((item) => item.querySelector('p')?.textContent),
+    ).toEqual([
+      'Created the task “Fix the footer”.',
+      'Changed the description and the labels.',
+    ])
+    expect(within(region).getByText(/^last week \(/)).toBeTruthy()
+    // The Description section comes first.
+    const description = screen.getByRole('heading', { name: 'Description' })
+    expect(
+      description.compareDocumentPosition(region) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
   })
 })

@@ -1,23 +1,33 @@
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 
+import { ActivityLog } from '#/components/app/activity-log'
 import { TaskDetail } from '#/components/app/task-detail'
 import { projectQueryOptions } from '#/fns/projects'
-import { taskQueryOptions } from '#/fns/tasks'
+import { taskActivityQueryOptions, taskQueryOptions } from '#/fns/tasks'
 import { toCalendarDay } from '#/lib/dates'
 
 export const Route = createFileRoute('/_app/tasks/$taskId')({
   staticData: { title: 'Task' },
-  // Today comes from the loader, as on the board, so the server render and
-  // hydration agree on the Overdue word.
+  // Today and now come from the loader, as on the board, so the server render
+  // and hydration agree on the Overdue word and the activity's relative times.
   loader: async ({ context, params }) => {
-    const task = await context.queryClient.ensureQueryData(
-      taskQueryOptions(params.taskId),
-    )
+    const [task] = await Promise.all([
+      context.queryClient.ensureQueryData(taskQueryOptions(params.taskId)),
+      context.queryClient.ensureQueryData(
+        taskActivityQueryOptions(params.taskId),
+      ),
+    ])
     const project = await context.queryClient.ensureQueryData(
       projectQueryOptions(task.projectId),
     )
-    return { task, project, today: toCalendarDay(new Date()) }
+    const now = new Date()
+    return {
+      task,
+      project,
+      today: toCalendarDay(now),
+      now: now.toISOString(),
+    }
   },
   head: ({ loaderData }) => ({
     meta: [
@@ -33,8 +43,9 @@ export const Route = createFileRoute('/_app/tasks/$taskId')({
 
 function TaskPage() {
   const { taskId } = Route.useParams()
-  const { today } = Route.useLoaderData()
+  const { today, now } = Route.useLoaderData()
   const { data: task } = useSuspenseQuery(taskQueryOptions(taskId))
+  const { data: activity } = useSuspenseQuery(taskActivityQueryOptions(taskId))
   const { data: project } = useSuspenseQuery(
     projectQueryOptions(task.projectId),
   )
@@ -50,6 +61,7 @@ function TaskPage() {
         today={today}
         headingLevel={2}
       />
+      <ActivityLog rows={activity} now={new Date(now)} headingLevel={2} />
     </div>
   )
 }

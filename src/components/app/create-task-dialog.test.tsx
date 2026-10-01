@@ -21,7 +21,7 @@ vi.mock('#/fns/projects', () => ({
   projectQueryOptions: (id: string) => ({ queryKey: ['projects', id] }),
 }))
 
-type CreatedTask =Extract<CreateTaskResult, { ok: true }>['task']
+type CreatedTask = Extract<CreateTaskResult, { ok: true }>['task']
 
 const create = vi.mocked(createTaskFn)
 const tasksKey = ['projects', 'p1', 'tasks']
@@ -285,6 +285,39 @@ describe('CreateTaskDialog', () => {
       await nextFrame()
     })
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('creates one task when submitted twice in quick succession', async () => {
+    let finish: (result: CreateTaskResult) => void = () => undefined
+    create.mockReturnValue(
+      new Promise<CreateTaskResult>((resolve) => {
+        finish = resolve
+      }),
+    )
+    renderDialog()
+    fireEvent.change(title(), { target: { value: 'Write copy' } })
+    const button = screen.getByRole('button', { name: 'Create task' })
+    const form = button.closest('form')
+    if (!form) throw new Error('no form')
+
+    await act(async () => {
+      // Both before React renders the submitting state.
+      fireEvent.submit(form)
+      fireEvent.submit(form)
+      await nextFrame()
+    })
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    await act(async () => {
+      fireEvent.click(button)
+      await nextFrame()
+    })
+    expect(create).toHaveBeenCalledOnce()
+
+    await act(async () => {
+      finish({ ok: true, task: task() })
+      await nextFrame()
+    })
+    expect(create).toHaveBeenCalledOnce()
   })
 
   it('creates the task, updates the cache, announces it and focuses the card', async () => {

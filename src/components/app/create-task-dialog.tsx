@@ -219,7 +219,9 @@ export function CreateTaskDialog({ project }: { project: TaskProject }) {
           onSubmit={(event) => {
             event.preventDefault()
             event.stopPropagation()
-            if (!isSubmitting) void form.handleSubmit()
+            // The live state, so a second submit before the next render does
+            // not create a second task.
+            if (!form.state.isSubmitting) void form.handleSubmit()
           }}
         >
           {showSummary && (
@@ -394,7 +396,12 @@ export function CreateTaskDialog({ project }: { project: TaskProject }) {
                 Cancel
               </Button>
             </DialogClose>
-            <Button type="submit">
+            {/* aria-disabled rather than disabled, which would drop focus to
+                the page and dim the text; the submit handler ignores it. */}
+            <Button
+              type="submit"
+              aria-disabled={isSubmitting ? true : undefined}
+            >
               {isSubmitting ? 'Creating task…' : 'Create task'}
             </Button>
           </DialogFooter>

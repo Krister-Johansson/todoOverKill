@@ -1,4 +1,5 @@
 import { Link } from '@tanstack/react-router'
+import { useEffect } from 'react'
 
 import { formatDueDate, isPastDay } from '#/lib/dates'
 import { PRIORITY_DISPLAY } from '#/lib/priority'
@@ -97,15 +98,61 @@ export function TaskCardContent({ task, project, today }: CardProps) {
   )
 }
 
+/**
+ * The id of a task's board card link, so the create task dialog can move
+ * focus to a new card.
+ */
+export function taskCardId(taskId: string) {
+  return `task-card-${taskId}`
+}
+
+/** A card that should take focus when it renders, and where focus waits. */
+let pendingFocus: { taskId: string; holder: HTMLElement } | null = null
+
+/**
+ * Moves focus to a task's card. When the board has not rendered the card yet,
+ * focus waits on `holder` and the card takes it as it mounts, so the move does
+ * not depend on render timing. If focus leaves `holder` first, or the page has
+ * no board, focus stays where it is (2.4.3).
+ */
+export function focusTaskCard(taskId: string, holder: HTMLElement) {
+  const card = document.getElementById(taskCardId(taskId))
+  if (card) {
+    pendingFocus = null
+    card.focus()
+    return
+  }
+  holder.focus()
+  const pending = { taskId, holder }
+  pendingFocus = pending
+  holder.addEventListener(
+    'blur',
+    () => {
+      if (pendingFocus === pending) pendingFocus = null
+    },
+    { once: true },
+  )
+}
+
 /** A board card: one link to the task page, at least 44 px tall. */
 export function TaskCard({
   task,
   project,
   today,
 }: CardProps & { task: CardTask & { id: string } }) {
+  useEffect(() => {
+    if (pendingFocus?.taskId !== task.id) return
+    const { holder } = pendingFocus
+    pendingFocus = null
+    if (document.activeElement === holder) {
+      document.getElementById(taskCardId(task.id))?.focus()
+    }
+  }, [task.id])
+
   return (
     <li>
       <Link
+        id={taskCardId(task.id)}
         to="/tasks/$taskId"
         params={{ taskId: task.id }}
         className="flex min-h-11 min-w-0 flex-col gap-1 rounded-md border border-border bg-card p-3 text-card-foreground hover:bg-accent hover:text-accent-foreground"

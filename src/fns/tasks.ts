@@ -3,10 +3,10 @@ import { notFound } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
 import * as z from 'zod'
 
-import { PROJECTS_QUERY_KEY } from '#/fns/projects'
+import { PROJECTS_QUERY_KEY, hasCode } from '#/fns/projects'
 import { projectIdSchema } from '#/schemas/project'
-import { listTasksSchema, taskIdSchema } from '#/schemas/task'
-import { getTask, listTasks } from '#/server/tasks'
+import { createTaskSchema, listTasksSchema, taskIdSchema } from '#/schemas/task'
+import { createTask, getTask, listTasks } from '#/server/tasks'
 
 /** Turns the service's NotFoundError into the route's 404. */
 async function orNotFound<T>(load: () => Promise<T>): Promise<T> {
@@ -35,6 +35,43 @@ export const listTasksFn = createServerFn({ method: 'GET' })
 export const getTaskFn = createServerFn({ method: 'GET' })
   .inputValidator(taskIdSchema)
   .handler(({ data: id }) => orNotFound(() => getTask(id)))
+
+/**
+ * What createTaskFn returns. A project without statuses is an expected
+ * outcome the dialog shows in its summary, so it comes back as a value. Any
+ * other error is thrown and reaches the client as a plain Error, including
+ * the NotFoundError of a project deleted while the dialog was open, and the
+ * dialog shows a generic message.
+ */
+export type CreateTaskResult =
+  | { ok: true; task: Awaited<ReturnType<typeof createTask>> }
+  | { ok: false; code: 'conflict'; message: string }
+
+/**
+ * Runs a create and maps a ConflictError to the conflict result. Exported so
+ * src/fns/tasks.test.ts can check the mapping against the database without
+ * calling a server function under Vitest.
+ */
+export async function toCreateTaskResult(
+  create: () => ReturnType<typeof createTask>,
+): Promise<CreateTaskResult> {
+  try {
+    return { ok: true, task: await create() }
+  } catch (error) {
+    if (hasCode(error, 'conflict')) {
+      return { ok: false, code: 'conflict', message: error.message }
+    }
+    throw error
+  }
+}
+
+export const createTaskFn = createServerFn({ method: 'POST' })
+  .inputValidator(
+    z.object({ projectId: projectIdSchema, data: createTaskSchema }),
+  )
+  .handler(({ data }) =>
+    toCreateTaskResult(() => createTask(data.projectId, data.data)),
+  )
 
 /** Under the project's key, so invalidating a project refreshes its tasks. */
 export function tasksQueryOptions(projectId: string) {

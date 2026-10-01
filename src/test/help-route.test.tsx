@@ -117,6 +117,8 @@ describe('help route', () => {
       'Not available yet. Arrives in a later release.',
     )
     expect(definitionOf('term-backlog')).not.toContain('Not available yet')
+    // F30 shipped the project and status endpoints.
+    expect(definitionOf('term-rest-api')).not.toContain('Not available yet')
   })
 
   it('shows the shortcuts in a captioned table and marks the later ones', async () => {
@@ -143,7 +145,7 @@ describe('help route', () => {
       within(table).getAllByText(
         'Not available yet. Arrives in a later release.',
       ),
-    ).toHaveLength(2)
+    ).toHaveLength(3)
     expect(
       screen.getByRole('link', { name: 'Settings' }).getAttribute('href'),
     ).toBe('/settings')
@@ -165,7 +167,7 @@ describe('help route', () => {
 
     // A sequence and a choice are separate caps, joined by words.
     const sequence = keysCell(
-      'On a new page, the first Tab shows "Skip to content". Enter then jumps past the menu to the page.',
+      'From the top of a page, the first Tab shows "Skip to content". Enter then jumps past the menu to the page.',
     )
     expect(sequence.textContent).toBe('Tab then Enter')
     expect(sequence.querySelector('kbd[data-slot="kbd-group"]')).toBeNull()
@@ -189,6 +191,23 @@ describe('help route', () => {
     // accessible name is checked in tests/e2e/help.spec.ts instead.
 
     expect(keysCell('Close a dialog.').textContent).toBe('Escape')
+
+    // Ctrl and ⌘ are read as Control and Command (3.1.4, 1.1.1).
+    for (const [action, glyph, name] of [
+      ['Open the command menu to find a task or an action.', 'Ctrl', 'Control'],
+      ['On a Mac, open the command menu.', '⌘', 'Command'],
+    ]) {
+      const cell = keysCell(action)
+      expect(cell.querySelector('[aria-hidden="true"]')?.textContent).toBe(
+        glyph,
+      )
+      expect(cell.querySelector('.sr-only')?.textContent).toBe(name)
+    }
+    expect(
+      screen.getByText(
+        'Ctrl is the Control key. ⌘ is the Command key on a Mac.',
+      ),
+    ).toBeTruthy()
   })
 
   it('says voice and WebMCP need Chrome and that audio may go to Google', async () => {

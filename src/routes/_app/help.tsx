@@ -143,8 +143,7 @@ const terms: Array<{
     id: 'rest-api',
     term: 'REST API',
     definition:
-      'Short for Representational State Transfer Application Programming Interface. In plain words, a set of web addresses that other programs can call to read and change your projects and tasks.',
-    later: true,
+      'Short for Representational State Transfer Application Programming Interface. In plain words, a set of web addresses that other programs can call to work with your data. Today they can read and change projects and read statuses. Tasks arrive in a later release.',
   },
 ]
 
@@ -176,13 +175,19 @@ const shortcuts: Array<Shortcut> = [
     keys: ['Tab', 'Enter'],
     kind: 'sequence',
     action:
-      'On a new page, the first Tab shows "Skip to content". Enter then jumps past the menu to the page.',
+      'From the top of a page, the first Tab shows "Skip to content". Enter then jumps past the menu to the page.',
   },
   { keys: ['c'], action: 'Make a new task.', later: true },
   {
     keys: ['Ctrl', 'K'],
     kind: 'combo',
     action: 'Open the command menu to find a task or an action.',
+    later: true,
+  },
+  {
+    keys: ['⌘', 'K'],
+    kind: 'combo',
+    action: 'On a Mac, open the command menu.',
     later: true,
   },
 ]
@@ -278,6 +283,7 @@ function HelpPage() {
             ))}
           </TableBody>
         </Table>
+        <p>Ctrl is the Control key. ⌘ is the Command key on a Mac.</p>
         <p>
           Single-key shortcuts, such as <Kbd>c</Kbd>, work only when you are not
           typing in a field. You can turn them off in{' '}
@@ -316,12 +322,15 @@ function LaterNote() {
 const joiners = { combo: '+', sequence: ' then ', any: ' or ' } as const
 
 // A glyph alone has no reliable spoken name: some screen readers skip it or
-// read only the joiners. Each one gets a hidden text name instead (1.1.1).
+// read only the joiners. Each one gets a hidden text name instead (1.1.1),
+// and so does Ctrl, so it is read as the full word (3.1.4).
 const keyNames: Record<string, string> = {
   '↑': 'Up arrow',
   '↓': 'Down arrow',
   '←': 'Left arrow',
   '→': 'Right arrow',
+  '⌘': 'Command',
+  Ctrl: 'Control',
 }
 
 /**
@@ -334,7 +343,7 @@ function ShortcutKeys({ keys, kind }: Pick<Shortcut, 'keys' | 'kind'>) {
     <Fragment key={`${index}-${key}`}>
       {index > 0 && kind ? <span>{joiners[kind]}</span> : null}
       <Kbd>
-        {key in keyNames ? (
+        {Object.hasOwn(keyNames, key) ? (
           <>
             <span aria-hidden="true">{key}</span>
             <span className="sr-only">{keyNames[key]}</span>

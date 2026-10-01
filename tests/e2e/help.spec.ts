@@ -139,7 +139,12 @@ test('the shortcuts table has a caption and key caps', async ({ page }) => {
   ).toBeVisible()
   await expect(
     table.getByText('Not available yet. Arrives in a later release.'),
-  ).toHaveCount(2)
+  ).toHaveCount(3)
+  // Ctrl and ⌘ are read by name. Chrome puts spaces around the + because
+  // each key is its own kbd.
+  for (const name of ['Control + K', 'Command + K']) {
+    await expect(table.getByRole('cell', { name, exact: true })).toBeVisible()
+  }
 })
 
 // A 1280 px wide window at 400% zoom lays out at 320 CSS px, so this one
@@ -164,22 +169,17 @@ test('the Help page reflows at 320 px without horizontal scrolling', async ({
   expect(tableOverflow).toBeLessThanOrEqual(0)
 })
 
-for (const theme of ['light', 'dark']) {
-  test(`the Help page has no axe violations in the ${theme} theme`, async ({
-    page,
-  }) => {
-    await page.addInitScript(
-      ([key, value]) => localStorage.setItem(key, value),
-      [THEME_STORAGE_KEY, theme],
-    )
-    await page.goto('/help', { waitUntil: 'networkidle' })
+// tests/e2e/shell.spec.ts already runs axe on /help in the light theme.
+test('the Help page has no axe violations in the dark theme', async ({
+  page,
+}) => {
+  await page.addInitScript(
+    ([key, value]) => localStorage.setItem(key, value),
+    [THEME_STORAGE_KEY, 'dark'],
+  )
+  await page.goto('/help', { waitUntil: 'networkidle' })
 
-    if (theme === 'dark') {
-      await expect(page.locator('html')).toHaveClass(/\bdark\b/)
-    } else {
-      await expect(page.locator('html')).not.toHaveClass(/\bdark\b/)
-    }
-    await expect(page.getByRole('heading', { level: 1 })).toHaveText('Help')
-    await expectAccessible(page)
-  })
-}
+  await expect(page.locator('html')).toHaveClass(/\bdark\b/)
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Help')
+  await expectAccessible(page)
+})

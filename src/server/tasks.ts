@@ -180,12 +180,13 @@ export async function getTask(id: string) {
 /**
  * A project's tasks in board order: by status, then by order within the
  * status, with the task number breaking ties as `moveTask` does. Only the filters given apply, and all of them must match. The due
- * range includes both ends and leaves out tasks with no due date. Throws
- * NotFoundError for an unknown project.
+ * range includes both ends and leaves out tasks with no due date. `completed:
+ * false` keeps only tasks with no `completedAt`, `true` only those with one.
+ * Throws NotFoundError for an unknown project.
  */
 export async function listTasks(projectId: string, input: ListTasksInput = {}) {
   const id = projectIdSchema.parse(projectId)
-  const { statusId, priority, labelId, dueFrom, dueTo, q } =
+  const { statusId, priority, labelId, dueFrom, dueTo, completed, q } =
     listTasksSchema.parse(input)
   const project = await db.project.findUnique({
     where: { id },
@@ -201,6 +202,9 @@ export async function listTasks(projectId: string, input: ListTasksInput = {}) {
       gte: dueFrom ? toCalendarDate(dueFrom) : undefined,
       lte: dueTo ? toCalendarDate(dueTo) : undefined,
     }
+  }
+  if (completed !== undefined) {
+    where.completedAt = completed ? { not: null } : null
   }
   if (q) {
     where.OR = [

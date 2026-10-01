@@ -143,7 +143,7 @@ const terms: Array<{
     id: 'rest-api',
     term: 'REST API',
     definition:
-      'Short for Representational State Transfer Application Programming Interface. In plain words, a set of web addresses that other programs can call to work with your data. Today they can read and change projects and read statuses. Tasks arrive in a later release.',
+      'Short for Representational State Transfer Application Programming Interface. In plain words, a set of web addresses that other programs can call to work with your data. Today they can read and change projects and tasks, and read statuses. Subtasks, labels, comments and search arrive in a later release.',
   },
 ]
 

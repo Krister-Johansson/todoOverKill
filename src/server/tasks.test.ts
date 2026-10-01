@@ -388,6 +388,26 @@ describe('listTasks', () => {
     ).resolves.toEqual(['Write copy'])
   })
 
+  it('filters by completed', async () => {
+    const { project, copy } = await createBoard()
+    const done = project.statuses[3]
+    await moveTask(copy.id, { statusId: done.id })
+
+    await expect(titles(project.id, { completed: false })).resolves.toEqual([
+      'Deploy',
+      'Draw the logo',
+    ])
+    await expect(titles(project.id, { completed: true })).resolves.toEqual([
+      'Write copy',
+    ])
+    await expect(
+      titles(project.id, { completed: false, dueTo: '2026-10-09' }),
+    ).resolves.toEqual([])
+    await expect(
+      titles(project.id, { completed: false, dueTo: '2026-10-10' }),
+    ).resolves.toEqual(['Draw the logo'])
+  })
+
   it('throws NotFoundError for an unknown project', async () => {
     await expect(listTasks(UNKNOWN_ID)).rejects.toBeInstanceOf(NotFoundError)
   })

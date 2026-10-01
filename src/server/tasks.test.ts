@@ -55,6 +55,33 @@ async function columnOf(statusId: string) {
   return tasks.map((task) => task.title)
 }
 
+/**
+ * Runs `action` while another transaction deletes the task. The action reads
+ * the task, which the uncommitted delete does not hide, then waits on the row
+ * lock when it writes, and finds the row gone once the delete commits.
+ */
+async function deleteDuring(taskId: string, action: () => Promise<unknown>) {
+  let attempt: Promise<unknown> = Promise.resolve()
+  let settled = false
+  await db.$transaction(async (tx) => {
+    await tx.task.delete({ where: { id: taskId } })
+    attempt = action().finally(() => {
+      settled = true
+    })
+    // Handled by the caller; this only stops an unhandled rejection meanwhile.
+    attempt.catch(() => {})
+    for (;;) {
+      const [{ waiting }] = await db.$queryRaw<[{ waiting: bigint }]>`
+        SELECT count(*) AS waiting FROM pg_stat_activity
+        WHERE datname = current_database() AND wait_event_type = 'Lock'
+      `
+      if (waiting > 0 || settled) break
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+  })
+  return attempt
+}
+
 async function nextTaskNumberOf(projectId: string) {
   const project = await db.project.findUniqueOrThrow({
     where: { id: projectId },
@@ -120,7 +147,7 @@ describe('createTask', () => {
       title: 'Write copy',
       description: 'Hero and pricing.',
       priority: 'high',
-      dueDate: new Date('2026-10-15T00:00:00.000Z'),
+      dueDate: '2026-10-15',
       order: 2,
       completedAt: null,
       labels: [],
@@ -385,7 +412,7 @@ describe('updateTask', () => {
       title: 'Write the copy',
       description: 'Hero.',
       priority: 'low',
-      dueDate: new Date('2026-10-07T00:00:00.000Z'),
+      dueDate: '2026-10-07',
     })
   })
 
@@ -451,6 +478,17 @@ describe('updateTask', () => {
 
     await expect(attempt).rejects.toBeInstanceOf(NotFoundError)
     await expect(attempt).rejects.toMatchObject({ code: 'not_found' })
+  })
+
+  it('throws NotFoundError when the task is deleted before the write', async () => {
+    const project = await createWebsite()
+    const task = await createTask(project.id, { title: 'Write copy' })
+
+    const attempt = deleteDuring(task.id, () =>
+      updateTask(task.id, { title: 'Write the copy' }),
+    )
+
+    await expect(attempt).rejects.toBeInstanceOf(NotFoundError)
   })
 })
 
@@ -529,9 +567,32 @@ describe('moveTask', () => {
       await expect(
         moveTask(tasks.C.id, { statusId: backlog.id }),
       ).resolves.toEqual(tasks.C)
+      // An index past the end means the end, where C already is.
+      await expect(moveTask(tasks.C.id, { index: 10 })).resolves.toEqual(
+        tasks.C,
+      )
     })
 
     expect(rows).toEqual([])
+  })
+
+  it('counts the place of tasks with equal orders by number', async () => {
+    const { project, backlog, tasks } = await createBoard()
+    const tied = await db.task.update({
+      where: { id: tasks.B.id },
+      data: { order: tasks.A.order },
+    })
+
+    // The list shows A, B, C, so B at index 1 stays where it is.
+    const rows = await newActivity(project.id, async () => {
+      const moved = await moveTask(tasks.B.id, { index: 1 })
+      expect(moved.order).toBe(tied.order)
+    })
+
+    expect(rows).toEqual([])
+    await expect(
+      listTasks(project.id, { statusId: backlog.id }),
+    ).resolves.toMatchObject([{ title: 'A' }, { title: 'B' }, { title: 'C' }])
   })
 
   it('spreads the column out when the gap is too small to split', async () => {
@@ -561,6 +622,18 @@ describe('moveTask', () => {
 
     const reopened = await moveTask(tasks.A.id, { statusId: todo.id })
     expect(reopened.completedAt).toBeNull()
+  })
+
+  it('keeps completedAt on a reorder in a status that is not done', async () => {
+    const { backlog, done, tasks } = await createBoard()
+    await db.status.delete({ where: { id: done.id } })
+    const completed = await completeTask(tasks.C.id)
+    expect(completed.statusId).toBe(backlog.id)
+
+    const moved = await moveTask(tasks.C.id, { index: 0 })
+
+    expect(moved.completedAt).toEqual(completed.completedAt)
+    await expect(columnOf(backlog.id)).resolves.toEqual(['C', 'A', 'B'])
   })
 
   it('writes one task.moved row with the status names', async () => {
@@ -594,6 +667,16 @@ describe('moveTask', () => {
 
     await expect(attempt).rejects.toBeInstanceOf(NotFoundError)
     await expect(attempt).rejects.toMatchObject({ code: 'not_found' })
+  })
+
+  it('throws NotFoundError when the task is deleted before the write', async () => {
+    const { todo, tasks } = await createBoard()
+
+    const attempt = deleteDuring(tasks.A.id, () =>
+      moveTask(tasks.A.id, { statusId: todo.id }),
+    )
+
+    await expect(attempt).rejects.toBeInstanceOf(NotFoundError)
   })
 })
 
@@ -668,6 +751,15 @@ describe('completeTask', () => {
 
     await expect(attempt).rejects.toBeInstanceOf(NotFoundError)
     await expect(attempt).rejects.toMatchObject({ code: 'not_found' })
+  })
+
+  it('throws NotFoundError when the task is deleted before the write', async () => {
+    const project = await createWebsite()
+    const task = await createTask(project.id, { title: 'Write copy' })
+
+    const attempt = deleteDuring(task.id, () => completeTask(task.id))
+
+    await expect(attempt).rejects.toBeInstanceOf(NotFoundError)
   })
 })
 

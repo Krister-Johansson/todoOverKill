@@ -25,9 +25,16 @@ const withRelations = {
 
 type TaskRow = Prisma.TaskGetPayload<{ include: typeof withRelations }>
 
-/** Replaces the TaskLabel join rows with the labels themselves. */
+/**
+ * Replaces the TaskLabel join rows with the labels themselves, and the due
+ * date with the `YYYY-MM-DD` string the schemas take.
+ */
 function flatten(task: TaskRow) {
-  return { ...task, labels: task.labels.map(({ label }) => label) }
+  return {
+    ...task,
+    dueDate: fromCalendarDate(task.dueDate),
+    labels: task.labels.map(({ label }) => label),
+  }
 }
 
 function projectNotFound(id: string) {
@@ -40,6 +47,20 @@ function taskNotFound(id: string) {
 
 function statusNotFound(id: string) {
   return new NotFoundError(`No status with id ${id} in this project.`)
+}
+
+/**
+ * Runs `work` and turns Prisma's P2025, which a write raises when the task was
+ * deleted after the transaction read it, into the task's NotFoundError.
+ */
+async function orTaskNotFound<T>(id: string, work: () => Promise<T>) {
+  try {
+    return await work()
+  } catch (error) {
+    // The failed write aborts the transaction, so the catch sits outside it.
+    if (isPrismaError(error, 'P2025')) throw taskNotFound(id)
+    throw error
+  }
 }
 
 /** A UTC midnight `Date`, which the `@db.Date` column stores as that calendar day. */
@@ -158,7 +179,7 @@ export async function getTask(id: string) {
 
 /**
  * A project's tasks in board order: by status, then by order within the
- * status. Only the filters given apply, and all of them must match. The due
+ * status, with the task number breaking ties as `moveTask` does. Only the filters given apply, and all of them must match. The due
  * range includes both ends and leaves out tasks with no due date. Throws
  * NotFoundError for an unknown project.
  */
@@ -190,7 +211,12 @@ export async function listTasks(projectId: string, input: ListTasksInput = {}) {
   const tasks = await db.task.findMany({
     where,
     include: withRelations,
-    orderBy: [{ status: { order: 'asc' } }, { order: 'asc' }],
+    orderBy: [
+      { status: { order: 'asc' } },
+      { statusId: 'asc' },
+      { order: 'asc' },
+      { number: 'asc' },
+    ],
   })
   return tasks.map(flatten)
 }
@@ -203,117 +229,133 @@ export async function listTasks(projectId: string, input: ListTasksInput = {}) {
 export async function updateTask(id: string, patch: UpdateTaskInput) {
   const taskId = taskIdSchema.parse(id)
   const { dueDate, ...data } = updateTaskSchema.parse(patch)
-  return db.$transaction(async (tx) => {
-    const task = await tx.task.findUnique({
-      where: { id: taskId },
-      include: withRelations,
-    })
-    if (!task) throw taskNotFound(taskId)
-    const changes: Prisma.TaskUpdateInput = {}
-    const fields: Array<string> = []
-    for (const field of ['title', 'description', 'priority'] as const) {
-      const value = data[field]
-      if (value !== undefined && value !== task[field]) {
-        Object.assign(changes, { [field]: value })
-        fields.push(field)
+  return orTaskNotFound(taskId, () =>
+    db.$transaction(async (tx) => {
+      const task = await tx.task.findUnique({
+        where: { id: taskId },
+        include: withRelations,
+      })
+      if (!task) throw taskNotFound(taskId)
+      const changes: Prisma.TaskUpdateInput = {}
+      const fields: Array<string> = []
+      for (const field of ['title', 'description', 'priority'] as const) {
+        const value = data[field]
+        if (value !== undefined && value !== task[field]) {
+          Object.assign(changes, { [field]: value })
+          fields.push(field)
+        }
       }
-    }
-    if (dueDate !== undefined && dueDate !== fromCalendarDate(task.dueDate)) {
-      changes.dueDate = dueDate === null ? null : toCalendarDate(dueDate)
-      fields.push('dueDate')
-    }
-    if (fields.length === 0) return flatten(task)
-    const updated = await tx.task.update({
-      where: { id: taskId },
-      data: changes,
-      include: withRelations,
-    })
-    await tx.activity.create({
-      data: {
-        projectId: task.projectId,
-        taskId,
-        type: ACTIVITY_TYPES.taskUpdated,
-        payload: { number: task.number, fields },
-      },
-    })
-    return flatten(updated)
-  })
+      if (dueDate !== undefined && dueDate !== fromCalendarDate(task.dueDate)) {
+        changes.dueDate = dueDate === null ? null : toCalendarDate(dueDate)
+        fields.push('dueDate')
+      }
+      if (fields.length === 0) return flatten(task)
+      const updated = await tx.task.update({
+        where: { id: taskId },
+        data: changes,
+        include: withRelations,
+      })
+      await tx.activity.create({
+        data: {
+          projectId: task.projectId,
+          taskId,
+          type: ACTIVITY_TYPES.taskUpdated,
+          payload: { number: task.number, fields },
+        },
+      })
+      return flatten(updated)
+    }),
+  )
 }
 
 /**
  * Moves the task to another status, to another place in its column, or both,
  * and writes a `task.moved` row. `index` counts the destination column's
- * other tasks, so index 0 is the top. Entering a done-category status sets
- * `completedAt` (kept if already set); leaving one clears it. A move that
- * leaves the task where it is writes nothing. Throws NotFoundError for an
+ * other tasks, so index 0 is the top, and an index past the end appends.
+ * Entering a done-category status sets `completedAt` (kept if already set),
+ * leaving one clears it, and a reorder within one status keeps it as it is. A
+ * move that leaves the task where it is writes nothing. Throws NotFoundError for an
  * unknown task or a status outside its project.
  */
 export async function moveTask(id: string, input: MoveTaskInput) {
   const taskId = taskIdSchema.parse(id)
   const { statusId, index } = moveTaskSchema.parse(input)
-  return db.$transaction(async (tx) => {
-    const task = await tx.task.findUnique({
-      where: { id: taskId },
-      include: withRelations,
-    })
-    if (!task) throw taskNotFound(taskId)
-    const to =
-      statusId === undefined || statusId === task.statusId
-        ? task.status
-        : await tx.status.findFirst({
-            where: { id: statusId, projectId: task.projectId },
-          })
-    if (!to) throw statusNotFound(statusId!)
-    // The moving task is left out, so in its own column `index` is the place
-    // it ends up among the rest.
-    let others = await tx.task.findMany({
-      where: { statusId: to.id, id: { not: taskId } },
-      orderBy: [{ order: 'asc' }, { number: 'asc' }],
-      select: { id: true, order: true },
-    })
-    if (to.id === task.statusId) {
-      const current = others.filter((other) => other.order < task.order).length
-      if ((index ?? others.length) === current) return flatten(task)
-    }
-    let order = orderAt(
-      others.map((other) => other.order),
-      index,
-    )
-    if (order === null) {
-      // Repeated moves into the same gap have used up the float precision.
-      // Spread the column out to whole numbers and place the task again.
-      for (const [position, other] of others.entries()) {
-        await tx.task.update({
-          where: { id: other.id },
-          data: { order: position + 1 },
-        })
+  return orTaskNotFound(taskId, () =>
+    db.$transaction(async (tx) => {
+      const task = await tx.task.findUnique({
+        where: { id: taskId },
+        include: withRelations,
+      })
+      if (!task) throw taskNotFound(taskId)
+      const to =
+        statusId === undefined || statusId === task.statusId
+          ? task.status
+          : await tx.status.findFirst({
+              where: { id: statusId, projectId: task.projectId },
+            })
+      if (!to) throw statusNotFound(statusId!)
+      // The moving task is left out, so in its own column `index` is the place
+      // it ends up among the rest.
+      let others = await tx.task.findMany({
+        where: { statusId: to.id, id: { not: taskId } },
+        orderBy: [{ order: 'asc' }, { number: 'asc' }],
+        select: { id: true, order: true, number: true },
+      })
+      if (to.id === task.statusId) {
+        // The task's place among the others, on the same ordering as the list.
+        const current = others.filter(
+          (other) =>
+            other.order < task.order ||
+            (other.order === task.order && other.number < task.number),
+        ).length
+        const target = Math.min(index ?? others.length, others.length)
+        if (target === current) return flatten(task)
       }
-      others = others.map((other, position) => ({
-        ...other,
-        order: position + 1,
-      }))
-      order = orderAt(
+      let order = orderAt(
         others.map((other) => other.order),
         index,
-      )!
-    }
-    const completedAt =
-      to.category === 'done' ? (task.completedAt ?? new Date()) : null
-    const moved = await tx.task.update({
-      where: { id: taskId },
-      data: { statusId: to.id, order, completedAt },
-      include: withRelations,
-    })
-    await tx.activity.create({
-      data: {
-        projectId: task.projectId,
-        taskId,
-        type: ACTIVITY_TYPES.taskMoved,
-        payload: { number: task.number, from: task.status.name, to: to.name },
-      },
-    })
-    return flatten(moved)
-  })
+      )
+      if (order === null) {
+        // Repeated moves into the same gap have used up the float precision.
+        // Spread the column out to whole numbers and place the task again.
+        // updateMany skips a task deleted in the meantime instead of throwing.
+        for (const [position, other] of others.entries()) {
+          await tx.task.updateMany({
+            where: { id: other.id },
+            data: { order: position + 1 },
+          })
+        }
+        others = others.map((other, position) => ({
+          ...other,
+          order: position + 1,
+        }))
+        order = orderAt(
+          others.map((other) => other.order),
+          index,
+        )!
+      }
+      const completedAt =
+        to.category === 'done'
+          ? (task.completedAt ?? new Date())
+          : to.id === task.statusId
+            ? task.completedAt
+            : null
+      const moved = await tx.task.update({
+        where: { id: taskId },
+        data: { statusId: to.id, order, completedAt },
+        include: withRelations,
+      })
+      await tx.activity.create({
+        data: {
+          projectId: task.projectId,
+          taskId,
+          type: ACTIVITY_TYPES.taskMoved,
+          payload: { number: task.number, from: task.status.name, to: to.name },
+        },
+      })
+      return flatten(moved)
+    }),
+  )
 }
 
 /**
@@ -325,52 +367,54 @@ export async function moveTask(id: string, input: MoveTaskInput) {
  */
 export async function completeTask(id: string) {
   const taskId = taskIdSchema.parse(id)
-  return db.$transaction(async (tx) => {
-    const task = await tx.task.findUnique({
-      where: { id: taskId },
-      include: withRelations,
-    })
-    if (!task) throw taskNotFound(taskId)
-    if (task.completedAt) return flatten(task)
-    const data: Prisma.TaskUncheckedUpdateManyInput = {
-      completedAt: new Date(),
-    }
-    if (task.status.category !== 'done') {
-      const done = await tx.status.findFirst({
-        where: { projectId: task.projectId, category: 'done' },
-        orderBy: { order: 'asc' },
+  return orTaskNotFound(taskId, () =>
+    db.$transaction(async (tx) => {
+      const task = await tx.task.findUnique({
+        where: { id: taskId },
+        include: withRelations,
       })
-      if (done) {
-        const { _max } = await tx.task.aggregate({
-          where: { statusId: done.id },
-          _max: { order: true },
-        })
-        data.statusId = done.id
-        data.order = (_max.order ?? 0) + 1
+      if (!task) throw taskNotFound(taskId)
+      if (task.completedAt) return flatten(task)
+      const data: Prisma.TaskUncheckedUpdateManyInput = {
+        completedAt: new Date(),
       }
-    }
-    // The completedAt condition makes the check and the write one statement,
-    // so two completes at once cannot both write an activity row.
-    const { count } = await tx.task.updateMany({
-      where: { id: taskId, completedAt: null },
-      data,
-    })
-    const completed = await tx.task.findUniqueOrThrow({
-      where: { id: taskId },
-      include: withRelations,
-    })
-    if (count === 1) {
-      await tx.activity.create({
-        data: {
-          projectId: task.projectId,
-          taskId,
-          type: ACTIVITY_TYPES.taskCompleted,
-          payload: { number: task.number },
-        },
+      if (task.status.category !== 'done') {
+        const done = await tx.status.findFirst({
+          where: { projectId: task.projectId, category: 'done' },
+          orderBy: { order: 'asc' },
+        })
+        if (done) {
+          const { _max } = await tx.task.aggregate({
+            where: { statusId: done.id },
+            _max: { order: true },
+          })
+          data.statusId = done.id
+          data.order = (_max.order ?? 0) + 1
+        }
+      }
+      // The completedAt condition makes the check and the write one statement,
+      // so two completes at once cannot both write an activity row.
+      const { count } = await tx.task.updateMany({
+        where: { id: taskId, completedAt: null },
+        data,
       })
-    }
-    return flatten(completed)
-  })
+      const completed = await tx.task.findUniqueOrThrow({
+        where: { id: taskId },
+        include: withRelations,
+      })
+      if (count === 1) {
+        await tx.activity.create({
+          data: {
+            projectId: task.projectId,
+            taskId,
+            type: ACTIVITY_TYPES.taskCompleted,
+            payload: { number: task.number },
+          },
+        })
+      }
+      return flatten(completed)
+    }),
+  )
 }
 
 /**

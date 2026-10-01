@@ -72,6 +72,23 @@ export function moveTaskInList<
   ]
 }
 
+/**
+ * Where a task sits in a board-ordered list, as the target that puts it back
+ * there: its status and its index among that column's other tasks. Undefined
+ * when the task is not in the list.
+ */
+export function placeOf(
+  tasks: Array<{ id: string; statusId: string }>,
+  taskId: string,
+): Required<MoveTarget> | undefined {
+  const task = tasks.find((candidate) => candidate.id === taskId)
+  if (!task) return undefined
+  const index = tasks
+    .filter((other) => other.statusId === task.statusId)
+    .indexOf(task)
+  return { statusId: task.statusId, index }
+}
+
 /** The move input for one step up from `position` in the task's column. */
 export function moveUpInput(position: number): MoveTarget {
   return { index: position - 1 }

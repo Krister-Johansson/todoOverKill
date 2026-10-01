@@ -145,6 +145,8 @@ test('a card moves to another column by keyboard alone', async ({ page }) => {
   await tabTo(page, moveButton(page, `${key}-1`))
   await page.keyboard.press('Enter')
   await expect(menu(page)).toBeVisible()
+  // The menu is named by its button.
+  await expect(page.getByRole('menu', { name: `Move ${key}-1` })).toBeVisible()
   await settle(page)
   await expect(
     menu(page).getByRole('menuitemradio', { name: 'Backlog' }),

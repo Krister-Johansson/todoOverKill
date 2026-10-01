@@ -1,4 +1,5 @@
 import { TaskCard } from './task-card'
+import { TaskMoveMenu } from './task-move-menu'
 
 import type { BoardTask } from './task-card'
 import type { MoveProject } from './task-move-menu'
@@ -43,7 +44,14 @@ export function BoardColumn({
               project={project}
               today={today}
               position={position}
-              count={tasks.length}
+              menu={
+                <TaskMoveMenu
+                  task={task}
+                  project={project}
+                  position={position}
+                  count={tasks.length}
+                />
+              }
             />
           ))}
         </ul>

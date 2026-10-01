@@ -19,7 +19,12 @@ import {
 } from '#/components/ui/dropdown-menu'
 import { projectQueryOptions } from '#/fns/projects'
 import { moveTaskFn, taskQueryOptions, tasksQueryOptions } from '#/fns/tasks'
-import { moveDownInput, moveTaskInList, moveUpInput } from '#/lib/board-move'
+import {
+  moveDownInput,
+  moveTaskInList,
+  moveUpInput,
+  placeOf,
+} from '#/lib/board-move'
 
 import { useAnnounce } from './live-region'
 import { focusMoveButton, moveButtonId } from './task-card'
@@ -70,9 +75,10 @@ function statusName(
  * The move mutation. Every callback lives here rather than on mutate(),
  * because a card that changes column unmounts, and only these still run then.
  * The board's cache changes at once and the live region speaks once the
- * server agrees. A failure puts the cache back only when no other move is in
- * flight, since the snapshot would also undo that move; otherwise the refetch
- * settles it.
+ * server agrees. A failure restores the snapshot when no other move is in
+ * flight; otherwise the snapshot would also undo that move, so only this card
+ * goes back to its old place. The board refetches once the last move in
+ * flight settles, so a refetch never overwrites another card's move.
  */
 export function moveTaskMutationOptions({
   queryClient,
@@ -128,11 +134,18 @@ export function moveTaskMutationOptions({
         focusMoveButton(task.id)
       }
       // The failing move still counts as pending while onError runs.
-      if (
-        context?.previous &&
-        queryClient.isMutating({ mutationKey: MOVE_KEY }) === 1
-      ) {
-        queryClient.setQueryData(tasksKey, context.previous)
+      const previous = context?.previous
+      if (previous && queryClient.isMutating({ mutationKey: MOVE_KEY }) === 1) {
+        queryClient.setQueryData(tasksKey, previous)
+      } else if (previous) {
+        const place = placeOf(previous, task.id)
+        const current = queryClient.getQueryData(tasksKey)
+        if (place && current) {
+          queryClient.setQueryData(
+            tasksKey,
+            moveTaskInList(current, task.id, place, project.statuses),
+          )
+        }
       }
       // The status may be gone, so the project's statuses are stale too.
       void queryClient.invalidateQueries({
@@ -141,7 +154,11 @@ export function moveTaskMutationOptions({
       announce(`Could not move ${reference}. Try again.`)
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: tasksKey })
+      // This move still counts as pending here too. A refetch while another
+      // move is in flight would put that card back until its own write lands.
+      if (queryClient.isMutating({ mutationKey: MOVE_KEY }) === 1) {
+        void queryClient.invalidateQueries({ queryKey: tasksKey })
+      }
       // The task page's query is not under the project's key.
       void queryClient.invalidateQueries({
         queryKey: taskQueryOptions(task.id).queryKey,
@@ -181,8 +198,10 @@ export function TaskMoveMenu({
 
   function move(request: MoveRequest) {
     // One move per task at a time, so their results arrive in order.
-    if (queryClient.isMutating({ mutationKey: [...MOVE_KEY, task.id] }) > 0)
+    if (queryClient.isMutating({ mutationKey: [...MOVE_KEY, task.id] }) > 0) {
+      announce(`${reference} is still moving. Try again in a moment.`)
       return
+    }
     picked.current = true
     focusMoveButton(task.id)
     mutate(request)
@@ -198,6 +217,9 @@ export function TaskMoveMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
+        // Radix labels the menu by its own trigger id, which the button's id
+        // replaces, so the label points at the button by that id instead.
+        aria-labelledby={moveButtonId(task.id)}
         onCloseAutoFocus={(event) => {
           if (!picked.current) return
           picked.current = false

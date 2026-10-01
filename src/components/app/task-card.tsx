@@ -4,10 +4,8 @@ import { useEffect } from 'react'
 import { formatDueDate, isPastDay } from '#/lib/dates'
 import { PRIORITY_DISPLAY } from '#/lib/priority'
 
-import { TaskMoveMenu } from './task-move-menu'
-
+import type { ReactNode } from 'react'
 import type { listTasksFn } from '#/fns/tasks'
-import type { MoveProject } from './task-move-menu'
 
 export type BoardTask = Awaited<ReturnType<typeof listTasksFn>>[number]
 
@@ -128,43 +126,50 @@ type PendingFocus = {
 
 let pendingFocus: PendingFocus | null = null
 
+/** How long a moved card's Move button waits to take focus. */
+const MOVE_FOCUS_TIMEOUT = 1000
+
 /**
- * Records the hand-off. It is dropped when focus lands anywhere but `holder`,
- * so it never pulls focus back from where the user went, and after
- * `expiresIn` ms when that is given.
+ * Records the hand-off, so it never pulls focus back from where the user
+ * went. A create's hand-off ends when focus leaves `holder`, the dialog's
+ * trigger. A move's ends when focus lands anywhere but `holder`, the old Move
+ * button, which may leave the page with its card, or after a second.
  */
 function waitForCard(
   taskId: string,
   target: PendingFocus['target'],
   holder: HTMLElement,
-  expiresIn?: number,
 ) {
   pendingFocus?.release()
+  const onBlur = () => pending.release()
   const onFocusIn = (event: FocusEvent) => {
     if (event.target !== holder) pending.release()
   }
-  const timer =
-    expiresIn === undefined
-      ? undefined
-      : window.setTimeout(() => pending.release(), expiresIn)
+  let timer: number | undefined
   const pending: PendingFocus = {
     taskId,
     target,
     holder,
     release: () => {
       if (pendingFocus === pending) pendingFocus = null
+      holder.removeEventListener('blur', onBlur)
       document.removeEventListener('focusin', onFocusIn)
       window.clearTimeout(timer)
     },
   }
   pendingFocus = pending
-  document.addEventListener('focusin', onFocusIn)
+  if (target === 'link') {
+    holder.addEventListener('blur', onBlur)
+  } else {
+    document.addEventListener('focusin', onFocusIn)
+    timer = window.setTimeout(pending.release, MOVE_FOCUS_TIMEOUT)
+  }
 }
 
 /**
  * Called by a card as it mounts or moves. When a hand-off waits for it and
- * focus is still on the holder, or fell to the page because the holder left
- * the DOM, the card's control takes focus.
+ * focus is still on the holder, or, for a move, fell to the page because the
+ * old button left the DOM, the card's control takes focus.
  */
 function takePendingFocus(taskId: string) {
   const pending = pendingFocus
@@ -175,8 +180,9 @@ function takePendingFocus(taskId: string) {
   if (!control) return
   pending.release()
   const active = document.activeElement
-  if (active === pending.holder || active === null || active === document.body)
-    control.focus()
+  const dropped =
+    pending.target === 'move' && (active === null || active === document.body)
+  if (active === pending.holder || dropped) control.focus()
 }
 
 /**
@@ -196,9 +202,6 @@ export function focusTaskCard(taskId: string, holder: HTMLElement) {
   waitForCard(taskId, 'link', holder)
 }
 
-/** How long a moved card's Move button waits to take focus. */
-const MOVE_FOCUS_TIMEOUT = 1000
-
 /**
  * Keeps focus on a task's Move button through a move (2.4.3). It focuses the
  * button now if it is on the page, and the same hand-off as focusTaskCard
@@ -210,15 +213,18 @@ const MOVE_FOCUS_TIMEOUT = 1000
 export function focusMoveButton(taskId: string) {
   const button = document.getElementById(moveButtonId(taskId))
   button?.focus()
-  waitForCard(taskId, 'move', button ?? document.body, MOVE_FOCUS_TIMEOUT)
+  waitForCard(taskId, 'move', button ?? document.body)
 }
 
-type BoardCardProps = Omit<CardProps, 'project'> & {
+type BoardCardProps = CardProps & {
   task: CardTask & { id: string; statusId: string }
-  project: MoveProject & { name: string }
-  /** The card's place in its column, from 0, and the column's size. */
+  /** The card's place in its column, from 0. */
   position: number
-  count: number
+  /**
+   * The card's Move menu, passed in by the column so this module, which owns
+   * the focus hand-off the menu uses, does not import it.
+   */
+  menu: ReactNode
 }
 
 /**
@@ -230,7 +236,7 @@ export function TaskCard({
   project,
   today,
   position,
-  count,
+  menu,
 }: BoardCardProps) {
   useEffect(() => {
     takePendingFocus(task.id)
@@ -246,12 +252,7 @@ export function TaskCard({
       >
         <TaskCardContent task={task} project={project} today={today} />
       </Link>
-      <TaskMoveMenu
-        task={task}
-        project={project}
-        position={position}
-        count={count}
-      />
+      {menu}
     </li>
   )
 }

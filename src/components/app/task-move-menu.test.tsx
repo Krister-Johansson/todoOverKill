@@ -163,8 +163,9 @@ describe('moveTaskMutationOptions', () => {
     expect(announce).not.toHaveBeenCalledWith(expect.stringMatching(/^Moved/))
   })
 
-  it('keeps another move in flight when one of two fails', async () => {
-    const { announce, pendingOnError, observer, cached } = setup()
+  it('puts back only the failing card when one of two moves fails', async () => {
+    const { queryClient, announce, pendingOnError, observer, cached } = setup()
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
     const first = deferred()
     const second = deferred()
     move.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
@@ -180,14 +181,17 @@ describe('moveTaskMutationOptions', () => {
     await failing
 
     // Both moves are pending, so the snapshot, which would also undo TOK-2's
-    // move, is not restored; the refetch settles TOK-1.
+    // move, is not restored: TOK-1 alone goes back to Backlog, and the board
+    // does not refetch while TOK-2's move is in flight.
     expect(pendingOnError).toEqual([2])
-    expect(cached()).toEqual(['t1:s2', 't2:s2'])
+    expect(cached()).toEqual(['t1:s1', 't2:s2'])
     expect(announce).toHaveBeenCalledWith('Could not move TOK-1. Try again.')
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: tasksKey })
 
     second.resolve(task('t2', 2, 's2'))
     await succeeding
     expect(announce).toHaveBeenLastCalledWith('Moved TOK-2 to In progress')
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: tasksKey })
   })
 
   it("refreshes the board and the task's own query once settled", async () => {

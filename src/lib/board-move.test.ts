@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { moveDownInput, moveTaskInList, moveUpInput } from './board-move'
+import {
+  moveDownInput,
+  moveTaskInList,
+  moveUpInput,
+  placeOf,
+} from './board-move'
 
 const statuses = [
   { id: 'todo', name: 'Backlog', category: 'todo' },
@@ -145,5 +150,30 @@ describe('moveTaskInList', () => {
       statuses,
     )
     expect(ids(moved)).toEqual(['b', 'c', 'd', 'a', 'e', 'x'])
+  })
+})
+
+describe('placeOf', () => {
+  it("gives a task's status and its index in that column", () => {
+    expect(placeOf(board(), 'b')).toEqual({ statusId: 'todo', index: 1 })
+    expect(placeOf(board(), 'd')).toEqual({ statusId: 'doing', index: 0 })
+    expect(placeOf(board(), 'z')).toBeUndefined()
+  })
+
+  it('puts a moved task back without undoing another move', () => {
+    const before = board()
+    const place = placeOf(before, 'b')!
+    // b moved to In progress, then d moved to Done.
+    const afterBoth = moveTaskInList(
+      moveTaskInList(before, 'b', { statusId: 'doing' }, statuses),
+      'd',
+      { statusId: 'done' },
+      statuses,
+    )
+
+    const reverted = moveTaskInList(afterBoth, 'b', place, statuses)
+
+    expect(ids(reverted)).toEqual(['a', 'b', 'c', 'e', 'd'])
+    expect(reverted.find((t) => t.id === 'd')!.statusId).toBe('done')
   })
 })

@@ -18,8 +18,9 @@ import {
   moveButtonId,
   taskCardId,
 } from './task-card'
+import { TaskMoveMenu } from './task-move-menu'
 
-import type { ComponentProps } from 'react'
+import type { MoveProject } from './task-move-menu'
 
 // The Move menu imports the server functions; these tests never call them.
 vi.mock('#/fns/tasks', () => ({
@@ -131,7 +132,7 @@ const boardProject = {
   statuses: [
     { id: 's1', projectId: 'p1', name: 'Backlog', order: 1, category: 'todo' },
     { id: 's2', projectId: 'p1', name: 'Doing', order: 2, category: 'todo' },
-  ] as const satisfies ComponentProps<typeof TaskCard>['project']['statuses'],
+  ] as const satisfies MoveProject['statuses'],
 }
 
 type BoardCardOptions = { position?: number; statusId?: string }
@@ -151,26 +152,30 @@ async function renderBoardCards({
     const [current, setCurrent] = useState(props)
     rerender = setCurrent
     const { position = 0, statusId = 's1' } = current
-    const one = (
+    const card = (
+      cardTask: ReturnType<typeof task> & { id: string },
+      at: number,
+    ) => (
       <TaskCard
-        key="task-1"
-        task={{ ...task(), id: 'task-1', statusId }}
+        key={cardTask.id}
+        task={{ ...cardTask, statusId }}
         project={boardProject}
         today="2026-10-02"
-        position={position}
-        count={pair ? 2 : 1}
+        position={at}
+        menu={
+          <TaskMoveMenu
+            task={{ ...cardTask, statusId }}
+            project={boardProject}
+            position={at}
+            count={pair ? 2 : 1}
+          />
+        }
       />
     )
-    const two = pair ? (
-      <TaskCard
-        key="task-2"
-        task={{ ...task({ number: 8 }), id: 'task-2', statusId }}
-        project={boardProject}
-        today="2026-10-02"
-        position={position === 0 ? 1 : 0}
-        count={2}
-      />
-    ) : null
+    const one = card({ ...task(), id: 'task-1' }, position)
+    const two = pair
+      ? card({ ...task({ number: 8 }), id: 'task-2' }, position === 0 ? 1 : 0)
+      : null
     return <ul>{position === 0 ? [one, two] : [two, one]}</ul>
   }
   const rootRoute = createRootRoute({ component: Cards })
@@ -328,6 +333,18 @@ describe('focusTaskCard', () => {
     await renderBoardCard()
 
     expect(document.activeElement).toBe(holder)
+    holder.remove()
+  })
+
+  it('drops the wait when the holder loses focus to the page', async () => {
+    const holder = holderButton()
+
+    focusTaskCard('task-1', holder)
+    // A click on a blank part of the page blurs the holder.
+    holder.blur()
+    await renderBoardCard()
+
+    expect(document.activeElement).toBe(document.body)
     holder.remove()
   })
 

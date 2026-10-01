@@ -22,9 +22,9 @@ describe('PROJECT_COLORS', () => {
       PROJECT_COLORS.length,
     )
     for (const { value } of PROJECT_COLORS) {
-      expect(
-        createProjectSchema.shape.color.safeParse(value).success,
-      ).toBe(true)
+      expect(createProjectSchema.shape.color.safeParse(value).success).toBe(
+        true,
+      )
     }
   })
 

@@ -6,13 +6,24 @@ import { cn } from '#/lib/utils'
 // colours are full-opacity tokens (the registry's bg-muted/50 hover is gone,
 // a static table does not need one), cells wrap instead of nowrap so a
 // narrow table reflows at 320 px (1.4.10), and the caption sits above the
-// table in foreground text. The container still scrolls for wide tables;
-// a table that can overflow needs the container to be focusable.
-function Table({ className, ...props }: React.ComponentProps<'table'>) {
+// table in foreground text. The container still scrolls for wide tables. A
+// table that can overflow passes tabIndex, role and aria-label to the
+// container through containerProps, so the keyboard can scroll it.
+function Table({
+  className,
+  containerProps,
+  ...props
+}: React.ComponentProps<'table'> & {
+  containerProps?: React.ComponentProps<'div'>
+}) {
   return (
     <div
       data-slot="table-container"
-      className="relative w-full overflow-x-auto"
+      {...containerProps}
+      className={cn(
+        'relative w-full overflow-x-auto',
+        containerProps?.className,
+      )}
     >
       <table
         data-slot="table"
@@ -71,7 +82,7 @@ function TableHead({ className, ...props }: React.ComponentProps<'th'>) {
     <th
       data-slot="table-head"
       className={cn(
-        'min-h-10 px-2 py-2 text-left align-middle font-semibold text-foreground',
+        'px-2 py-2 text-left align-middle font-semibold text-foreground',
         className,
       )}
       {...props}

@@ -29,7 +29,6 @@ The init script only runs when the `db-data` volume is created empty. If the vol
 
 `pnpm test` needs `DATABASE_URL_TEST` set, from `.env` or the shell; without it the run stops and says how to set it. Before any test runs it applies the migrations to the test database. If nothing answers at the URL's host and port and the host is local, it starts the compose database with `docker compose up --detach --wait db` and stops it again when the run ends. Without Docker, start PostgreSQL yourself. CI has to provide the variable and a database the same way.
 
-Some of these commands depend on backlog items that are not done yet:
+`pnpm db:seed` runs `prisma/seed.ts` through tsx. It deletes the demo projects TOK and DEMO, with everything in them, and creates them again, so running it twice leaves the same data as running it once. Projects with other keys are not touched. Due dates and activity times are relative to the time of the run.
 
-- `pnpm db:seed` needs the seed script from F04.
-- `pnpm test:e2e` needs the Playwright setup from F06.
+`pnpm test:e2e` needs the Playwright setup from F06, which is not done yet.

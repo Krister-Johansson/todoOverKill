@@ -16,6 +16,10 @@ export default defineConfig(({ mode }) => {
     test: {
       environment: 'jsdom',
       include: ['src/**/*.test.{ts,tsx}'],
+      // The test files share one database, and db.test.ts expects it empty
+      // while seed.test.ts fills it. Run files one at a time until F06 adds a
+      // per-file reset.
+      fileParallelism: false,
       // Applies migrations to the DATABASE_URL_TEST database.
       globalSetup: ['./src/test/global-setup.ts'],
     },

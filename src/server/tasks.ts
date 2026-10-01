@@ -72,17 +72,35 @@ async function missingLabel(
 }
 
 /**
- * A label deleted between the check and the TaskLabel write trips the
- * foreign key (P2003). Returns that label's NotFoundError, or `error`
+ * The foreign key a P2003 names, such as `Task_statusId_fkey`. The pg driver
+ * adapter reports it in `meta.driverAdapterError`.
+ */
+function foreignKeyOf(error: Prisma.PrismaClientKnownRequestError) {
+  const meta = error.meta as
+    | {
+        driverAdapterError?: { cause?: { constraint?: { index?: string } } }
+      }
+    | undefined
+  return meta?.driverAdapterError?.cause?.constraint?.index
+}
+
+/**
+ * A status or label deleted between the check and the write trips its
+ * foreign key (P2003). Returns that record's NotFoundError, or `error`
  * unchanged when it is anything else.
  */
-async function orDeletedLabel(
+async function orDeletedReference(
   error: unknown,
-  labelIds: Array<string> | undefined,
+  { statusId, labelIds }: { statusId?: string; labelIds?: Array<string> },
 ) {
-  if (!labelIds || !isPrismaError(error, 'P2003')) return error
-  const missing = await missingLabel(db, labelIds)
-  return missing ? labelNotFound(missing) : error
+  if (!isPrismaError(error, 'P2003')) return error
+  const key = foreignKeyOf(error)
+  if (key === 'Task_statusId_fkey' && statusId) return statusNotFound(statusId)
+  if (key === 'TaskLabel_labelId_fkey' && labelIds) {
+    const missing = await missingLabel(db, labelIds)
+    if (missing) return labelNotFound(missing)
+  }
+  return error
 }
 
 /**
@@ -138,6 +156,8 @@ function orderAt(orders: Array<number>, index: number | undefined) {
 export async function createTask(projectId: string, input: CreateTaskInput) {
   const id = projectIdSchema.parse(projectId)
   const { statusId, dueDate, labelIds, ...data } = createTaskSchema.parse(input)
+  // The status the task goes in, for the error if it is deleted meanwhile.
+  let chosenStatusId: string | undefined
   try {
     return await db.$transaction(
       async (tx) => {
@@ -163,6 +183,7 @@ export async function createTask(projectId: string, input: CreateTaskInput) {
             'The project has no statuses. Add a status first.',
           )
         }
+        chosenStatusId = status.id
         const missing = await missingLabel(tx, labelIds ?? [], id)
         if (missing) throw labelNotFound(missing)
         const { _max } = await tx.task.aggregate({
@@ -203,7 +224,10 @@ export async function createTask(projectId: string, input: CreateTaskInput) {
   } catch (error) {
     // The failed update aborts the transaction, so the catch sits outside it.
     if (isPrismaError(error, 'P2025')) throw projectNotFound(id)
-    throw await orDeletedLabel(error, labelIds)
+    throw await orDeletedReference(error, {
+      statusId: chosenStatusId,
+      labelIds,
+    })
   }
 }
 
@@ -339,7 +363,7 @@ export async function updateTask(id: string, patch: UpdateTaskInput) {
     )
   } catch (error) {
     // The failed write aborts the transaction, so the catch sits outside it.
-    throw await orDeletedLabel(error, labelIds)
+    throw await orDeletedReference(error, { labelIds })
   }
 }
 

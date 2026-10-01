@@ -328,6 +328,32 @@ describe('createTask', () => {
     await expect(db.task.count()).resolves.toBe(0)
   })
 
+  it.each([
+    ['the given status', true],
+    ['the first status', false],
+  ])(
+    'throws NotFoundError when %s is deleted before the write',
+    async (_, given) => {
+      const project = await createWebsite()
+      const status = project.statuses[given ? 1 : 0]
+
+      const attempt = whileDeleting(
+        (tx) => tx.status.delete({ where: { id: status.id } }),
+        () =>
+          createTask(project.id, {
+            title: 'Write copy',
+            statusId: given ? status.id : undefined,
+          }),
+      )
+
+      await expect(attempt).rejects.toBeInstanceOf(NotFoundError)
+      await expect(attempt).rejects.toMatchObject({
+        message: `No status with id ${status.id} in this project.`,
+      })
+      await expect(db.task.count()).resolves.toBe(0)
+    },
+  )
+
   it('rejects invalid input without writing anything', async () => {
     const project = await createWebsite()
 

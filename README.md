@@ -18,8 +18,11 @@ pnpm db:seed                  # demo data
 pnpm dev                      # http://localhost:3000
 pnpm test                     # vitest
 pnpm test:e2e                 # playwright, includes axe checks
+pnpm check:contrast           # contrast of the theme tokens, light and dark
 pnpm lint && pnpm typecheck
 ```
+
+`pnpm lint` runs ESLint and then `pnpm check:contrast`, which reads the theme tokens in `src/styles.css` and fails if a pair listed in `scripts/check-contrast.ts` is under 7:1 for text or 3:1 for borders and the focus ring. A new colour token needs a value in both themes and a row in that list, or the check fails. It also fails if a class under `src/` draws the focus ring at reduced opacity, such as `ring-ring/50`, because that renders a colour it did not check.
 
 The compose file creates a `todo` user with password `todo` and the database `todo_over_kill`. Its init script also creates `todo_over_kill_test`, the database for `DATABASE_URL_TEST`. `pnpm dev`, `pnpm build`, and `pnpm preview` read `.env`. Variables exported in your shell override the values in `.env`. The dev and preview servers exit with a list of the missing or invalid variables if validation fails. `DATABASE_URL_TEST` is required at startup even though only the tests connect to it. The built `dist/server/server.js` runs the same check when it loads, but it does not read `.env`, so anything that loads it outside `pnpm preview` has to set the variables itself, for example with `node --env-file=.env`.
 

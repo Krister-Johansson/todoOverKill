@@ -177,7 +177,7 @@ const shortcuts: Array<Shortcut> = [
     action:
       'From the top of a page, the first Tab shows "Skip to content". Enter then jumps past the menu to the page.',
   },
-  { keys: ['c'], action: 'Make a new task.', later: true },
+  { keys: ['c'], action: 'Make a new task.' },
   {
     keys: ['Ctrl', 'K'],
     kind: 'combo',

@@ -145,7 +145,7 @@ describe('help route', () => {
       within(table).getAllByText(
         'Not available yet. Arrives in a later release.',
       ),
-    ).toHaveLength(3)
+    ).toHaveLength(2)
     expect(
       screen.getByRole('link', { name: 'Settings' }).getAttribute('href'),
     ).toBe('/settings')

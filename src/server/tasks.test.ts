@@ -596,6 +596,22 @@ describe('moveTask', () => {
     expect(rows).toEqual([])
   })
 
+  it('keeps the first task in place when given its current status and no index', async () => {
+    const { project, backlog, tasks } = await createBoard()
+
+    const rows = await newActivity(project.id, async () => {
+      await expect(
+        moveTask(tasks.A.id, { statusId: backlog.id }),
+      ).resolves.toEqual(tasks.A)
+    })
+
+    expect(rows).toEqual([])
+    await expect(columnOf(backlog.id)).resolves.toEqual(['A', 'B', 'C'])
+    await expect(
+      db.task.findUniqueOrThrow({ where: { id: tasks.A.id } }),
+    ).resolves.toMatchObject({ order: tasks.A.order, completedAt: null })
+  })
+
   it('counts the place of tasks with equal orders by number', async () => {
     const { project, backlog, tasks } = await createBoard()
     const tied = await db.task.update({

@@ -413,6 +413,31 @@ describe('PATCH /api/v1/tasks/:id', () => {
     )
   })
 
+  it('renames the task in place when the body repeats its current status', async () => {
+    const { project, copy, backlog } = await createBoard()
+    const before = await activityTypes(project.id)
+
+    const { status, json } = await patch(copy.id, {
+      title: 'Write the copy',
+      statusId: backlog.id,
+    })
+
+    expect(status).toBe(200)
+    expect(json).toMatchObject({
+      title: 'Write the copy',
+      statusId: backlog.id,
+      order: copy.order,
+    })
+    expect(titles((await list(project.id)).json)).toEqual([
+      'Write the copy',
+      'Deploy',
+      'Draw the logo',
+    ])
+    expect(await activityTypes(project.id)).toEqual(
+      [...before, 'task.updated'].sort(),
+    )
+  })
+
   it('returns 404 for a status of another project and changes nothing', async () => {
     const { project, other, copy } = await createBoard()
     const before = await activityTypes(project.id)

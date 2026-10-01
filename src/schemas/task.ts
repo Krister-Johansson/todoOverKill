@@ -60,7 +60,8 @@ const moveFields = {
 
 /**
  * Moves the task to `statusId` (default: its current status) at `index` among
- * that column's other tasks (default: the end).
+ * that column's other tasks (default: the end of another status, or its
+ * current place when `statusId` is the current status).
  */
 export const moveTaskSchema = z
   .object(moveFields)

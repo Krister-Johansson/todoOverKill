@@ -42,10 +42,19 @@ const DESCRIPTION = [
   '[run](javascript:alert(1)) and [docs](https://example.com/docs)',
 ].join('\n')
 
+// The title the overdue task was created with: one unbroken word, so the
+// 320 px check covers an activity sentence that has to break inside a word.
+const FIRST_TITLE = `Ship${'thefix'.repeat(20)}`
+
+const MINUTE = 60 * 1000
+const HOUR = 60 * MINUTE
+const DAY = 24 * HOUR
+
 /**
  * A project with two labels, an overdue high priority task in Backlog with
- * both labels and a Markdown description, and a completed task in Done with
- * a past due date, no description and no labels.
+ * both labels, a Markdown description and four activity rows, and a
+ * completed task in Done with a past due date, no description, no labels and
+ * no activity. The task.moved row has no number, as the demo seed writes it.
  */
 async function seedTasks(label: string) {
   const { name, key } = unique(label)
@@ -90,6 +99,26 @@ async function seedTasks(label: string) {
       },
     },
   })
+  const now = Date.now()
+  const event = (type: string, payload: object, ago: number) => ({
+    projectId: project.id,
+    taskId: overdue.id,
+    type,
+    payload,
+    createdAt: new Date(now - ago),
+  })
+  await db.activity.createMany({
+    data: [
+      event('task.created', { number: 1, title: FIRST_TITLE }, 3 * DAY),
+      event(
+        'task.updated',
+        { number: 1, fields: ['title', 'dueDate'] },
+        2 * DAY,
+      ),
+      event('task.completed', { number: 1 }, 2 * HOUR),
+      event('task.moved', { from: 'Done', to: 'Backlog' }, 5 * MINUTE),
+    ],
+  })
   const completed = await db.task.create({
     data: {
       projectId: project.id,
@@ -127,6 +156,14 @@ function field(page: Page, term: string) {
 
 function description(page: Page) {
   return page.getByRole('region', { name: 'Description' })
+}
+
+function activity(page: Page) {
+  return page.getByRole('region', { name: 'Activity' })
+}
+
+function activitySentences(page: Page) {
+  return activity(page).getByRole('listitem').locator('p')
 }
 
 async function hasHorizontalPageScroll(page: Page) {
@@ -245,6 +282,80 @@ test('a completed task is not overdue and says what it lacks', async ({
   await expect(main(page).getByText('Overdue')).toHaveCount(0)
 })
 
+test('the activity log reads as sentences with both times', async ({
+  page,
+}) => {
+  const { overdue } = await seedTasks('Activity')
+  await openTask(page, overdue.id)
+
+  await expect(
+    page.getByRole('heading', { level: 2, name: 'Activity' }),
+  ).toBeVisible()
+  await expect(activitySentences(page)).toHaveText([
+    `Created the task “${FIRST_TITLE}”.`,
+    'Changed the title and the due date.',
+    'Completed the task.',
+    'Moved from Done to Backlog.',
+  ])
+  const times = activity(page).locator('time')
+  await expect(times).toHaveCount(4)
+  for (const time of await times.all()) {
+    await expect(time).toHaveAttribute(
+      'datetime',
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+    )
+    await expect(time).toBeVisible()
+    // The absolute date and time, in the local zone.
+    await expect(time).toHaveText(
+      /\([A-Z][a-z]{2} \d{1,2}, \d{4}, \d{1,2}:\d{2}\s[AP]M\)$/,
+    )
+  }
+  await expect(times).toHaveText([
+    /^3 days ago /,
+    /^2 days ago /,
+    /^2 hours ago /,
+    /^5 minutes ago /,
+  ])
+})
+
+test('a task without activity says so', async ({ page }) => {
+  const { completed } = await seedTasks('No activity')
+  await openTask(page, completed.id)
+
+  await expect(activity(page)).toContainText('No activity yet')
+  await expect(activity(page).getByRole('list')).toHaveCount(0)
+})
+
+test('a move from the board shows in the log without a reload', async ({
+  page,
+}) => {
+  const { project, overdue } = await seedTasks('Move log')
+  const reference = `${project.key}-1`
+  // The first visit caches the activity, so the move has to invalidate it.
+  await openTask(page, overdue.id)
+  await expect(activitySentences(page)).toHaveCount(4)
+  await page.evaluate(() => {
+    ;(window as { noReload?: boolean }).noReload = true
+  })
+
+  await main(page).getByRole('link', { name: project.name }).click()
+  await page.getByRole('button', { name: `Move ${reference}` }).click()
+  await page.getByRole('menuitemradio', { name: 'Done' }).click()
+  await expect(page.locator('[aria-live="polite"]')).toHaveText(
+    `Moved ${reference} to Done`,
+  )
+  await page.getByRole('link', { name: new RegExp(`${reference}\\b`) }).click()
+
+  // The log refetches when the page mounts, so this waits for the new row.
+  await expect(activitySentences(page).last()).toHaveText(
+    'Moved from Backlog to Done.',
+  )
+  await expect(activitySentences(page)).toHaveCount(5)
+  expect(
+    await page.evaluate(() => (window as { noReload?: boolean }).noReload),
+  ).toBe(true)
+})
+
 for (const theme of ['light', 'dark'] as const) {
   test(`the task page has no axe violations in the ${theme} theme`, async ({
     page,
@@ -264,6 +375,7 @@ test('at 320 px the page does not scroll sideways', async ({ page }) => {
   const { overdue } = await seedTasks('Narrow')
   await openTask(page, overdue.id)
 
+  await expect(activitySentences(page).first()).toContainText(FIRST_TITLE)
   expect(await hasHorizontalPageScroll(page)).toBe(false)
   // The long code line scrolls inside its own region, which is then a Tab
   // stop so keyboard users can scroll it.

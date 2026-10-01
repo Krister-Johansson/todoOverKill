@@ -257,6 +257,11 @@ Every route sets `title` and breadcrumb items from loader data.
 Depends on: F24.
 Acceptance: e2e asserts the title on each route.
 
+### F50 Require passing CI checks before merging to main (#56)
+Add a `required_status_checks` rule to the `main` ruleset listing every CI job by name, with the up-to-date requirement. The ruleset already requires a pull request, resolved conversations, and blocks force pushes and deletion.
+Depends on: F06.
+Acceptance: a PR with a failing check cannot merge; `docs/architecture.md` gains a "Repository rules" paragraph.
+
 ### F49 README (#49)
 Setup, commands, architecture summary with links to `docs/`, how to connect an MCP client, how to try voice and WebMCP in Chrome.
 Depends on: F43.

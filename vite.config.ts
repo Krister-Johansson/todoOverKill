@@ -53,12 +53,6 @@ export default defineConfig(async ({ command, mode }) => {
     // Preview or handoff, pick a free port for each.
     server: { port: Number(process.env.PORT) || 5173 },
     resolve: { tsconfigPaths: true },
-    plugins: [
-      devtools(),
-      tailwindcss(),
-      // Tests sit next to the REST routes they cover; they are not routes.
-      tanstackStart({ router: { routeFileIgnorePattern: '\\.test\\.tsx?$' } }),
-      viteReact(),
-    ],
+    plugins: [devtools(), tailwindcss(), tanstackStart(), viteReact()],
   }
 })

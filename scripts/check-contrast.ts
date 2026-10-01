@@ -104,6 +104,9 @@ const PAIRS: Array<Pair> = [
   // Filled primary buttons against the page, so the button edge is visible.
   ui('primary', 'background'),
   ui('primary', 'card'),
+  // The switch thumb on the unchecked and checked track.
+  ui('background', 'input'),
+  ui('background', 'primary'),
   // The focus ring against everything it can be drawn over or next to.
   ...RING_SURFACES.map((bg) => ui('ring', bg)),
   ui('sidebar-ring', 'sidebar'),

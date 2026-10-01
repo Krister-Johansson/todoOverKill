@@ -1,6 +1,7 @@
 import * as z from 'zod'
 
 import { Priority } from '#/generated/prisma/enums'
+import { labelIdsSchema } from '#/schemas/label'
 import { statusIdSchema } from '#/schemas/status'
 
 export const taskIdSchema = z.string().min(1)
@@ -35,11 +36,13 @@ export const createTaskSchema = z.strictObject({
   statusId: statusIdSchema.optional(),
   priority: taskPrioritySchema.default('none'),
   dueDate: dueDateSchema.nullish(),
+  labelIds: labelIdsSchema.optional(),
 })
 
 /**
- * Every field is optional. `null` clears the description or due date. Status
- * and order change through moveTask.
+ * Every field is optional. `null` clears the description or due date, and
+ * `labelIds` replaces the whole label set (`[]` clears it). Status and order
+ * change through moveTask.
  */
 export const updateTaskSchema = z
   .object({
@@ -47,6 +50,7 @@ export const updateTaskSchema = z
     description: descriptionSchema.nullable(),
     priority: taskPrioritySchema,
     dueDate: dueDateSchema.nullable(),
+    labelIds: labelIdsSchema,
   })
   .partial()
 

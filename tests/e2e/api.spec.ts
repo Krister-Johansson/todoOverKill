@@ -20,6 +20,10 @@ const name = `REST ${run}`
 const db = createTestPrismaClient()
 
 test.afterAll(async () => {
+  // Tasks first: the project's cascade can reach a status while a task still
+  // points at it, which the RESTRICT key on Task.statusId refuses, and that
+  // would leave the project behind when an assertion fails mid-flow.
+  await db.task.deleteMany({ where: { project: { key } } })
   await db.project.deleteMany({ where: { key } })
   await db.$disconnect()
 })

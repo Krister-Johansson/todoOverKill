@@ -25,8 +25,11 @@ export const dueDateSchema = z.iso.date({
   error: 'Date must be a calendar day such as 2026-10-01.',
 })
 
-/** Without a statusId the task goes into the project's first status. */
-export const createTaskSchema = z.object({
+/**
+ * Without a statusId the task goes into the project's first status. Strict, so
+ * a misspelled field is a 400 rather than silently dropped.
+ */
+export const createTaskSchema = z.strictObject({
   title: taskTitleSchema,
   description: descriptionSchema.nullish(),
   statusId: statusIdSchema.optional(),
@@ -68,9 +71,11 @@ export const moveTaskSchema = z
 
 /**
  * The REST PATCH body: the update fields and the move fields together. Every
- * field is optional, so `{}` is valid and changes nothing.
+ * field is optional, so `{}` is valid and changes nothing. Strict, so a body
+ * such as `{ status }` (the list filter's name for statusId) is a 400 instead
+ * of a 200 that changed nothing.
  */
-export const patchTaskSchema = updateTaskSchema.extend(moveFields)
+export const patchTaskSchema = updateTaskSchema.extend(moveFields).strict()
 
 /** Matched against title and description, ignoring case. Blank means no filter. */
 const searchTextSchema = z
@@ -105,15 +110,24 @@ export const dueFilterSchema = z.enum(['overdue', 'today', 'week'], {
 })
 
 /**
- * The REST list query, with F23's filter names. The route turns `due` into a
- * due range for listTasks.
+ * A query parameter where an empty value means absent: an HTML GET form and
+ * the filter bar send `?priority=` for a filter nobody picked.
  */
-export const listTasksQuerySchema = z.object({
-  status: statusIdSchema.optional(),
-  priority: taskPrioritySchema.optional(),
-  label: z.string().min(1).optional(),
-  due: dueFilterSchema.optional(),
-  q: searchTextSchema,
+function queryParam<T extends z.ZodType>(schema: T) {
+  return z.preprocess((value) => (value === '' ? undefined : value), schema)
+}
+
+/**
+ * The REST list query, with F23's filter names. The route turns `due` into a
+ * due range for listTasks. Strict, so an unknown filter such as `?statusId=`
+ * is a 400 rather than an unfiltered list.
+ */
+export const listTasksQuerySchema = z.strictObject({
+  status: queryParam(statusIdSchema.optional()),
+  priority: queryParam(taskPrioritySchema.optional()),
+  label: queryParam(z.string().min(1).optional()),
+  due: queryParam(dueFilterSchema.optional()),
+  q: queryParam(searchTextSchema),
 })
 
 // Input types, because the services parse what they are given.

@@ -20,6 +20,13 @@ describe('createTaskSchema', () => {
     expect(createTaskSchema.safeParse({ title }).success).toBe(false)
   })
 
+  it('rejects an unknown field', () => {
+    const result = createTaskSchema.safeParse({ title: 'Ship', status: 's1' })
+    expect(result.error?.issues).toEqual([
+      expect.objectContaining({ code: 'unrecognized_keys', keys: ['status'] }),
+    ])
+  })
+
   it('accepts a 200 character title', () => {
     const title = 'x'.repeat(200)
     expect(createTaskSchema.parse({ title }).title).toBe(title)
@@ -173,7 +180,30 @@ describe('listTasksQuerySchema', () => {
     ])
   })
 
-  it.each(['soon', ''])('rejects the due value %j', (due) => {
+  it('treats an empty value as absent for every filter', () => {
+    expect(
+      listTasksQuerySchema.parse({
+        status: '',
+        priority: '',
+        label: '',
+        due: '',
+        q: '',
+      }),
+    ).toEqual({})
+  })
+
+  it.each(['statusId', 'completed', 'dueFrom'])(
+    'rejects the unknown filter %s',
+    (name) => {
+      const result = listTasksQuerySchema.safeParse({ [name]: 'x' })
+      expect(result.error?.issues).toEqual([
+        expect.objectContaining({ code: 'unrecognized_keys', keys: [name] }),
+      ])
+    },
+  )
+
+  it('rejects an unknown due value', () => {
+    const due = 'soon'
     const result = listTasksQuerySchema.safeParse({ due })
     expect(result.error?.issues.map((issue) => issue.path)).toEqual([['due']])
     expect(result.error?.issues[0].message).toBe(
@@ -196,5 +226,12 @@ describe('patchTaskSchema', () => {
   it.each([-1, 1.5])('rejects the index %j', (index) => {
     const result = patchTaskSchema.safeParse({ index })
     expect(result.error?.issues.map((issue) => issue.path)).toEqual([['index']])
+  })
+
+  it('rejects an unknown field', () => {
+    const result = patchTaskSchema.safeParse({ status: 's1' })
+    expect(result.error?.issues).toEqual([
+      expect.objectContaining({ code: 'unrecognized_keys', keys: ['status'] }),
+    ])
   })
 })

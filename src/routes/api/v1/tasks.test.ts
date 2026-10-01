@@ -115,14 +115,35 @@ describe('GET /api/v1/projects/:id/tasks', () => {
     expect(titles(json)).toEqual(['Write copy'])
   })
 
-  it('ignores an empty q', async () => {
+  it('treats an empty value as absent for every filter', async () => {
     const { project } = await createBoard()
 
-    const { status, json } = await list(project.id, '?q=')
+    const { status, json } = await list(
+      project.id,
+      '?status=&priority=&label=&due=&q=',
+    )
 
     expect(status).toBe(200)
     expect(json).toHaveLength(3)
   })
+
+  it.each(['statusId=x', 'completed=false', 'dueFrom=2026-10-01'])(
+    'returns 400 for the unknown filter ?%s',
+    async (query) => {
+      const { project } = await createBoard()
+
+      const { status, json } = await list(project.id, `?${query}`)
+
+      expect(status).toBe(400)
+      expect(json.error.code).toBe('validation')
+      expect(json.error.issues).toEqual([
+        expect.objectContaining({
+          code: 'unrecognized_keys',
+          keys: [query.split('=')[0]],
+        }),
+      ])
+    },
+  )
 
   it('filters by due today and due this week', async () => {
     const project = await createProject({ name: 'Website', key: 'WEB' })
@@ -176,15 +197,6 @@ describe('GET /api/v1/projects/:id/tasks', () => {
     expect(issuePaths(json)).toEqual(
       expect.arrayContaining([['priority'], ['due']]),
     )
-  })
-
-  it('returns 400 for an empty due', async () => {
-    const { project } = await createBoard()
-
-    const { status, json } = await list(project.id, '?due=')
-
-    expect(status).toBe(400)
-    expect(issuePaths(json)).toEqual([['due']])
   })
 
   it('returns 404 not_found for an unknown project', async () => {
@@ -246,6 +258,21 @@ describe('POST /api/v1/projects/:id/tasks', () => {
 
     expect(status).toBe(400)
     expect(issuePaths(json)).toEqual([['title']])
+    expect(await db.task.count()).toBe(0)
+  })
+
+  it('returns 400 for an unknown field and creates nothing', async () => {
+    const project = await createProject({ name: 'Website', key: 'WEB' })
+
+    const { status, json } = await create(project.id, {
+      title: 'Write copy',
+      status: project.statuses[1].id,
+    })
+
+    expect(status).toBe(400)
+    expect(json.error.issues).toEqual([
+      expect.objectContaining({ code: 'unrecognized_keys', keys: ['status'] }),
+    ])
     expect(await db.task.count()).toBe(0)
   })
 
@@ -417,6 +444,29 @@ describe('PATCH /api/v1/tasks/:id', () => {
     expect(task.title).toBe('Write copy')
     expect(await activityTypes(project.id)).toEqual(before)
   })
+
+  it.each([
+    ['status', (doneId: string) => ({ status: doneId })],
+    ['order', () => ({ order: 2 })],
+    ['completed', () => ({ completed: true })],
+  ] as const)(
+    'returns 400 for the unknown field %s and changes nothing',
+    async (key, makeBody) => {
+      const { project, copy, done } = await createBoard()
+      const before = await activityTypes(project.id)
+
+      const { status, json } = await patch(copy.id, makeBody(done.id))
+
+      expect(status).toBe(400)
+      expect(json.error.code).toBe('validation')
+      expect(json.error.issues).toEqual([
+        expect.objectContaining({ code: 'unrecognized_keys', keys: [key] }),
+      ])
+      const task = await db.task.findUniqueOrThrow({ where: { id: copy.id } })
+      expect(task).toMatchObject({ statusId: copy.statusId, completedAt: null })
+      expect(await activityTypes(project.id)).toEqual(before)
+    },
+  )
 
   it('returns the task unchanged for an empty body', async () => {
     const { project, copy } = await createBoard()

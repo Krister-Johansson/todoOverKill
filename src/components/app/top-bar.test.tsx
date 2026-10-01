@@ -7,16 +7,24 @@ import {
   createRoute,
   createRouter,
 } from '@tanstack/react-router'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { LiveRegionProvider } from './live-region'
 import { TopBar } from './top-bar'
 
+const fetchProject = vi.hoisted(() => vi.fn())
+
 vi.mock('#/fns/projects', () => ({
   projectQueryOptions: (id: string) => ({
     queryKey: ['projects', id],
-    queryFn: vi.fn(),
+    queryFn: fetchProject,
   }),
 }))
 
@@ -27,7 +35,10 @@ vi.mock('#/fns/tasks', () => ({
   }),
 }))
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  fetchProject.mockReset()
+})
 
 const project = {
   id: 'p1',
@@ -73,6 +84,7 @@ async function renderAt(path: string) {
     </QueryClientProvider>,
   )
   await screen.findByRole('heading', { level: 1 })
+  return queryClient
 }
 
 describe('TopBar', () => {
@@ -98,5 +110,25 @@ describe('TopBar', () => {
     expect(screen.queryByRole('button', { name: 'New task' })).toBeNull()
     fireEvent.keyDown(document.body, { key: 'c' })
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('fetches a project missing from the cache once, without retries', async () => {
+    fetchProject.mockRejectedValue(new Error('No project with id gone.'))
+    const queryClient = await renderAt('/projects/gone')
+
+    // With retries the query stays pending for seconds of backoff.
+    await waitFor(() =>
+      expect(queryClient.getQueryState(['projects', 'gone'])?.status).toBe(
+        'error',
+      ),
+    )
+    expect(fetchProject).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('button', { name: 'New task' })).toBeNull()
+  })
+
+  it('does not fetch a project the loader already cached', async () => {
+    await renderAt('/projects/p1')
+
+    expect(fetchProject).not.toHaveBeenCalled()
   })
 })

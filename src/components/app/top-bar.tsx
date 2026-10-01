@@ -16,11 +16,14 @@ export function TopBar({ currentPage }: { currentPage: string }) {
   const { projectId } = useParams({ strict: false })
   // The project layout's loader fills this cache entry before the page
   // renders, on the server too, so the button is in the first paint and
-  // this query starts no fetch of its own.
+  // mounting starts no refetch. When the loader found no project the entry is
+  // empty, and this query fetches once without retries before the button
+  // stays hidden.
   const { data: project } = useQuery({
     ...projectQueryOptions(projectId ?? ''),
     enabled: !!projectId,
     refetchOnMount: false,
+    retry: false,
   })
 
   return (

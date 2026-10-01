@@ -180,12 +180,13 @@ export async function getTask(id: string) {
 /**
  * A project's tasks in board order: by status, then by order within the
  * status, with the task number breaking ties as `moveTask` does. Only the filters given apply, and all of them must match. The due
- * range includes both ends and leaves out tasks with no due date. Throws
- * NotFoundError for an unknown project.
+ * range includes both ends and leaves out tasks with no due date. `completed:
+ * false` keeps only tasks with no `completedAt`, `true` only those with one.
+ * Throws NotFoundError for an unknown project.
  */
 export async function listTasks(projectId: string, input: ListTasksInput = {}) {
   const id = projectIdSchema.parse(projectId)
-  const { statusId, priority, labelId, dueFrom, dueTo, q } =
+  const { statusId, priority, labelId, dueFrom, dueTo, completed, q } =
     listTasksSchema.parse(input)
   const project = await db.project.findUnique({
     where: { id },
@@ -201,6 +202,9 @@ export async function listTasks(projectId: string, input: ListTasksInput = {}) {
       gte: dueFrom ? toCalendarDate(dueFrom) : undefined,
       lte: dueTo ? toCalendarDate(dueTo) : undefined,
     }
+  }
+  if (completed !== undefined) {
+    where.completedAt = completed ? { not: null } : null
   }
   if (q) {
     where.OR = [
@@ -272,10 +276,12 @@ export async function updateTask(id: string, patch: UpdateTaskInput) {
  * Moves the task to another status, to another place in its column, or both,
  * and writes a `task.moved` row. `index` counts the destination column's
  * other tasks, so index 0 is the top, and an index past the end appends.
- * Entering a done-category status sets `completedAt` (kept if already set),
- * leaving one clears it, and a reorder within one status keeps it as it is. A
- * move that leaves the task where it is writes nothing. Throws NotFoundError for an
- * unknown task or a status outside its project.
+ * Without an index the task goes to the end of another status, and stays where
+ * it is when `statusId` is its current status. Entering a done-category status
+ * sets `completedAt` (kept if already set), leaving one clears it, and a
+ * reorder within one status keeps it as it is. A move that leaves the task
+ * where it is writes nothing. Throws NotFoundError for an unknown task or a
+ * status outside its project.
  */
 export async function moveTask(id: string, input: MoveTaskInput) {
   const taskId = taskIdSchema.parse(id)
@@ -308,7 +314,10 @@ export async function moveTask(id: string, input: MoveTaskInput) {
             other.order < task.order ||
             (other.order === task.order && other.number < task.number),
         ).length
-        const target = Math.min(index ?? others.length, others.length)
+        // Without an index the task stays where it is, so a client that sends
+        // back the whole edit form with the current status does not move it.
+        const target =
+          index === undefined ? current : Math.min(index, others.length)
         if (target === current) return flatten(task)
       }
       let order = orderAt(

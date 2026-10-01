@@ -4,6 +4,8 @@
  * to read today's date.
  */
 
+import type { DueFilter, ListTasksInput } from '#/schemas/task'
+
 /** The local calendar day of `now`, as `YYYY-MM-DD`. */
 export function toCalendarDay(now: Date) {
   const year = String(now.getFullYear()).padStart(4, '0')
@@ -27,4 +29,31 @@ export function formatDueDate(day: string) {
 /** True when `day` is before `today`. Today itself is not past. */
 export function isPastDay(day: string, today: string) {
   return day < today
+}
+
+/** `day` moved by `days`, worked out in UTC so no zone offset can shift it. */
+function addDays(day: string, days: number) {
+  const date = new Date(`${day}T00:00:00Z`)
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
+/**
+ * The listTasks filters for a due preset, counted from `today`. Today and week
+ * include both ends; week is today and the six days after it. Overdue is due
+ * before today and not completed, the same rule the board card uses for its
+ * Overdue mark, so a done task due yesterday is left out.
+ */
+export function dueFilterRange(
+  due: DueFilter,
+  today: string,
+): Pick<ListTasksInput, 'dueFrom' | 'dueTo' | 'completed'> {
+  switch (due) {
+    case 'overdue':
+      return { dueTo: addDays(today, -1), completed: false }
+    case 'today':
+      return { dueFrom: today, dueTo: today }
+    case 'week':
+      return { dueFrom: today, dueTo: addDays(today, 6) }
+  }
 }

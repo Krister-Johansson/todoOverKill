@@ -6,8 +6,10 @@ export const ACTIVITY_TYPES = {
   projectCreated: 'project.created',
   projectArchived: 'project.archived',
   taskCreated: 'task.created',
+  taskUpdated: 'task.updated',
   taskMoved: 'task.moved',
   taskCompleted: 'task.completed',
+  taskDeleted: 'task.deleted',
   commentAdded: 'comment.added',
   subtaskAdded: 'subtask.added',
 } as const

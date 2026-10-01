@@ -37,14 +37,15 @@ src/
     ui/                     shadcn primitives (generated, edit sparingly)
     app/                    Composed components: sidebar, top-bar, live-region, task-card, board-column, assistant-panel, voice-button, ...
   server/
-    projects.ts             Service functions: createProject, listProjects, ...
+    projects.ts             Service functions: createProject, listProjects, ...; DEFAULT_STATUSES
     statuses.ts
     tasks.ts
     subtasks.ts
     labels.ts
     comments.ts
-    activity.ts
+    activity.ts             ACTIVITY_TYPES, the activity type strings
     search.ts
+    errors.ts               NotFoundError and ConflictError, thrown by services
     db.ts                   Prisma client singleton
     seed.ts                 Demo data for pnpm db:seed (projects TOK and DEMO)
   fns/                      createServerFn wrappers used by routes and client tools
@@ -88,13 +89,17 @@ Activity    id, taskId, projectId, type, payload (json), createdAt
 
 Task numbers come from `Project.nextTaskNumber`, incremented inside the same transaction that creates the task. Statuses are per project so users can rename or add columns. Every new project gets Backlog, Todo, In progress, Done. `order` fields are floats to allow cheap reorders.
 
-The activity log is append-only and written by the service layer, never directly by a route or tool.
+The activity log is append-only and written by the service layer, never directly by a route or tool. The types are listed in `ACTIVITY_TYPES` in `src/server/activity.ts`. So far: `project.created` and `project.archived` from the projects service, and the task, subtask, and comment types that the seed writes. Restoring a project writes no row.
 
 `prisma/schema.prisma` adds these rules to the field list. Ids are `cuid(2)` strings. `Project.key` is unique, and so are `(projectId, number)` on Task and `(projectId, name)` on Label. Deleting a Project deletes its statuses, tasks, labels, and activity. Deleting a Task deletes its subtasks, task labels, and comments. A Status that tasks still use cannot be deleted (the foreign key is `RESTRICT`), so a service that removes a status has to move its tasks first. `Activity.taskId` is nullable and set to null when the task is deleted, so the project history keeps the entry. `dueDate` is a PostgreSQL `date`: a calendar day with no time or zone. TaskLabel has `(taskId, labelId)` as its primary key and a separate index on `labelId` for filtering tasks by label.
 
 ## Service layer
 
-`src/server/*.ts` exports plain async functions. Each takes already-validated input (the Zod-inferred type) and returns plain objects. They are the only place that touches Prisma. Server functions, REST handlers, MCP tools, and AI tools are thin: parse input with the shared Zod schema, call the service, shape the response.
+`src/server/*.ts` exports plain async functions. Each takes the schema's input type (`z.input`), parses it again with the shared Zod schema from `src/schemas/`, and returns plain objects, so a caller that skips validation still gets trimmed strings and an upper-case project key. Invalid input throws a `ZodError`. The services are the only place that touches Prisma. Server functions, REST handlers, MCP tools, and AI tools are thin: parse input with the shared Zod schema, call the service, shape the response.
+
+Services do not leak Prisma error codes. A missing record throws `NotFoundError` (`code: 'not_found'`) and a unique-rule clash, such as a taken project key, throws `ConflictError` (`code: 'conflict'`), both from `src/server/errors.ts`. The transports map these two classes, and `ZodError`, to their own error shapes.
+
+The projects service creates every project with `DEFAULT_STATUSES` (Backlog, Todo, In progress, Done) and its `project.created` row in one transaction. `listProjects` leaves archived projects out unless `includeArchived` is true. Archiving an archived project and restoring one that is not archived change nothing. The seed imports `DEFAULT_STATUSES` and `ACTIVITY_TYPES` from the services, so demo data and real data cannot drift apart.
 
 ## Web UI
 

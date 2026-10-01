@@ -1,25 +1,10 @@
 import type { Prisma, PrismaClient } from '#/generated/prisma/client'
-import type { Priority, StatusCategory } from '#/generated/prisma/enums'
+import type { Priority } from '#/generated/prisma/enums'
+import { ACTIVITY_TYPES } from '#/server/activity'
+import { DEFAULT_STATUSES } from '#/server/projects'
 
 /** The projects the seed owns. Every run deletes and recreates them. */
 export const SEED_PROJECT_KEYS = ['TOK', 'DEMO'] as const
-
-/** Activity types written by the seed. The activity service (F12) reuses them. */
-export const ACTIVITY_TYPES = {
-  projectCreated: 'project.created',
-  taskCreated: 'task.created',
-  taskMoved: 'task.moved',
-  taskCompleted: 'task.completed',
-  commentAdded: 'comment.added',
-  subtaskAdded: 'subtask.added',
-} as const
-
-const DEFAULT_STATUSES: Array<{ name: string; category: StatusCategory }> = [
-  { name: 'Backlog', category: 'todo' },
-  { name: 'Todo', category: 'todo' },
-  { name: 'In progress', category: 'in_progress' },
-  { name: 'Done', category: 'done' },
-]
 
 type StatusName = (typeof DEFAULT_STATUSES)[number]['name']
 

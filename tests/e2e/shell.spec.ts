@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 
+import { THEME_STORAGE_KEY } from '../../src/lib/theme'
 import { expectAccessible } from './accessibility'
 
 import type { Page } from '@playwright/test'
@@ -76,14 +77,9 @@ for (const name of ['Settings', 'Help']) {
 }
 
 test('the shell has no axe violations in the dark theme', async ({ page }) => {
-  // F08 adds the theme switch; until then the class is set directly.
-  // Init scripts run before the parser creates the page's own html element,
-  // so the class is added once the document is parsed.
-  await page.addInitScript(() => {
-    document.addEventListener('DOMContentLoaded', () => {
-      document.documentElement.classList.add('dark')
-    })
-  })
+  await page.addInitScript((key) => {
+    localStorage.setItem(key, 'dark')
+  }, THEME_STORAGE_KEY)
   // Waiting for the client bundle lets hydration finish, so the check below
   // fails if hydration drops the class.
   await page.goto('/', { waitUntil: 'networkidle' })

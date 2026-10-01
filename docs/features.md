@@ -143,7 +143,7 @@ Depends on: F13.
 Acceptance: keyboard sorting works; the table has a caption.
 
 ### F23 Filters in the URL (#23)
-Filter bar on board and list: status, priority, label, due (overdue, today, this week), text. State in search params validated with Zod; results count announced.
+Filter bar on board and list: status, priority, label, due (overdue, today, this week), text. State in search params (`status`, `priority`, `label`, `due`, `q`, the REST list's names) validated with Zod; an invalid value is dropped, so the view shows every task. Filtering runs in the browser on the cached tasks with the loader's `today`, and a filter or sort change reruns no loader. Results count announced ("Showing 3 of 12 tasks"). Clear filters removes the filter params and keeps the list's sort. Switching between Board and List keeps the filters. On a filtered board, Move up and Move down use the card's place in the whole column.
 Depends on: F22, F19.
 Acceptance: reload keeps filters; clearing resets the URL; announcement made.
 

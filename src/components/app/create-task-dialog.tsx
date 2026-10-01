@@ -147,8 +147,14 @@ export function CreateTaskDialog({ project }: { project: TaskProject }) {
   // next try sends.
   useEffect(() => {
     const statusId = form.getFieldValue('statusId')
-    if (!project.statuses.some((status) => status.id === statusId)) {
-      form.setFieldValue('statusId', project.statuses[0]?.id ?? '')
+    const fallback = project.statuses[0]?.id ?? ''
+    // A project with no statuses already holds the fallback, and writing it
+    // again would mark the field touched and dirty.
+    if (
+      statusId !== fallback &&
+      !project.statuses.some((status) => status.id === statusId)
+    ) {
+      form.setFieldValue('statusId', fallback)
     }
   }, [form, project.statuses])
 

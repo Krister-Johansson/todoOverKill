@@ -69,3 +69,38 @@ export function dueFilterRange(
       return { dueFrom: today, dueTo: addDays(today, 6) }
   }
 }
+
+const SECOND = 1000
+const MINUTE = 60 * SECOND
+const HOUR = 60 * MINUTE
+const DAY = 24 * HOUR
+
+// Largest first; a month is 30 days and a year 365, close enough for "ago".
+const RELATIVE_UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+  ['year', 365 * DAY],
+  ['month', 30 * DAY],
+  ['week', 7 * DAY],
+  ['day', DAY],
+  ['hour', HOUR],
+  ['minute', MINUTE],
+]
+
+// Always a number ("1 day ago"), never a calendar word ("yesterday"): the
+// count is of elapsed 24 hour or 7 day blocks, so a calendar word could
+// disagree with the absolute date shown beside it.
+const relativeFormat = new Intl.RelativeTimeFormat('en', { numeric: 'always' })
+
+/**
+ * How long before `now` a moment was, such as `2 hours ago` or `1 day ago`,
+ * in the largest whole unit. Under a minute, and any moment after `now`, is
+ * `just now`, so a row written after the page loaded never reads as future.
+ */
+export function formatRelativeTime(moment: Date, now: Date) {
+  const elapsed = now.getTime() - moment.getTime()
+  for (const [unit, size] of RELATIVE_UNITS) {
+    if (elapsed >= size) {
+      return relativeFormat.format(-Math.floor(elapsed / size), unit)
+    }
+  }
+  return 'just now'
+}

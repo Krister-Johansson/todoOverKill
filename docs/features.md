@@ -87,10 +87,20 @@ Acceptance: keyboard-only test moves a card between columns; live region announc
 Depends on: F15, F08.
 Acceptance: dragging with the keyboard sensor works (Space, arrows, Space); reduced motion removes the drop animation.
 
-### F17 Task detail page and board dialog (#17)
-`tasks.$taskId` full page, and the same component in a dialog when `?task=` is set on the board. Shows every field, description as Markdown, and an edit form for title, description, priority, due date, status.
+### F17 Task detail page (read view) (#17)
+`tasks.$taskId` full page showing every field of a task, with the description rendered as Markdown. Read only. A `Markdown` component (react-markdown with remark-gfm) shows raw HTML as text, drops unsafe URLs, demotes headings below the section heading, and scrolls code blocks and tables inside their container. A `TaskDetail` component shows the reference, status, priority, due date with the Overdue word, labels, created, updated and completed times, a link to the project board, and the Description section, under an `h1` of "KEY-N Title". Editing moved to F56 and the board dialog to F57.
 Depends on: F14.
-Acceptance: opening from the board and closing returns focus to the card; direct navigation renders the page; title is "Task · Project · todoOverKill".
+Acceptance: direct navigation to `/tasks/<id>` renders every field and the description as Markdown; the title is "<task title> · <project name> · todoOverKill"; raw HTML in a description appears as text and `javascript:` links are not links; axe is clean in light and dark themes, with no horizontal scroll at 320 px and prose capped at 80 characters per line.
+
+### F56 Edit a task on the detail page (#78)
+An Edit mode in `TaskDetail` for title, description, priority, due date, and status, with the create dialog's error summary pattern. `patchTask` in the tasks service runs the move and the field update in one transaction and backs both `updateTaskFn` and the REST PATCH handler. Save updates the caches, announces "Task KEY-N saved", and refreshes the document title.
+Depends on: F17, F55.
+Acceptance: every field can be edited and saved with the keyboard; an empty title shows "Title is required." in a focused summary; a status from another project changes nothing; Cancel discards edits and returns focus to Edit; axe is clean on the form in both themes.
+
+### F57 Open task detail in a dialog from the board (#79)
+Board cards link to the board with `?task=<id>`, and a `TaskDialog` renders `TaskDetail` in a dialog with an "Open full page" link. The board validates the `task` search param and prefetches the open task; a missing or foreign task shows "This task was not found" without failing the board.
+Depends on: F17, F56.
+Acceptance: opening a task from a card shows the dialog, and Escape or Close returns focus to that card; reloading with `?task=` reopens it; Escape while editing returns to the read view; axe is clean on the open dialog in both themes.
 
 ### F18 Subtasks (#18)
 Service (`src/server/subtasks.ts`) plus a checklist in task detail: add, toggle, rename, reorder, delete. Card shows "2 of 5 done".

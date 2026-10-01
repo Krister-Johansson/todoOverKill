@@ -1,13 +1,15 @@
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 
+import { TaskDetail } from '#/components/app/task-detail'
 import { projectQueryOptions } from '#/fns/projects'
 import { taskQueryOptions } from '#/fns/tasks'
+import { toCalendarDay } from '#/lib/dates'
 
-// Temporary: gives the board cards a destination. F17 replaces this page with
-// the task detail view.
 export const Route = createFileRoute('/_app/tasks/$taskId')({
   staticData: { title: 'Task' },
+  // Today comes from the loader, as on the board, so the server render and
+  // hydration agree on the Overdue word.
   loader: async ({ context, params }) => {
     const task = await context.queryClient.ensureQueryData(
       taskQueryOptions(params.taskId),
@@ -15,13 +17,13 @@ export const Route = createFileRoute('/_app/tasks/$taskId')({
     const project = await context.queryClient.ensureQueryData(
       projectQueryOptions(task.projectId),
     )
-    return { task, project }
+    return { task, project, today: toCalendarDay(new Date()) }
   },
   head: ({ loaderData }) => ({
     meta: [
       {
         title: loaderData
-          ? `${loaderData.project.key}-${loaderData.task.number} ${loaderData.task.title} · ${loaderData.project.name} · todoOverKill`
+          ? `${loaderData.task.title} · ${loaderData.project.name} · todoOverKill`
           : 'Task · todoOverKill',
       },
     ],
@@ -31,17 +33,23 @@ export const Route = createFileRoute('/_app/tasks/$taskId')({
 
 function TaskPage() {
   const { taskId } = Route.useParams()
+  const { today } = Route.useLoaderData()
   const { data: task } = useSuspenseQuery(taskQueryOptions(taskId))
   const { data: project } = useSuspenseQuery(
     projectQueryOptions(task.projectId),
   )
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex min-w-0 flex-col gap-6">
       <h1 className="text-2xl font-semibold break-words">
         {project.key}-{task.number} {task.title}
       </h1>
-      <p className="text-sm break-words">Project: {project.name}</p>
+      <TaskDetail
+        task={task}
+        project={project}
+        today={today}
+        headingLevel={2}
+      />
     </div>
   )
 }

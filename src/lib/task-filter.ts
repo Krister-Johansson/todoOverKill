@@ -28,7 +28,7 @@ export const taskFilterSearchSchema = z.object({
   priority: taskPrioritySchema.optional().catch(undefined),
   label: z.string().min(1).optional().catch(undefined),
   due: dueFilterSchema.optional().catch(undefined),
-  q: searchTextSchema.catch(undefined),
+  q: searchTextSchema.optional().catch(undefined),
 })
 
 export type TaskFilters = z.infer<typeof taskFilterSearchSchema>

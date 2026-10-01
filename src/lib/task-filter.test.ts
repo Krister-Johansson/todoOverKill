@@ -209,45 +209,34 @@ describe('filterAnnouncement', () => {
 })
 
 describe('the board and list routes', () => {
-  async function validated(
-    route: { options: { validateSearch: unknown } },
-    raw: Record<string, unknown>,
-  ) {
-    const schema = route.options.validateSearch as {
-      '~standard': {
-        validate: (
-          value: unknown,
-        ) =>
-          | { value: Record<string, unknown>; issues?: undefined }
-          | Promise<{ value: Record<string, unknown>; issues?: undefined }>
-      }
-    }
-    const result = await schema['~standard'].validate(raw)
-    if (result.issues) throw new Error('validateSearch rejected the URL')
-    return result.value
-  }
-
   it('the board takes the filters', async () => {
     const { Route } = await import('#/routes/_app/projects.$projectId.board')
-    expect(
-      await validated(Route, { priority: 'high', due: 'soon', q: 'copy' }),
-    ).toMatchObject({ priority: 'high', due: undefined, q: 'copy' })
+    const schema = Route.options.validateSearch
+    if (!schema || !('~standard' in schema)) throw new Error('No schema')
+    const result = await schema['~standard'].validate({
+      priority: 'high',
+      due: 'soon',
+      q: 'copy',
+    })
+    expect(result.issues).toBeUndefined()
+    expect(result).toMatchObject({
+      value: { priority: 'high', due: undefined, q: 'copy' },
+    })
   })
 
   it('the list takes the filters and keeps its sort', async () => {
     const { Route } = await import('#/routes/_app/projects.$projectId.list')
-    expect(
-      await validated(Route, {
-        status: 's1',
-        label: 'l1',
-        sort: 'priority',
-        dir: 'desc',
-      }),
-    ).toMatchObject({
+    const schema = Route.options.validateSearch
+    if (!schema || !('~standard' in schema)) throw new Error('No schema')
+    const result = await schema['~standard'].validate({
       status: 's1',
       label: 'l1',
       sort: 'priority',
       dir: 'desc',
+    })
+    expect(result.issues).toBeUndefined()
+    expect(result).toMatchObject({
+      value: { status: 's1', label: 'l1', sort: 'priority', dir: 'desc' },
     })
   })
 })

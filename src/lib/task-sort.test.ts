@@ -206,9 +206,10 @@ describe('the list route', () => {
     const { Route } = await import('#/routes/_app/projects.$projectId.list')
     // The route's schema adds the filters (src/lib/task-filter.ts) to
     // listSearchSchema, so the sort is checked through the route's own.
-    const validate = Route.options.validateSearch
+    const schema = Route.options.validateSearch
+    if (!schema || !('~standard' in schema)) throw new Error('No schema')
     const sortingFor = async (raw: Record<string, unknown>) => {
-      const result = await validate['~standard'].validate(raw)
+      const result = await schema['~standard'].validate(raw)
       if (result.issues) throw new Error('validateSearch rejected the URL')
       return searchToSorting(result.value)
     }

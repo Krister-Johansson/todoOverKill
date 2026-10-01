@@ -18,13 +18,14 @@ import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
 import { NativeSelect, NativeSelectOption } from '#/components/ui/native-select'
 import { Textarea } from '#/components/ui/textarea'
+import { projectQueryOptions } from '#/fns/projects'
 import { createTaskFn, tasksQueryOptions } from '#/fns/tasks'
 import { useHotkeys } from '#/hooks/use-hotkeys'
 import { PRIORITY_DISPLAY } from '#/lib/priority'
 import { createTaskFormSchema, toCreateTaskInput } from '#/schemas/task'
 
 import { useAnnounce } from './live-region'
-import { taskCardId } from './task-card'
+import { focusTaskCard } from './task-card'
 
 import type { Priority } from '#/generated/prisma/enums'
 import type { CreateTaskResult } from '#/fns/tasks'
@@ -49,9 +50,6 @@ const PRIORITIES = Object.entries(PRIORITY_DISPLAY) as Array<
 
 const GENERIC_ERROR = 'Could not create the task. Try again.'
 
-/** Frames to wait for the new card before focus falls back to the trigger. */
-const FOCUS_ATTEMPTS = 10
-
 /** Field errors are strings or Standard Schema issues, depending on the source. */
 function errorText(errors: Array<unknown>) {
   for (const error of errors) {
@@ -70,7 +68,9 @@ function errorText(errors: Array<unknown>) {
  * takes focus (3.3.1, 3.3.3); a server problem shows in the same summary.
  * After a create the task joins the board's cache, the live region announces
  * it, and focus moves to its card, or to the button on a page without cards
- * (2.4.3). Escape and Cancel return focus to the button.
+ * (2.4.3). Escape and Cancel return focus to the button. While a create is in
+ * flight the dialog does not close, so its result always belongs to the open
+ * dialog.
  */
 export function CreateTaskDialog({ project }: { project: TaskProject }) {
   const announce = useAnnounce()
@@ -89,6 +89,15 @@ export function CreateTaskDialog({ project }: { project: TaskProject }) {
   useEffect(() => {
     if (summaryFocus > 0) summaryRef.current?.focus()
   }, [summaryFocus])
+
+  /** A failed create may mean the cached project, and its statuses, is stale. */
+  function showFormError(message: string) {
+    setFormError(message)
+    setSummaryFocus((count) => count + 1)
+    void queryClient.invalidateQueries({
+      queryKey: projectQueryOptions(project.id).queryKey,
+    })
+  }
 
   const mutation = useMutation({
     mutationFn: (data: CreateTaskInput) =>
@@ -112,13 +121,11 @@ export function CreateTaskDialog({ project }: { project: TaskProject }) {
       try {
         result = await mutation.mutateAsync(toCreateTaskInput(value))
       } catch {
-        setFormError(GENERIC_ERROR)
-        setSummaryFocus((count) => count + 1)
+        showFormError(GENERIC_ERROR)
         return
       }
       if (!result.ok) {
-        setFormError(result.message)
-        setSummaryFocus((count) => count + 1)
+        showFormError(result.message)
         return
       }
       const { task } = result
@@ -148,6 +155,8 @@ export function CreateTaskDialog({ project }: { project: TaskProject }) {
   const showSummary = (attempted && fieldErrors.length > 0) || !!formError
 
   function handleOpenChange(next: boolean) {
+    // Escape, Cancel and an outside click wait for the create to finish.
+    if (!next && form.state.isSubmitting) return
     if (next) {
       form.reset()
       createdId.current = null
@@ -157,18 +166,6 @@ export function CreateTaskDialog({ project }: { project: TaskProject }) {
   }
 
   useHotkeys({ c: () => handleOpenChange(true) })
-
-  /**
-   * Focuses the new card. The board renders it after the cache update, so it
-   * may be a frame or two late; a project page without a board has none.
-   */
-  function focusCreated(taskId: string, attempts = FOCUS_ATTEMPTS) {
-    const card = document.getElementById(taskCardId(taskId))
-    if (card) card.focus()
-    else if (attempts > 0) {
-      requestAnimationFrame(() => focusCreated(taskId, attempts - 1))
-    } else triggerRef.current?.focus()
-  }
 
   function describedBy(name: string, help?: string) {
     const ids = [
@@ -190,12 +187,14 @@ export function CreateTaskDialog({ project }: { project: TaskProject }) {
         onCloseAutoFocus={(event) => {
           // Escape and Cancel leave Radix to return focus to the trigger. A
           // create takes over first, so Radix does not refocus the trigger
-          // after the card has focus.
+          // after the card has focus. The board may render the card later,
+          // and then it takes focus from the trigger.
           const taskId = createdId.current
-          if (!taskId) return
+          const trigger = triggerRef.current
+          if (!taskId || !trigger) return
           event.preventDefault()
           createdId.current = null
-          focusCreated(taskId)
+          focusTaskCard(taskId, trigger)
         }}
       >
         <DialogHeader>

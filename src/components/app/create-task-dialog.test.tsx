@@ -17,7 +17,11 @@ vi.mock('#/fns/tasks', () => ({
   }),
 }))
 
-type CreatedTask = Extract<CreateTaskResult, { ok: true }>['task']
+vi.mock('#/fns/projects', () => ({
+  projectQueryOptions: (id: string) => ({ queryKey: ['projects', id] }),
+}))
+
+type CreatedTask =Extract<CreateTaskResult, { ok: true }>['task']
 
 const create = vi.mocked(createTaskFn)
 const tasksKey = ['projects', 'p1', 'tasks']
@@ -210,7 +214,8 @@ describe('CreateTaskDialog', () => {
 
   it('shows a generic error in the same summary when the server fails', async () => {
     create.mockRejectedValue(new Error('No project with id p1.'))
-    renderDialog()
+    const { queryClient } = renderDialog()
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
 
     fireEvent.change(title(), { target: { value: 'Write copy' } })
     await submit()
@@ -220,6 +225,36 @@ describe('CreateTaskDialog', () => {
       'Could not create the task. Try again.',
     )
     expect(screen.getByRole('dialog')).toBeTruthy()
+    // So a deleted status leaves the select before the next try.
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['projects', 'p1'] })
+  })
+
+  it('stays open with the typed values while a create is in flight', async () => {
+    let finish: (result: CreateTaskResult) => void = () => undefined
+    create.mockReturnValue(
+      new Promise<CreateTaskResult>((resolve) => {
+        finish = resolve
+      }),
+    )
+    renderDialog()
+
+    fireEvent.change(title(), { target: { value: 'Write copy' } })
+    await submit()
+    expect(
+      screen.getByRole('button', { name: 'Creating task…' }),
+    ).toBeTruthy()
+
+    fireEvent.keyDown(title(), { key: 'Escape' })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await act(nextFrame)
+    expect(screen.getByRole('dialog', { name: 'New task' })).toBeTruthy()
+    expect(title().value).toBe('Write copy')
+
+    await act(async () => {
+      finish({ ok: true, task: task() })
+      await nextFrame()
+    })
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('creates the task, updates the cache, announces it and focuses the card', async () => {
@@ -269,7 +304,7 @@ describe('CreateTaskDialog', () => {
 
     fireEvent.change(title(), { target: { value: 'Write copy' } })
     await submit()
-    for (let frame = 0; frame < 12; frame += 1) await act(nextFrame)
+    await act(nextFrame)
 
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(document.activeElement).toBe(trigger())

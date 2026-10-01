@@ -171,4 +171,39 @@
     background-color: var(--background);
     color: var(--foreground);
   }
+  /* Native controls and scrollbars follow the theme. */
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+}
+
+/*
+ * docs/accessibility.md 2.3.3: CSS transitions and animations collapse when
+ * the in-app override is Reduce, or when the OS asks for reduced motion and
+ * the override is not Allow. data-motion is set by the head script and the
+ * motion store in src/hooks/use-reduced-motion.ts. 0.01ms rather than 0 so
+ * transitionend and animationend still fire.
+ */
+@layer base {
+  html[data-motion='reduce'] *,
+  html[data-motion='reduce'] *::before,
+  html[data-motion='reduce'] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html:not([data-motion='allow']) *,
+    html:not([data-motion='allow']) *::before,
+    html:not([data-motion='allow']) *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }

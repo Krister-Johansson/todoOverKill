@@ -4,15 +4,35 @@ import {
   createRootRoute,
   createRouter,
 } from '@tanstack/react-router'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, render, screen, within } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { useState } from 'react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { LiveRegionProvider } from './live-region'
 import {
   TaskCard,
   TaskCardContent,
+  focusMoveButton,
   focusTaskCard,
+  moveButtonId,
   taskCardId,
 } from './task-card'
+import { TaskMoveMenu } from './task-move-menu'
+
+import type { MoveProject } from './task-move-menu'
+
+// The Move menu imports the server functions; these tests never call them.
+vi.mock('#/fns/tasks', () => ({
+  moveTaskFn: vi.fn(),
+  tasksQueryOptions: (projectId: string) => ({
+    queryKey: ['projects', projectId, 'tasks'],
+  }),
+  taskQueryOptions: (taskId: string) => ({ queryKey: ['tasks', taskId] }),
+}))
+vi.mock('#/fns/projects', () => ({
+  projectQueryOptions: (id: string) => ({ queryKey: ['projects', id] }),
+}))
 
 afterEach(cleanup)
 
@@ -106,25 +126,85 @@ describe('TaskCardContent', () => {
   })
 })
 
-/** Renders a board card for `task-1` inside a router. */
-async function renderBoardCard() {
-  const rootRoute = createRootRoute({
-    component: () => (
-      <ul>
-        <TaskCard
-          task={{ ...task(), id: 'task-1' }}
-          project={project}
-          today="2026-10-02"
-        />
-      </ul>
-    ),
-  })
+const boardProject = {
+  ...project,
+  id: 'p1',
+  statuses: [
+    { id: 's1', projectId: 'p1', name: 'Backlog', order: 1, category: 'todo' },
+    { id: 's2', projectId: 'p1', name: 'Doing', order: 2, category: 'todo' },
+  ] as const satisfies MoveProject['statuses'],
+}
+
+type BoardCardOptions = { position?: number; statusId?: string }
+
+/**
+ * Renders board cards for `task-1` (and `task-2` below it when `pair` is set)
+ * inside a router, a query client and the live region. Returns a function
+ * that renders them again with new props, as the board does after a move.
+ */
+async function renderBoardCards({
+  pair = false,
+  ...first
+}: BoardCardOptions & { pair?: boolean } = {}) {
+  let props = first
+  let rerender: (next: BoardCardOptions) => void = () => {}
+  function Cards() {
+    const [current, setCurrent] = useState(props)
+    rerender = setCurrent
+    const { position = 0, statusId = 's1' } = current
+    const card = (
+      cardTask: ReturnType<typeof task> & { id: string },
+      at: number,
+    ) => (
+      <TaskCard
+        key={cardTask.id}
+        task={{ ...cardTask, statusId }}
+        project={boardProject}
+        today="2026-10-02"
+        position={at}
+        menu={
+          <TaskMoveMenu
+            task={{ ...cardTask, statusId }}
+            project={boardProject}
+            position={at}
+            count={pair ? 2 : 1}
+          />
+        }
+      />
+    )
+    const one = card({ ...task(), id: 'task-1' }, position)
+    const two = pair
+      ? card({ ...task({ number: 8 }), id: 'task-2' }, position === 0 ? 1 : 0)
+      : null
+    return <ul>{position === 0 ? [one, two] : [two, one]}</ul>
+  }
+  const rootRoute = createRootRoute({ component: Cards })
   const router = createRouter({
     routeTree: rootRoute,
     history: createMemoryHistory({ initialEntries: ['/'] }),
   })
-  render(<RouterProvider router={router} />)
-  return screen.findByRole('link')
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <LiveRegionProvider>
+        <RouterProvider router={router} />
+      </LiveRegionProvider>
+    </QueryClientProvider>,
+  )
+  await screen.findAllByRole('link')
+  return (next: BoardCardOptions) => {
+    props = next
+    act(() => rerender(next))
+  }
+}
+
+/** Renders a board card for `task-1` and returns its link. */
+async function renderBoardCard() {
+  await renderBoardCards()
+  return screen.getByRole('link')
+}
+
+function moveButton(name = 'Move WEB-7') {
+  return screen.getByRole('button', { name })
 }
 
 /** A button that holds focus until the card renders. */
@@ -140,6 +220,87 @@ describe('TaskCard', () => {
     const link = await renderBoardCard()
     expect(link.id).toBe(taskCardId('task-1'))
     expect(taskCardId('task-1')).not.toBe(taskCardId('task-2'))
+  })
+
+  it('has a Move button named with the task reference beside the link', async () => {
+    const link = await renderBoardCard()
+    const button = moveButton()
+    expect(button.id).toBe(moveButtonId('task-1'))
+    expect(button.getAttribute('aria-haspopup')).toBe('menu')
+    expect(button.parentElement).toBe(link.parentElement)
+    expect(link.contains(button)).toBe(false)
+    // The link's name is the card's content, as before.
+    expect(link.textContent).toBe(
+      'WEB-7, Fix the footer, High, Due Oct 1, 2026, Overdue, Bug, Design',
+    )
+  })
+})
+
+describe('focusMoveButton', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('focuses a Move button that is already on the page', async () => {
+    await renderBoardCards()
+
+    act(() => focusMoveButton('task-1'))
+
+    expect(document.activeElement).toBe(moveButton())
+  })
+
+  it('waits for a card that has not rendered yet', async () => {
+    act(() => focusMoveButton('task-1'))
+    expect(document.activeElement).toBe(document.body)
+
+    await renderBoardCards()
+
+    expect(document.activeElement).toBe(moveButton())
+  })
+
+  it('follows a card that moves within its column without remounting', async () => {
+    const update = await renderBoardCards({ pair: true })
+    const button = moveButton()
+    act(() => focusMoveButton('task-1'))
+    // React moves the card's li, which can drop focus to the page.
+    act(() => button.blur())
+
+    update({ position: 1 })
+
+    expect(document.activeElement).toBe(moveButton())
+    expect(moveButton()).toBe(button)
+  })
+
+  it('follows a card that moves to another status', async () => {
+    const update = await renderBoardCards()
+    act(() => focusMoveButton('task-1'))
+    act(() => moveButton().blur())
+
+    update({ statusId: 's2' })
+
+    expect(document.activeElement).toBe(moveButton())
+  })
+
+  it('drops the wait when focus lands elsewhere', async () => {
+    const update = await renderBoardCards({ pair: true })
+    act(() => focusMoveButton('task-1'))
+    act(() => moveButton('Move WEB-8').focus())
+
+    update({ position: 1 })
+
+    expect(document.activeElement).toBe(moveButton('Move WEB-8'))
+  })
+
+  it('drops the wait after a second', async () => {
+    const update = await renderBoardCards({ pair: true })
+    vi.useFakeTimers()
+    act(() => focusMoveButton('task-1'))
+    act(() => moveButton().blur())
+
+    act(() => vi.advanceTimersByTime(1000))
+    update({ position: 1 })
+
+    expect(document.activeElement).toBe(document.body)
   })
 })
 
@@ -172,6 +333,18 @@ describe('focusTaskCard', () => {
     await renderBoardCard()
 
     expect(document.activeElement).toBe(holder)
+    holder.remove()
+  })
+
+  it('drops the wait when the holder loses focus to the page', async () => {
+    const holder = holderButton()
+
+    focusTaskCard('task-1', holder)
+    // A click on a blank part of the page blurs the holder.
+    holder.blur()
+    await renderBoardCard()
+
+    expect(document.activeElement).toBe(document.body)
     holder.remove()
   })
 

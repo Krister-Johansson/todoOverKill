@@ -89,3 +89,36 @@ export type CreateTaskInput = z.input<typeof createTaskSchema>
 export type UpdateTaskInput = z.input<typeof updateTaskSchema>
 export type MoveTaskInput = z.input<typeof moveTaskSchema>
 export type ListTasksInput = z.input<typeof listTasksSchema>
+
+/**
+ * The create task dialog's values. The inputs hold strings, so an empty
+ * description, status, or due date means none; toCreateTaskInput turns them
+ * into createTaskSchema's input. An empty status leaves the choice to the
+ * service, which reports a project without statuses as a conflict.
+ */
+export const createTaskFormSchema = z.object({
+  title: taskTitleSchema,
+  description: descriptionSchema,
+  statusId: z.string(),
+  priority: taskPrioritySchema,
+  dueDate: z
+    .string()
+    .refine((day) => day === '' || dueDateSchema.safeParse(day).success, {
+      error: 'Date must be a calendar day such as 2026-10-01.',
+    }),
+})
+
+export type CreateTaskFormValues = z.input<typeof createTaskFormSchema>
+
+/** Only the keys createTaskSchema knows, with empty strings left out. */
+export function toCreateTaskInput(
+  values: CreateTaskFormValues,
+): CreateTaskInput {
+  return {
+    title: values.title,
+    description: values.description.trim() || undefined,
+    statusId: values.statusId || undefined,
+    priority: values.priority,
+    dueDate: values.dueDate || undefined,
+  }
+}

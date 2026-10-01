@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  createTaskFormSchema,
   createTaskSchema,
   listTasksSchema,
   moveTaskSchema,
+  toCreateTaskInput,
   updateTaskSchema,
 } from '#/schemas/task'
 
@@ -126,5 +128,80 @@ describe('listTasksSchema', () => {
     expect(result.error?.issues[0].message).toBe(
       'The start of the due range must not be after its end.',
     )
+  })
+})
+
+describe('createTaskFormSchema', () => {
+  const values = {
+    title: 'Write copy',
+    description: '',
+    statusId: 'status-1',
+    priority: 'none' as const,
+    dueDate: '',
+  }
+
+  it('accepts empty description and due date', () => {
+    expect(createTaskFormSchema.safeParse(values).success).toBe(true)
+  })
+
+  it('accepts a calendar day as the due date', () => {
+    expect(
+      createTaskFormSchema.safeParse({ ...values, dueDate: '2026-10-01' })
+        .success,
+    ).toBe(true)
+  })
+
+  it('asks for a title', () => {
+    const result = createTaskFormSchema.safeParse({ ...values, title: '  ' })
+    expect(result.error?.issues[0]).toMatchObject({
+      path: ['title'],
+      message: 'Title is required.',
+    })
+  })
+
+  it('rejects a due date that is not a calendar day', () => {
+    const result = createTaskFormSchema.safeParse({
+      ...values,
+      dueDate: '2026-13-01',
+    })
+    expect(result.error?.issues[0]).toMatchObject({
+      path: ['dueDate'],
+      message: 'Date must be a calendar day such as 2026-10-01.',
+    })
+  })
+})
+
+describe('toCreateTaskInput', () => {
+  it('leaves out empty strings', () => {
+    expect(
+      toCreateTaskInput({
+        title: 'Write copy',
+        description: '   ',
+        statusId: '',
+        priority: 'none',
+        dueDate: '',
+      }),
+    ).toEqual({ title: 'Write copy', priority: 'none' })
+  })
+
+  it('passes the filled fields and no others', () => {
+    const input = toCreateTaskInput({
+      title: 'Write copy',
+      description: 'Hero text',
+      statusId: 'status-1',
+      priority: 'high',
+      dueDate: '2026-10-01',
+    })
+    expect(input).toEqual({
+      title: 'Write copy',
+      description: 'Hero text',
+      statusId: 'status-1',
+      priority: 'high',
+      dueDate: '2026-10-01',
+    })
+    expect(Object.keys(input).sort()).toEqual(
+      ['description', 'dueDate', 'priority', 'statusId', 'title'].sort(),
+    )
+    expect(createTaskSchema.safeParse(input).success).toBe(true)
   })
 })

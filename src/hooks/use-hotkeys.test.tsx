@@ -37,6 +37,14 @@ describe('useHotkeys', () => {
     expect(onC).toHaveBeenCalledOnce()
   })
 
+  it('runs the handler on C, as with Caps Lock on', () => {
+    const onC = vi.fn()
+    render(<Harness onC={onC} />)
+
+    expect(press(document.body, { key: 'C' })).toBe(true)
+    expect(onC).toHaveBeenCalledOnce()
+  })
+
   it('ignores other keys', () => {
     const onC = vi.fn()
     render(<Harness onC={onC} />)

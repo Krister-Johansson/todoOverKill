@@ -15,7 +15,8 @@
     "preview": "vite preview",
     "generate-routes": "tsr generate",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint .",
+    "lint": "eslint . && pnpm check:contrast",
+    "check:contrast": "node scripts/check-contrast.ts",
     "format": "prettier --write . && eslint --fix .",
     "test": "vitest run",
     "test:e2e": "playwright test",
@@ -55,6 +56,8 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@playwright/test": "^1.63.0",
     "@tanstack/devtools-vite": "0.8.5",
     "@tanstack/eslint-config": "0.4.0",
     "@tanstack/router-cli": "^1.132.0",
@@ -66,6 +69,7 @@
     "eslint": "^9.20.0",
     "jsdom": "^30.1.1",
     "prettier": "^3.8.1",
+    "tsx": "^4.23.15",
     "typescript": "^6.0.2",
     "vite": "^8.0.0",
     "vitest": "^5.0.2"

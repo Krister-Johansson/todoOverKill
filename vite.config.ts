@@ -49,6 +49,9 @@ export default defineConfig(async ({ command, mode }) => {
   if (command === 'serve') await validateEnvironment(restore)
 
   return {
+    // PORT lets a tool that runs several copies, such as Claude Code desktop's
+    // Preview or handoff, pick a free port for each.
+    server: { port: Number(process.env.PORT) || 5173 },
     resolve: { tsconfigPaths: true },
     plugins: [devtools(), tailwindcss(), tanstackStart(), viteReact()],
   }

@@ -33,4 +33,4 @@ The init script only runs when the `db-data` volume is created empty. If the vol
 
 `pnpm test` and `pnpm test:e2e` both empty the test database, so do not run them at the same time.
 
-`pnpm db:seed` needs the seed script from F04, which is not done yet.
+`pnpm db:seed` runs `prisma/seed.ts` through tsx. It deletes the demo projects TOK and DEMO, with everything in them, and creates them again, so running it twice leaves the same data as running it once. Projects with other keys are not touched. Due dates and activity times are relative to the time of the run.

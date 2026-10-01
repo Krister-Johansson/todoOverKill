@@ -58,7 +58,9 @@ src/
   hooks/                    useReducedMotion, useHotkeys, useSpeechRecognition, useSpeechSynthesis
 prisma/
   schema.prisma
+  migrations/
   seed.ts
+prisma.config.ts            Prisma CLI config: loads .env, schema and migrations paths
 docs/
 tests/
   unit/                     Vitest
@@ -83,6 +85,8 @@ Activity    id, taskId, projectId, type, payload (json), createdAt
 Task numbers come from `Project.nextTaskNumber`, incremented inside the same transaction that creates the task. Statuses are per project so users can rename or add columns. Every new project gets Backlog, Todo, In progress, Done. `order` fields are floats to allow cheap reorders.
 
 The activity log is append-only and written by the service layer, never directly by a route or tool.
+
+`prisma/schema.prisma` adds these rules to the field list. Ids are `cuid(2)` strings. `Project.key` is unique, and so are `(projectId, number)` on Task and `(projectId, name)` on Label. Deleting a Project deletes its statuses, tasks, labels, and activity. Deleting a Task deletes its subtasks, task labels, and comments. A Status that tasks still use cannot be deleted (the foreign key is `RESTRICT`), so a service that removes a status has to move its tasks first. `Activity.taskId` is nullable and set to null when the task is deleted, so the project history keeps the entry. `dueDate` is a PostgreSQL `date`: a calendar day with no time or zone. TaskLabel has `(taskId, labelId)` as its primary key and a separate index on `labelId` for filtering tasks by label.
 
 ## Service layer
 
@@ -175,6 +179,10 @@ The compose file mounts `docker/init-test-db.sql`, which creates the `todo_over_
 The config function in `vite.config.ts` loads `.env` into `process.env` with `src/lib/load-dot-env.ts` before any plugin hook runs. Variables already set in the shell take precedence. The loader drops the keys it loaded before, so a key deleted from `.env` does not survive a dev server restart. TanStack Start's load-env plugin copies `.env` again later, which changes nothing because every key already holds the value it would write. For the dev and preview servers the config function then imports the schema, so a missing or invalid variable stops startup with a readable message. When a restart after a `.env` edit fails validation, `process.env` goes back to its previous values, Vite logs the message and "server restart failed", and the old server keeps running with its old environment. `vite build` does not evaluate the schema and runs without a `.env`.
 
 `src/server.ts`, the custom server entry, imports the schema first, so `dist/server/server.js` fails when it loads rather than on the first request. It does not read `.env`: outside `pnpm preview` the variables come from the real environment, for example `node --env-file=.env`.
+
+`prisma.config.ts` loads `.env` with the same loader, so shell variables win there too. It passes `DATABASE_URL` to Prisma only when the variable is set. Without it `prisma generate` still runs, which is why `postinstall` can call it on a fresh clone, and the commands that need a database fail with Prisma's own message. Prisma's `env()` helper is not used because it throws while the config loads. The generated client goes to the gitignored `src/generated/prisma`. Since Prisma 7, `prisma migrate dev` does not regenerate it, so `pnpm db:generate` has to run after every schema change. `src/server/db.ts` builds the client on `@prisma/adapter-pg` and connects to `DATABASE_URL_TEST` when `NODE_ENV` is `test` (Vitest sets it) and to `DATABASE_URL` otherwise. Outside production the client is kept on `globalThis`, so dev server reloads reuse one connection pool.
+
+`vitest.config.ts` loads `.env` the same way. The config runs in the main process before the global setup and before the worker processes start, and the workers inherit `process.env`, so `src/env.ts` validates in every test file without stubbing. `src/test/global-setup.ts` then runs `prisma migrate deploy` with `DATABASE_URL` set to `DATABASE_URL_TEST`. If nothing accepts a connection on that URL's host and port and the host is local, the setup first runs `docker compose up --detach --wait db` and stops the container when the run ends, so a test run leaves Docker as it found it. It stops with a message when `DATABASE_URL_TEST` is missing or the database cannot be started.
 
 ## Scaffold
 

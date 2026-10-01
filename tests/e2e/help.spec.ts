@@ -121,6 +121,11 @@ test('the shortcuts table has a caption and key caps', async ({ page }) => {
   await expect(table).toBeVisible()
   await expect(table.locator('caption')).toBeVisible()
   await expect(table.locator('kbd[data-slot="kbd"]').first()).toBeVisible()
+  // The joiner between caps is visible text, not just spacing.
+  const keyCells = table.locator('tbody td:first-child')
+  for (const keys of ['Shift+Tab', 'Tab then Enter', '↑ or ↓ or ← or →']) {
+    await expect(keyCells.filter({ hasText: keys })).toBeVisible()
+  }
   await expect(
     table.getByText('Not available yet. Arrives in a later release.'),
   ).toHaveCount(2)

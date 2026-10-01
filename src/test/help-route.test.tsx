@@ -63,9 +63,9 @@ describe('help route', () => {
         .getAllByRole('link')
         .map((link) => [link.textContent, link.getAttribute('href')]),
     ).toEqual([
-      ['Glossary', '/help#glossary'],
-      ['Keyboard shortcuts', '/help#shortcuts'],
-      ['Browser support', '/help#browsers'],
+      ['Glossary', '#glossary'],
+      ['Keyboard shortcuts', '#shortcuts'],
+      ['Browser support', '#browsers'],
     ])
   })
 
@@ -76,7 +76,7 @@ describe('help route', () => {
     const terms = Array.from(glossary.querySelectorAll('dt'))
     expect(terms.length).toBeGreaterThan(0)
     for (const term of terms) {
-      expect(term.id).toBeTruthy()
+      expect(term.id).toMatch(/^term-[a-z-]+$/)
       expect(term.nextElementSibling?.tagName).toBe('DD')
       expect(term.nextElementSibling?.textContent.trim()).toBeTruthy()
     }
@@ -91,6 +91,18 @@ describe('help route', () => {
       expect(names).toContain(name)
     }
     expect(new Set(terms.map((term) => term.id)).size).toBe(terms.length)
+    expect(document.getElementById('term-backlog')?.textContent).toBe('Backlog')
+  })
+
+  it('marks glossary terms for features that have not shipped', async () => {
+    await renderPage()
+
+    const definitionOf = (id: string) =>
+      document.getElementById(id)?.nextElementSibling?.textContent ?? ''
+    expect(definitionOf('term-assistant')).toContain(
+      'Not available yet. Arrives in a later release.',
+    )
+    expect(definitionOf('term-backlog')).not.toContain('Not available yet')
   })
 
   it('shows the shortcuts in a captioned table and marks the later ones', async () => {
@@ -115,6 +127,36 @@ describe('help route', () => {
     expect(
       screen.getByRole('link', { name: 'Settings' }).getAttribute('href'),
     ).toBe('/settings')
+  })
+
+  it('shows how the keys of each row are pressed', async () => {
+    await renderPage()
+
+    const table = screen.getByRole('table', { name: 'Keys and what they do' })
+    const keysCell = (action: string) => {
+      const row = within(table).getByText(action).closest('tr')
+      return row!.querySelector('td')!
+    }
+
+    // A chord is a nested kbd with + between the caps.
+    const chord = keysCell('Go back to the one before.')
+    expect(chord.textContent).toBe('Shift+Tab')
+    expect(chord.querySelector('kbd[data-slot="kbd-group"]')).not.toBeNull()
+
+    // A sequence and a choice are separate caps, joined by words.
+    const sequence = keysCell(
+      'On a new page, the first Tab shows "Skip to content". Enter then jumps past the menu to the page.',
+    )
+    expect(sequence.textContent).toBe('Tab then Enter')
+    expect(sequence.querySelector('kbd[data-slot="kbd-group"]')).toBeNull()
+
+    const choice = keysCell(
+      'Pick an option in a group, such as Theme in Settings.',
+    )
+    expect(choice.textContent).toBe('↑ or ↓ or ← or →')
+    expect(choice.querySelector('kbd[data-slot="kbd-group"]')).toBeNull()
+
+    expect(keysCell('Close a dialog.').textContent).toBe('Escape')
   })
 
   it('says voice and WebMCP need Chrome and that audio may go to Google', async () => {

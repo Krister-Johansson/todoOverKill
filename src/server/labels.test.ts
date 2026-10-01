@@ -96,6 +96,21 @@ describe('createLabel', () => {
     await expect(db.label.count()).resolves.toBe(1)
   })
 
+  it('treats _, % and \\ in a name as plain characters', async () => {
+    const project = await createWebsite()
+    await createLabel(project.id, { name: 'a1b', color: BLUE })
+    await createLabel(project.id, { name: '500 errors', color: BLUE })
+
+    await createLabel(project.id, { name: 'a_b', color: GREEN })
+    await createLabel(project.id, { name: '50%', color: GREEN })
+    await createLabel(project.id, { name: 'c:\\', color: GREEN })
+
+    const labels = await listLabels(project.id)
+    expect(labels.map((label) => label.name).sort()).toEqual(
+      ['500 errors', '50%', 'a1b', 'a_b', 'c:\\'].sort(),
+    )
+  })
+
   it('allows the same name in another project', async () => {
     const project = await createWebsite()
     const other = await createProject({ name: 'Other', key: 'OTH' })

@@ -41,11 +41,13 @@ export async function createLabel(projectId: string, input: CreateLabelInput) {
   const data = createLabelSchema.parse(input)
   // The database index is case-sensitive, so this check is the rule. A create
   // racing it with another case of the name can get through; the app has one
-  // user, so that is accepted.
-  const existing = await db.label.findFirst({
-    where: { projectId: id, name: { equals: data.name, mode: 'insensitive' } },
-    select: { name: true },
-  })
+  // user, so that is accepted. The names are compared here rather than with
+  // Prisma's `mode: 'insensitive'`, which becomes an unescaped ILIKE: `_` and
+  // `%` would match other names and a trailing `\` would fail the query.
+  const lowerName = data.name.toLowerCase()
+  const existing = (
+    await db.label.findMany({ where: { projectId: id }, select: { name: true } })
+  ).find((label) => label.name.toLowerCase() === lowerName)
   if (existing) throw nameTaken(existing.name)
   try {
     return await db.label.create({

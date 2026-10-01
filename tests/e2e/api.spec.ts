@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 
 import { expect, test } from '@playwright/test'
 
+import { toCalendarDay } from '../../src/lib/dates.ts'
 import { createTestPrismaClient } from '../../src/test/db.ts'
 
 // The Vitest route tests call the handlers directly. This spec sends real
@@ -19,11 +20,15 @@ const name = `REST ${run}`
 const db = createTestPrismaClient()
 
 test.afterAll(async () => {
+  // Tasks first: the project's cascade can reach a status while a task still
+  // points at it, which the RESTRICT key on Task.statusId refuses, and that
+  // would leave the project behind when an assertion fails mid-flow.
+  await db.task.deleteMany({ where: { project: { key } } })
   await db.project.deleteMany({ where: { key } })
   await db.$disconnect()
 })
 
-test('the projects and statuses routes answer through the router', async ({
+test('the projects, statuses and tasks routes answer through the router', async ({
   request,
 }) => {
   const invalid = await request.post('/api/v1/projects', {
@@ -72,6 +77,49 @@ test('the projects and statuses routes answer through the router', async ({
   })
   expect(patched.status()).toBe(200)
   expect(await patched.json()).toMatchObject({ name: `${name} renamed` })
+
+  const today = toCalendarDay(new Date())
+  const createdTask = await request.post(
+    `/api/v1/projects/${project.id}/tasks`,
+    { data: { title: 'Write copy', priority: 'high', dueDate: today } },
+  )
+  expect(createdTask.status()).toBe(201)
+  const task = await createdTask.json()
+  expect(task).toMatchObject({ number: 1, priority: 'high', dueDate: today })
+
+  const taskIds = async (query: string) => {
+    const response = await request.get(
+      `/api/v1/projects/${project.id}/tasks${query}`,
+    )
+    expect(response.status()).toBe(200)
+    return (await response.json()).map((t: { id: string }) => t.id)
+  }
+  expect(await taskIds('?priority=high')).toEqual([task.id])
+  expect(await taskIds('?due=today')).toEqual([task.id])
+  expect(await taskIds('?due=overdue')).toEqual([])
+
+  const fetchedTask = await request.get(`/api/v1/tasks/${task.id}`)
+  expect(fetchedTask.status()).toBe(200)
+  expect(await fetchedTask.json()).toMatchObject({
+    id: task.id,
+    status: { name: 'Backlog' },
+  })
+
+  const done = statusList.find((s: { name: string }) => s.name === 'Done')
+  const movedTask = await request.patch(`/api/v1/tasks/${task.id}`, {
+    data: { title: 'Write the copy', statusId: done.id },
+  })
+  expect(movedTask.status()).toBe(200)
+  expect(await movedTask.json()).toMatchObject({
+    title: 'Write the copy',
+    status: { name: 'Done' },
+    completedAt: expect.any(String),
+  })
+
+  const deletedTask = await request.delete(`/api/v1/tasks/${task.id}`)
+  expect(deletedTask.status()).toBe(200)
+  const afterDelete = await request.get(`/api/v1/tasks/${task.id}`)
+  expect(afterDelete.status()).toBe(404)
 
   const listed = await request.get('/api/v1/projects')
   expect(listed.status()).toBe(200)

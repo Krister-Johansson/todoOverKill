@@ -388,6 +388,26 @@ describe('listTasks', () => {
     ).resolves.toEqual(['Write copy'])
   })
 
+  it('filters by completed', async () => {
+    const { project, copy } = await createBoard()
+    const done = project.statuses[3]
+    await moveTask(copy.id, { statusId: done.id })
+
+    await expect(titles(project.id, { completed: false })).resolves.toEqual([
+      'Deploy',
+      'Draw the logo',
+    ])
+    await expect(titles(project.id, { completed: true })).resolves.toEqual([
+      'Write copy',
+    ])
+    await expect(
+      titles(project.id, { completed: false, dueTo: '2026-10-09' }),
+    ).resolves.toEqual([])
+    await expect(
+      titles(project.id, { completed: false, dueTo: '2026-10-10' }),
+    ).resolves.toEqual(['Draw the logo'])
+  })
+
   it('throws NotFoundError for an unknown project', async () => {
     await expect(listTasks(UNKNOWN_ID)).rejects.toBeInstanceOf(NotFoundError)
   })
@@ -574,6 +594,22 @@ describe('moveTask', () => {
     })
 
     expect(rows).toEqual([])
+  })
+
+  it('keeps the first task in place when given its current status and no index', async () => {
+    const { project, backlog, tasks } = await createBoard()
+
+    const rows = await newActivity(project.id, async () => {
+      await expect(
+        moveTask(tasks.A.id, { statusId: backlog.id }),
+      ).resolves.toEqual(tasks.A)
+    })
+
+    expect(rows).toEqual([])
+    await expect(columnOf(backlog.id)).resolves.toEqual(['A', 'B', 'C'])
+    await expect(
+      db.task.findUniqueOrThrow({ where: { id: tasks.A.id } }),
+    ).resolves.toMatchObject({ order: tasks.A.order, completedAt: null })
   })
 
   it('counts the place of tasks with equal orders by number', async () => {

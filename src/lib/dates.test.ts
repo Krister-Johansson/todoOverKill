@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatDueDate, isPastDay, toCalendarDay } from './dates'
+import {
+  dueFilterRange,
+  formatDueDate,
+  isPastDay,
+  toCalendarDay,
+} from './dates'
 
 describe('toCalendarDay', () => {
   it('gives the local day on either side of midnight', () => {
@@ -25,5 +30,33 @@ describe('isPastDay', () => {
     expect(isPastDay('2026-09-30', '2026-10-01')).toBe(true)
     expect(isPastDay('2026-10-01', '2026-10-01')).toBe(false)
     expect(isPastDay('2026-10-02', '2026-10-01')).toBe(false)
+  })
+})
+
+describe('dueFilterRange', () => {
+  it('ends overdue the day before today and leaves out completed tasks', () => {
+    expect(dueFilterRange('overdue', '2026-10-15')).toEqual({
+      dueTo: '2026-10-14',
+      completed: false,
+    })
+  })
+
+  it('makes today a range of one day', () => {
+    expect(dueFilterRange('today', '2026-10-15')).toEqual({
+      dueFrom: '2026-10-15',
+      dueTo: '2026-10-15',
+    })
+  })
+
+  it('makes week today and the six days after it', () => {
+    expect(dueFilterRange('week', '2026-10-15')).toEqual({
+      dueFrom: '2026-10-15',
+      dueTo: '2026-10-21',
+    })
+  })
+
+  it('crosses a month and a year boundary', () => {
+    expect(dueFilterRange('overdue', '2026-10-01').dueTo).toBe('2026-09-30')
+    expect(dueFilterRange('week', '2026-12-29').dueTo).toBe('2027-01-04')
   })
 })

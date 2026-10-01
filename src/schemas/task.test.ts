@@ -3,8 +3,10 @@ import { describe, expect, it } from 'vitest'
 import {
   createTaskFormSchema,
   createTaskSchema,
+  listTasksQuerySchema,
   listTasksSchema,
   moveTaskSchema,
+  patchTaskSchema,
   toCreateTaskInput,
   updateTaskSchema,
 } from '#/schemas/task'
@@ -18,6 +20,13 @@ describe('createTaskSchema', () => {
 
   it.each(['', '   ', 'x'.repeat(201)])('rejects the title %j', (title) => {
     expect(createTaskSchema.safeParse({ title }).success).toBe(false)
+  })
+
+  it('rejects an unknown field', () => {
+    const result = createTaskSchema.safeParse({ title: 'Ship', status: 's1' })
+    expect(result.error?.issues).toEqual([
+      expect.objectContaining({ code: 'unrecognized_keys', keys: ['status'] }),
+    ])
   })
 
   it('accepts a 200 character title', () => {
@@ -120,6 +129,18 @@ describe('listTasksSchema', () => {
     ).toMatchObject({ dueFrom: '2026-10-01', dueTo: '2026-10-01' })
   })
 
+  it('accepts completed as a boolean only', () => {
+    expect(listTasksSchema.parse({ completed: false })).toEqual({
+      completed: false,
+    })
+    expect(listTasksSchema.parse({ completed: true })).toEqual({
+      completed: true,
+    })
+    expect(listTasksSchema.safeParse({ completed: 'false' }).success).toBe(
+      false,
+    )
+  })
+
   it('rejects a due range that ends before it starts', () => {
     const result = listTasksSchema.safeParse({
       dueFrom: '2026-10-02',
@@ -203,5 +224,91 @@ describe('toCreateTaskInput', () => {
       ['description', 'dueDate', 'priority', 'statusId', 'title'].sort(),
     )
     expect(createTaskSchema.safeParse(input).success).toBe(true)
+  })
+})
+
+describe('listTasksQuerySchema', () => {
+  it('accepts every F23 filter name', () => {
+    expect(
+      listTasksQuerySchema.parse({
+        status: 's1',
+        priority: 'high',
+        label: 'l1',
+        due: 'week',
+        q: ' copy ',
+      }),
+    ).toEqual({
+      status: 's1',
+      priority: 'high',
+      label: 'l1',
+      due: 'week',
+      q: 'copy',
+    })
+  })
+
+  it('drops a blank search text', () => {
+    expect(listTasksQuerySchema.parse({ q: '  ' })).toEqual({})
+  })
+
+  it('rejects a bad priority', () => {
+    const result = listTasksQuerySchema.safeParse({ priority: 'huge' })
+    expect(result.error?.issues.map((issue) => issue.path)).toEqual([
+      ['priority'],
+    ])
+  })
+
+  it('treats an empty value as absent for every filter', () => {
+    expect(
+      listTasksQuerySchema.parse({
+        status: '',
+        priority: '',
+        label: '',
+        due: '',
+        q: '',
+      }),
+    ).toEqual({})
+  })
+
+  it.each(['statusId', 'completed', 'dueFrom'])(
+    'rejects the unknown filter %s',
+    (name) => {
+      const result = listTasksQuerySchema.safeParse({ [name]: 'x' })
+      expect(result.error?.issues).toEqual([
+        expect.objectContaining({ code: 'unrecognized_keys', keys: [name] }),
+      ])
+    },
+  )
+
+  it('rejects an unknown due value', () => {
+    const due = 'soon'
+    const result = listTasksQuerySchema.safeParse({ due })
+    expect(result.error?.issues.map((issue) => issue.path)).toEqual([['due']])
+    expect(result.error?.issues[0].message).toBe(
+      'Due must be overdue, today, or week.',
+    )
+  })
+})
+
+describe('patchTaskSchema', () => {
+  it('accepts an empty patch', () => {
+    expect(patchTaskSchema.parse({})).toEqual({})
+  })
+
+  it('accepts fields and a move together', () => {
+    expect(
+      patchTaskSchema.parse({ title: ' Ship ', statusId: 's1', index: 0 }),
+    ).toEqual({ title: 'Ship', statusId: 's1', index: 0 })
+  })
+
+  it.each([-1, 1.5])('rejects the index %j', (index) => {
+    const result = patchTaskSchema.safeParse({ index })
+    expect(result.error?.issues.map((issue) => issue.path)).toEqual([['index']])
+  })
+
+  it('rejects an unknown field', () => {
+    const result = patchTaskSchema.safeParse({ status: 's1' })
+    expect(result.error?.issues).toEqual([
+      expect.objectContaining({ code: 'unrecognized_keys', keys: ['status'] }),
+    ])
   })
 })

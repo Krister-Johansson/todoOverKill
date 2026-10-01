@@ -15,7 +15,7 @@ docker compose up -d          # PostgreSQL on localhost:5434
 pnpm db:migrate               # prisma migrate dev
 pnpm db:generate              # prisma generate, also runs on install
 pnpm db:seed                  # demo data
-pnpm dev                      # http://localhost:3000
+pnpm dev                      # http://localhost:5173 (or $PORT)
 pnpm test                     # vitest
 pnpm test:e2e                 # playwright, includes axe checks
 pnpm check:contrast           # contrast of the theme tokens, light and dark

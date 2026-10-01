@@ -8,7 +8,7 @@ Every UI entry inherits the definition of done in `CLAUDE.md`: keyboard walkthro
 
 ### F01 Scaffold the TanStack Start app (#1)
 Run the TanStack CLI create command from `architecture.md` (into a temporary directory if the CLI refuses a non-empty folder, then move the result here), keep `docs/` and `CLAUDE.md`, switch to pnpm, add `typecheck`, `lint`, `test`, `test:e2e`, `db:migrate`, `db:seed` scripts. Remove the demo routes the add-ons generate.
-Acceptance: `pnpm install && pnpm dev` serves an empty page at localhost:3000; `pnpm lint` and `pnpm typecheck` pass; README lists the commands.
+Acceptance: `pnpm install && pnpm dev` serves an empty page at localhost:5173; `pnpm lint` and `pnpm typecheck` pass; README lists the commands.
 
 ### F02 PostgreSQL in Docker and environment validation (#2)
 Add `docker-compose.yml` (PostgreSQL on 5434, named volume), `.env.example`, and a `t3env` schema for `DATABASE_URL`, `DATABASE_URL_TEST`, `OPENROUTER_API_KEY` (optional), `OPENROUTER_MODEL` (optional, default set).

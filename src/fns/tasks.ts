@@ -11,6 +11,7 @@ import {
   moveTaskSchema,
   taskIdSchema,
 } from '#/schemas/task'
+import { listTaskActivity } from '#/server/activity'
 import { createTask, getTask, listTasks, moveTask } from '#/server/tasks'
 
 /** Turns the service's NotFoundError into the route's 404. */
@@ -40,6 +41,11 @@ export const listTasksFn = createServerFn({ method: 'GET' })
 export const getTaskFn = createServerFn({ method: 'GET' })
   .inputValidator(taskIdSchema)
   .handler(({ data: id }) => orNotFound(() => getTask(id)))
+
+/** A task's activity rows, oldest first. A missing task is the route's 404. */
+export const listTaskActivityFn = createServerFn({ method: 'GET' })
+  .inputValidator(taskIdSchema)
+  .handler(({ data: id }) => orNotFound(() => listTaskActivity(id)))
 
 /**
  * What createTaskFn returns. A project without statuses is an expected
@@ -100,5 +106,16 @@ export function taskQueryOptions(taskId: string) {
   return queryOptions({
     queryKey: ['tasks', taskId],
     queryFn: () => getTaskFn({ data: taskId }),
+  })
+}
+
+/**
+ * Under the task's key, so the board's Move menu, which invalidates
+ * ['tasks', id] without `exact`, refreshes the activity log too.
+ */
+export function taskActivityQueryOptions(taskId: string) {
+  return queryOptions({
+    queryKey: [...taskQueryOptions(taskId).queryKey, 'activity'],
+    queryFn: () => listTaskActivityFn({ data: taskId }),
   })
 }

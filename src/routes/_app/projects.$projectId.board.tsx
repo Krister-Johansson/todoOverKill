@@ -49,14 +49,17 @@ function BoardPage() {
   // the page. The region takes focus only while it overflows, so keyboard
   // users can scroll it then and meet no extra Tab stop otherwise. From md the
   // row is as wide as its columns (w-max), so a change in the number of
-  // columns resizes it and the observer measures again.
+  // columns resizes it and the observer measures again. The region is
+  // relative so it contains the cards' sr-only separators, which are
+  // absolutely positioned; without it, cards scrolled out of view to the right
+  // widen the page.
   return (
     <div
       ref={regionRef}
       role="region"
       aria-label="Board columns"
       tabIndex={scrollable ? 0 : undefined}
-      className="min-w-0 md:overflow-x-auto md:pb-2"
+      className="relative min-w-0 md:overflow-x-auto md:pb-2"
     >
       <div
         ref={rowRef}

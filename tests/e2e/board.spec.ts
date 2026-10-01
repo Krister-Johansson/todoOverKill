@@ -82,16 +82,18 @@ async function seedBoard(label: string) {
 
 /**
  * A project of empty statuses. Six are wider than the board at 1280 px, three
- * fit.
+ * fit. With cardInLast, the last column holds one task, which sits out of view
+ * to the right on a wide board.
  */
-async function seedWideBoard(label: string, count = 6) {
+async function seedWideBoard(label: string, count = 6, cardInLast = false) {
   const { name, key } = unique(label)
   names.push(name)
-  return db.project.create({
+  const project = await db.project.create({
     data: {
       name,
       key,
       color: '#2563eb',
+      nextTaskNumber: cardInLast ? 2 : 1,
       statuses: {
         create: ['One', 'Two', 'Three', 'Four', 'Five', 'Six']
           .slice(0, count)
@@ -102,7 +104,20 @@ async function seedWideBoard(label: string, count = 6) {
           })),
       },
     },
+    include: { statuses: { orderBy: { order: 'asc' } } },
   })
+  if (cardInLast) {
+    await db.task.create({
+      data: {
+        projectId: project.id,
+        statusId: project.statuses.at(-1)!.id,
+        number: 1,
+        title: 'Sit in the last column',
+        order: 1,
+      },
+    })
+  }
+  return project
 }
 
 test.afterAll(async () => {
@@ -216,9 +231,12 @@ for (const theme of ['light', 'dark'] as const) {
 test('a wide board scrolls inside its region, not the page', async ({
   page,
 }) => {
-  const project = await seedWideBoard('Wide')
+  // The card in the last column is out of view. Its hidden separators are
+  // absolutely positioned and must not widen the page.
+  const project = await seedWideBoard('Wide', 6, true)
   await openBoard(page, project.id)
   await expect(board(page).getByRole('heading', { level: 2 })).toHaveCount(6)
+  await expect(board(page).getByRole('link')).toHaveCount(1)
   // Focusable only once it overflows, so keyboard users can scroll it.
   await expect(board(page)).toHaveAttribute('tabindex', '0')
 
@@ -227,7 +245,11 @@ test('a wide board scrolls inside its region, not the page', async ({
     (region) => region.scrollWidth > region.clientWidth,
   )
   expect(overflows).toBe(true)
-  expect(await hasHorizontalPageScroll(page)).toBe(false)
+  const widths = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(widths.scrollWidth).toBe(widths.clientWidth)
 })
 
 test('switching boards in the app updates whether the region is a Tab stop', async ({

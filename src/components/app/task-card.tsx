@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { formatDueDate, isPastDay } from '#/lib/dates'
 import { PRIORITY_DISPLAY } from '#/lib/priority'
 
+import type { ReactNode } from 'react'
 import type { listTasksFn } from '#/fns/tasks'
 
 export type BoardTask = Awaited<ReturnType<typeof listTasksFn>>[number]
@@ -106,8 +107,83 @@ export function taskCardId(taskId: string) {
   return `task-card-${taskId}`
 }
 
-/** A card that should take focus when it renders, and where focus waits. */
-let pendingFocus: { taskId: string; holder: HTMLElement } | null = null
+/** The id of a task's Move button, so focus can follow a moved card. */
+export function moveButtonId(taskId: string) {
+  return `task-move-${taskId}`
+}
+
+/**
+ * A card control that should take focus when the card renders, and where
+ * focus waits. `link` is the card's link (after a create), `move` its Move
+ * button (after a move). `release` drops it and its listeners.
+ */
+type PendingFocus = {
+  taskId: string
+  target: 'link' | 'move'
+  holder: HTMLElement
+  release: () => void
+}
+
+let pendingFocus: PendingFocus | null = null
+
+/** How long a moved card's Move button waits to take focus. */
+const MOVE_FOCUS_TIMEOUT = 1000
+
+/**
+ * Records the hand-off, so it never pulls focus back from where the user
+ * went. A create's hand-off ends when focus leaves `holder`, the dialog's
+ * trigger. A move's ends when focus lands anywhere but `holder`, the old Move
+ * button, which may leave the page with its card, or after a second.
+ */
+function waitForCard(
+  taskId: string,
+  target: PendingFocus['target'],
+  holder: HTMLElement,
+) {
+  pendingFocus?.release()
+  const onBlur = () => pending.release()
+  const onFocusIn = (event: FocusEvent) => {
+    if (event.target !== holder) pending.release()
+  }
+  let timer: number | undefined
+  const pending: PendingFocus = {
+    taskId,
+    target,
+    holder,
+    release: () => {
+      if (pendingFocus === pending) pendingFocus = null
+      holder.removeEventListener('blur', onBlur)
+      document.removeEventListener('focusin', onFocusIn)
+      window.clearTimeout(timer)
+    },
+  }
+  pendingFocus = pending
+  if (target === 'link') {
+    holder.addEventListener('blur', onBlur)
+  } else {
+    document.addEventListener('focusin', onFocusIn)
+    timer = window.setTimeout(pending.release, MOVE_FOCUS_TIMEOUT)
+  }
+}
+
+/**
+ * Called by a card as it mounts or moves. When a hand-off waits for it and
+ * focus is still on the holder, or, for a move, fell to the page because the
+ * old button left the DOM, the card's control takes focus.
+ */
+function takePendingFocus(taskId: string) {
+  const pending = pendingFocus
+  if (pending?.taskId !== taskId) return
+  const control = document.getElementById(
+    pending.target === 'link' ? taskCardId(taskId) : moveButtonId(taskId),
+  )
+  if (!control) return
+  pending.release()
+  const active = document.activeElement
+  const dropped =
+    pending.target === 'move' && (active === null || active === document.body)
+  if (active === pending.holder || dropped) control.focus()
+}
 
 /**
  * Moves focus to a task's card. When the board has not rendered the card yet,
@@ -118,47 +194,65 @@ let pendingFocus: { taskId: string; holder: HTMLElement } | null = null
 export function focusTaskCard(taskId: string, holder: HTMLElement) {
   const card = document.getElementById(taskCardId(taskId))
   if (card) {
-    pendingFocus = null
+    pendingFocus?.release()
     card.focus()
     return
   }
   holder.focus()
-  const pending = { taskId, holder }
-  pendingFocus = pending
-  holder.addEventListener(
-    'blur',
-    () => {
-      if (pendingFocus === pending) pendingFocus = null
-    },
-    { once: true },
-  )
+  waitForCard(taskId, 'link', holder)
 }
 
-/** A board card: one link to the task page, at least 44 px tall. */
+/**
+ * Keeps focus on a task's Move button through a move (2.4.3). It focuses the
+ * button now if it is on the page, and the same hand-off as focusTaskCard
+ * lets the card take focus again once it renders in its new place: in another
+ * column, where it mounts afresh, or lower in its own, where React moves it.
+ * The wait ends when focus lands elsewhere or after a second, so a late
+ * render never takes focus back.
+ */
+export function focusMoveButton(taskId: string) {
+  const button = document.getElementById(moveButtonId(taskId))
+  button?.focus()
+  waitForCard(taskId, 'move', button ?? document.body)
+}
+
+type BoardCardProps = CardProps & {
+  task: CardTask & { id: string; statusId: string }
+  /** The card's place in its column, from 0. */
+  position: number
+  /**
+   * The card's Move menu, passed in by the column so this module, which owns
+   * the focus hand-off the menu uses, does not import it.
+   */
+  menu: ReactNode
+}
+
+/**
+ * A board card: one link to the task page, at least 44 px tall, and its Move
+ * menu beside it, since a button cannot sit inside a link.
+ */
 export function TaskCard({
   task,
   project,
   today,
-}: CardProps & { task: CardTask & { id: string } }) {
+  position,
+  menu,
+}: BoardCardProps) {
   useEffect(() => {
-    if (pendingFocus?.taskId !== task.id) return
-    const { holder } = pendingFocus
-    pendingFocus = null
-    if (document.activeElement === holder) {
-      document.getElementById(taskCardId(task.id))?.focus()
-    }
-  }, [task.id])
+    takePendingFocus(task.id)
+  }, [task.id, task.statusId, position])
 
   return (
-    <li>
+    <li className="flex min-w-0 items-start gap-1 rounded-md border border-border bg-card text-card-foreground">
       <Link
         id={taskCardId(task.id)}
         to="/tasks/$taskId"
         params={{ taskId: task.id }}
-        className="flex min-h-11 min-w-0 flex-col gap-1 rounded-md border border-border bg-card p-3 text-card-foreground hover:bg-accent hover:text-accent-foreground"
+        className="flex min-h-11 min-w-0 flex-1 flex-col gap-1 rounded-md p-3 hover:bg-accent hover:text-accent-foreground"
       >
         <TaskCardContent task={task} project={project} today={today} />
       </Link>
+      {menu}
     </li>
   )
 }

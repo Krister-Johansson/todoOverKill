@@ -10,7 +10,7 @@ import { toCalendarDay } from '#/lib/dates'
 
 import type { BoardTask } from '#/components/app/task-card'
 
-// The read-only board. It sets no head, so the tab keeps the layout's project
+// The board. It sets no head, so the tab keeps the layout's project
 // title.
 export const Route = createFileRoute('/_app/projects/$projectId/board')({
   staticData: { title: 'Board' },

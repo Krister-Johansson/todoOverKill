@@ -5,8 +5,13 @@ import * as z from 'zod'
 
 import { PROJECTS_QUERY_KEY, hasCode } from '#/fns/projects'
 import { projectIdSchema } from '#/schemas/project'
-import { createTaskSchema, listTasksSchema, taskIdSchema } from '#/schemas/task'
-import { createTask, getTask, listTasks } from '#/server/tasks'
+import {
+  createTaskSchema,
+  listTasksSchema,
+  moveTaskSchema,
+  taskIdSchema,
+} from '#/schemas/task'
+import { createTask, getTask, listTasks, moveTask } from '#/server/tasks'
 
 /** Turns the service's NotFoundError into the route's 404. */
 async function orNotFound<T>(load: () => Promise<T>): Promise<T> {
@@ -72,6 +77,16 @@ export const createTaskFn = createServerFn({ method: 'POST' })
   .handler(({ data }) =>
     toCreateTaskResult(() => createTask(data.projectId, data.data)),
   )
+
+/**
+ * Moves a task to another status, another place in its column, or both, and
+ * returns it with its status. Errors are thrown and reach the client as a
+ * plain Error: the board's Move menu has no form to show them in, so it rolls
+ * back and announces that the move failed.
+ */
+export const moveTaskFn = createServerFn({ method: 'POST' })
+  .inputValidator(z.object({ taskId: taskIdSchema, data: moveTaskSchema }))
+  .handler(({ data }) => moveTask(data.taskId, data.data))
 
 /** Under the project's key, so invalidating a project refreshes its tasks. */
 export function tasksQueryOptions(projectId: string) {

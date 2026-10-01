@@ -159,7 +159,7 @@ describe('task route', () => {
       'Created the task “Fix the footer”.',
       'Changed the description and the labels.',
     ])
-    expect(within(region).getByText(/^last week \(/)).toBeTruthy()
+    expect(within(region).getByText(/^1 week ago \(/)).toBeTruthy()
     // The Description section comes first.
     const description = screen.getByRole('heading', { name: 'Description' })
     expect(

@@ -85,10 +85,13 @@ const RELATIVE_UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
   ['minute', MINUTE],
 ]
 
-const relativeFormat = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
+// Always a number ("1 day ago"), never a calendar word ("yesterday"): the
+// count is of elapsed 24 hour or 7 day blocks, so a calendar word could
+// disagree with the absolute date shown beside it.
+const relativeFormat = new Intl.RelativeTimeFormat('en', { numeric: 'always' })
 
 /**
- * How long before `now` a moment was, such as `2 hours ago` or `yesterday`,
+ * How long before `now` a moment was, such as `2 hours ago` or `1 day ago`,
  * in the largest whole unit. Under a minute, and any moment after `now`, is
  * `just now`, so a row written after the page loaded never reads as future.
  */

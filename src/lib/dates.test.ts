@@ -96,16 +96,25 @@ describe('formatRelativeTime', () => {
     expect(ago(hour)).toBe('1 hour ago')
     expect(ago(2 * hour + 30 * minute)).toBe('2 hours ago')
     expect(ago(23 * hour + 59 * minute)).toBe('23 hours ago')
-    expect(ago(day)).toBe('yesterday')
+    expect(ago(day)).toBe('1 day ago')
     expect(ago(6 * day)).toBe('6 days ago')
   })
 
   it('counts weeks, months and years', () => {
-    expect(ago(7 * day)).toBe('last week')
+    expect(ago(7 * day)).toBe('1 week ago')
     expect(ago(29 * day)).toBe('4 weeks ago')
-    expect(ago(30 * day)).toBe('last month')
+    expect(ago(30 * day)).toBe('1 month ago')
     expect(ago(364 * day)).toBe('12 months ago')
-    expect(ago(365 * day)).toBe('last year')
+    expect(ago(365 * day)).toBe('1 year ago')
     expect(ago(3 * 365 * day)).toBe('3 years ago')
+  })
+
+  it('never uses a calendar word that could contradict the date', () => {
+    // Monday 23:00 seen on Wednesday 00:30 is 25.5 hours earlier: one
+    // elapsed day, though the calendar says two days back.
+    const seen = new Date(2026, 8, 30, 0, 30)
+    const event = new Date(2026, 8, 28, 23, 0)
+    expect(formatRelativeTime(event, seen)).toBe('1 day ago')
+    expect(formatRelativeTime(event, seen)).not.toMatch(/yesterday/)
   })
 })

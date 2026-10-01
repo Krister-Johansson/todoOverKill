@@ -297,3 +297,39 @@ test('description lines are capped below 80 characters', async ({ page }) => {
   ).toBeGreaterThan(widths.eighty)
   expect(widths.width).toBeLessThan(widths.eighty)
 })
+
+test('description spacing meets 1.4.8', async ({ page }) => {
+  const { overdue } = await seedTasks('Spacing')
+  await openTask(page, overdue.id)
+
+  const prose = description(page).locator('div.max-w-prose')
+  const spacing = await prose.evaluate((element) => {
+    const lineHeight = (block: Element) => {
+      const style = getComputedStyle(block)
+      return {
+        ratio: parseFloat(style.lineHeight) / parseFloat(style.fontSize),
+        pixels: parseFloat(style.lineHeight),
+      }
+    }
+    const paragraphs = [...element.querySelectorAll(':scope > p')]
+    return {
+      ratios: [...paragraphs, element.querySelector('pre')!].map(
+        (block) => lineHeight(block).ratio,
+      ),
+      gaps: paragraphs
+        .filter((paragraph) => paragraph.nextElementSibling)
+        .map((paragraph) => ({
+          gap:
+            paragraph.nextElementSibling!.getBoundingClientRect().top -
+            paragraph.getBoundingClientRect().bottom,
+          lineHeight: lineHeight(paragraph).pixels,
+        })),
+    }
+  })
+
+  for (const ratio of spacing.ratios) expect(ratio).toBeGreaterThanOrEqual(1.5)
+  expect(spacing.gaps.length).toBeGreaterThan(0)
+  for (const { gap, lineHeight } of spacing.gaps) {
+    expect(gap).toBeGreaterThanOrEqual(1.5 * lineHeight)
+  }
+})

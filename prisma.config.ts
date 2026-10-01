@@ -16,6 +16,12 @@ const url = process.env.DATABASE_URL || undefined
 
 export default defineConfig({
   schema: 'prisma/schema.prisma',
-  migrations: { path: 'prisma/migrations' },
+  migrations: {
+    path: 'prisma/migrations',
+    // tsx, not plain node: the seed imports #/server/db, which imports #/env
+    // and #/generated/prisma/client without file extensions, and Node adds no
+    // extensions when it resolves subpath imports.
+    seed: 'tsx prisma/seed.ts',
+  },
   ...(url ? { datasource: { url } } : {}),
 })

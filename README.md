@@ -30,9 +30,10 @@ The init script only runs when the `db-data` volume is created empty. If the vol
 
 `pnpm install` runs `prisma generate`, which writes the client to the gitignored `src/generated/prisma` and works without a `.env`. Since Prisma 7, `pnpm db:migrate` does not regenerate the client, so run `pnpm db:generate` after every schema change.
 
-`pnpm test` needs `DATABASE_URL_TEST` set, from `.env` or the shell; without it the run stops and says how to set it. Before any test runs it applies the migrations to the test database. If nothing answers at the URL's host and port and the host is local, it starts the compose database with `docker compose up --detach --wait db` and stops it again when the run ends. Without Docker, start PostgreSQL yourself. CI has to provide the variable and a database the same way.
+`pnpm test` needs `DATABASE_URL_TEST` set, from `.env` or the shell; without it the run stops and says how to set it. Before any test runs it applies the migrations to the test database. If nothing answers at the URL's host and port and the host is local, it starts the compose database with `docker compose up --detach --wait db` and stops it again when the run ends. Without Docker, start PostgreSQL yourself. The GitHub Actions workflow in `.github/workflows/ci.yml` provides both through a PostgreSQL service.
 
-Some of these commands depend on backlog items that are not done yet:
+`pnpm test:e2e` needs Chromium. Install it once with `pnpm exec playwright install chromium`. The run builds the app and serves it on port 3100 with `DATABASE_URL` set to `DATABASE_URL_TEST`, so it uses the test database, never the app database. It migrates and empties the test database before the first spec, and starts the compose database the same way `pnpm test` does. If a server already answers on port 3100, a local run uses it instead of building, and the specs then see whatever database that server uses. In CI it always builds.
 
-- `pnpm db:seed` needs the seed script from F04.
-- `pnpm test:e2e` needs the Playwright setup from F06.
+`pnpm test` and `pnpm test:e2e` both empty the test database, so do not run them at the same time.
+
+`pnpm db:seed` runs `prisma/seed.ts` through tsx. It deletes the demo projects TOK and DEMO, with everything in them, and creates them again, so running it twice leaves the same data as running it once. Projects with other keys are not touched. Due dates and activity times are relative to the time of the run.

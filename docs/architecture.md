@@ -46,6 +46,7 @@ src/
     activity.ts
     search.ts
     db.ts                   Prisma client singleton
+    seed.ts                 Demo data for pnpm db:seed (projects TOK and DEMO)
   fns/                      createServerFn wrappers used by routes and client tools
   tools/
     definitions.ts          toolDefinition() for every domain tool (name, description, Zod in/out)
@@ -59,13 +60,16 @@ src/
 prisma/
   schema.prisma
   migrations/
-  seed.ts
-prisma.config.ts            Prisma CLI config: loads .env, schema and migrations paths
+  seed.ts                   Entry for pnpm db:seed: loads .env, calls src/server/seed.ts
+  test/                     Vitest and Playwright helpers: database setup and reset
+prisma.config.ts            Prisma CLI config: loads .env, schema and migrations paths, seed command
 docs/
 tests/
-  unit/                     Vitest
-  e2e/                      Playwright
+  e2e/                      Playwright specs and the expectAccessible helper
+.github/workflows/ci.yml    Lint, typecheck, unit, and e2e on every push and pull request
 ```
+
+Unit tests (`*.test.ts`, `*.test.tsx`) sit next to the file they test.
 
 ## Data model
 
@@ -163,8 +167,9 @@ Tools marked `needsApproval` (delete, archive) surface a confirmation in the ass
 
 ## Testing
 
-- Vitest against the service layer with a real test database (`DATABASE_URL_TEST`), reset between test files.
-- Playwright for user flows. Every spec that opens a page or dialog runs `@axe-core/playwright` with WCAG 2.2 AAA tags and fails on any violation.
+- Vitest runs two projects from `vitest.config.ts`. The `server` project covers test files under `src/server/`, `src/fns/`, `src/tools/`, and `src/routes/api/`. It runs in Node against the real test database (`DATABASE_URL_TEST`), one file at a time, and `src/test/setup-server.ts` empties every table with `resetDatabase` from `src/test/db.ts` before each file. The `client` project runs every other test file in jsdom, in parallel. A file in the client project that imports server code still needs the `// @vitest-environment node` docblock.
+- Playwright for user flows. Every spec that opens a page or dialog calls `expectAccessible(page)` from `tests/e2e/accessibility.ts`. It runs `@axe-core/playwright` with the tags `wcag2a`, `wcag2aa`, `wcag2aaa`, `wcag21a`, `wcag21aa`, and `wcag22aa` and fails with a list of every violating element. axe has no `wcag22aaa` tag. `tests/e2e/accessibility.spec.ts` checks that the helper fails a page with a missing `alt`.
+- `playwright.config.ts` builds the app and serves it with `vite preview` on port 3100, with `DATABASE_URL` set to `DATABASE_URL_TEST`, so e2e runs never touch the app database. It runs Chromium only, because voice and WebMCP exist only in Chrome. Playwright starts the web server before its global setup. That is safe because the app opens its Prisma connection on the first query. The global setup in `tests/e2e/global-setup.ts` then migrates the test database and empties it, once per run. Specs that write data clean up after themselves or use names no other spec uses.
 - A keyboard-only smoke test walks the main flows with Tab, Enter, Space, arrows, and Escape only.
 - Speech APIs are mocked in Playwright with `page.addInitScript`; tests assert the transcript flow, not recognition quality.
 - Contrast is checked in CI by a script that reads the theme CSS variables and computes ratios for every foreground and background pair.
@@ -182,7 +187,11 @@ The config function in `vite.config.ts` loads `.env` into `process.env` with `sr
 
 `prisma.config.ts` loads `.env` with the same loader, so shell variables win there too. It passes `DATABASE_URL` to Prisma only when the variable is set. Without it `prisma generate` still runs, which is why `postinstall` can call it on a fresh clone, and the commands that need a database fail with Prisma's own message. Prisma's `env()` helper is not used because it throws while the config loads. The generated client goes to the gitignored `src/generated/prisma`. Since Prisma 7, `prisma migrate dev` does not regenerate it, so `pnpm db:generate` has to run after every schema change. `src/server/db.ts` builds the client on `@prisma/adapter-pg` and connects to `DATABASE_URL_TEST` when `NODE_ENV` is `test` (Vitest sets it) and to `DATABASE_URL` otherwise. Outside production the client is kept on `globalThis`, so dev server reloads reuse one connection pool.
 
-`vitest.config.ts` loads `.env` the same way. The config runs in the main process before the global setup and before the worker processes start, and the workers inherit `process.env`, so `src/env.ts` validates in every test file without stubbing. `src/test/global-setup.ts` then runs `prisma migrate deploy` with `DATABASE_URL` set to `DATABASE_URL_TEST`. If nothing accepts a connection on that URL's host and port and the host is local, the setup first runs `docker compose up --detach --wait db` and stops the container when the run ends, so a test run leaves Docker as it found it. It stops with a message when `DATABASE_URL_TEST` is missing or the database cannot be started.
+`pnpm db:seed` runs `prisma db seed`, which runs the `migrations.seed` command from `prisma.config.ts`: `tsx prisma/seed.ts`. Plain Node cannot run it, because the seed imports `#/server/db`, which imports `#/env` and the generated client without file extensions, and Node adds none when it resolves subpath imports. `prisma/seed.ts` loads `.env` before importing anything that validates it, then calls `seed()` from `src/server/seed.ts`. The seed owns the projects with keys TOK and DEMO. In one transaction it deletes their tasks, then the projects (deleting a project first could reach a status while tasks still point at it, which the `RESTRICT` key refuses), and creates both again with statuses, labels, about 30 tasks, subtasks, comments, and activity. Re-running it leaves the same data, and other projects are not touched. The transaction has a 60 second timeout instead of Prisma's 5 second default. `seed()` takes a `now` option for the dates, and accepts a transaction client as well as a `PrismaClient`.
+
+`vitest.config.ts` and `playwright.config.ts` load `.env` the same way. The Vitest config runs in the main process before the global setup and before the worker processes start, and the workers inherit `process.env`, so `src/env.ts` validates in every test file without stubbing. Both global setups call `prepareTestDatabase` in `src/test/prepare-test-database.ts`, which runs `prisma migrate deploy` with `DATABASE_URL` set to `DATABASE_URL_TEST`. If nothing accepts a connection on that URL's host and port and the host is local, the setup first runs `docker compose up --detach --wait db` and stops the container when the run ends, so a test run leaves Docker as it found it. It stops with a message when `DATABASE_URL_TEST` is missing or the database cannot be started. The Playwright config also stops at load when `DATABASE_URL_TEST` is missing, before it builds anything.
+
+The CI workflow in `.github/workflows/ci.yml` runs one job with a PostgreSQL 17 service. It sets `DATABASE_URL` and `DATABASE_URL_TEST` to the same `todo_over_kill_test` database, then runs `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm test:e2e`, and uploads the Playwright report.
 
 ## Scaffold
 

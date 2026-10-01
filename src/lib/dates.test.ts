@@ -4,6 +4,7 @@ import {
   dueFilterRange,
   formatDateTime,
   formatDueDate,
+  formatRelativeTime,
   isPastDay,
   toCalendarDay,
 } from './dates'
@@ -67,5 +68,44 @@ describe('dueFilterRange', () => {
   it('crosses a month and a year boundary', () => {
     expect(dueFilterRange('overdue', '2026-10-01').dueTo).toBe('2026-09-30')
     expect(dueFilterRange('week', '2026-12-29').dueTo).toBe('2027-01-04')
+  })
+})
+
+describe('formatRelativeTime', () => {
+  const now = new Date('2026-10-01T12:00:00.000Z')
+  const ago = (ms: number) =>
+    formatRelativeTime(new Date(now.getTime() - ms), now)
+  const second = 1000
+  const minute = 60 * second
+  const hour = 60 * minute
+  const day = 24 * hour
+
+  it('says just now under a minute', () => {
+    expect(ago(0)).toBe('just now')
+    expect(ago(59 * second)).toBe('just now')
+  })
+
+  it('says just now for a moment after now', () => {
+    expect(ago(-5 * second)).toBe('just now')
+    expect(ago(-3 * day)).toBe('just now')
+  })
+
+  it('counts minutes, hours and days in whole units', () => {
+    expect(ago(minute)).toBe('1 minute ago')
+    expect(ago(59 * minute + 59 * second)).toBe('59 minutes ago')
+    expect(ago(hour)).toBe('1 hour ago')
+    expect(ago(2 * hour + 30 * minute)).toBe('2 hours ago')
+    expect(ago(23 * hour + 59 * minute)).toBe('23 hours ago')
+    expect(ago(day)).toBe('yesterday')
+    expect(ago(6 * day)).toBe('6 days ago')
+  })
+
+  it('counts weeks, months and years', () => {
+    expect(ago(7 * day)).toBe('last week')
+    expect(ago(29 * day)).toBe('4 weeks ago')
+    expect(ago(30 * day)).toBe('last month')
+    expect(ago(364 * day)).toBe('12 months ago')
+    expect(ago(365 * day)).toBe('last year')
+    expect(ago(3 * 365 * day)).toBe('3 years ago')
   })
 })

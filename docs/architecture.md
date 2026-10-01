@@ -175,6 +175,10 @@ Tools marked `needsApproval` (delete, archive) surface a confirmation in the ass
 - Contrast is checked in CI by a script that reads the theme CSS variables and computes ratios for every foreground and background pair.
 - The MCP endpoint is tested with the SDK's client over HTTP in Vitest.
 
+## Repository rules
+
+The `main` branch has a GitHub ruleset. Changes reach `main` only through a pull request, every review conversation must be resolved, the CI job "Lint, typecheck, unit, and e2e" must pass on a branch that is up to date with `main`, and force pushes and deletion are blocked. No approvals are required. The rules apply to people and agents alike, so a merge step that waits is waiting on a red check, an unresolved comment, or a branch that needs a rebase.
+
 ## Local infrastructure
 
 `docker-compose.yml` starts PostgreSQL on port 5434, bound to 127.0.0.1 only (5432 and 5433 are already in use on the development machine). `.env.example` documents `DATABASE_URL`, `DATABASE_URL_TEST`, `OPENROUTER_API_KEY`, and `OPENROUTER_MODEL`. Environment variables are validated with `t3env`.

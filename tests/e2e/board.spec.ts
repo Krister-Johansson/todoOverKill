@@ -80,8 +80,11 @@ async function seedBoard(label: string) {
   return { project, overdue, plain }
 }
 
-/** A project with six empty statuses, wider than the board at 1280 px. */
-async function seedWideBoard(label: string) {
+/**
+ * A project of empty statuses. Six are wider than the board at 1280 px, three
+ * fit.
+ */
+async function seedWideBoard(label: string, count = 6) {
   const { name, key } = unique(label)
   names.push(name)
   return db.project.create({
@@ -90,13 +93,13 @@ async function seedWideBoard(label: string) {
       key,
       color: '#2563eb',
       statuses: {
-        create: ['One', 'Two', 'Three', 'Four', 'Five', 'Six'].map(
-          (statusName, index) => ({
+        create: ['One', 'Two', 'Three', 'Four', 'Five', 'Six']
+          .slice(0, count)
+          .map((statusName, index) => ({
             name: statusName,
             order: index + 1,
             category: 'todo' as const,
-          }),
-        ),
+          })),
       },
     },
   })
@@ -225,6 +228,26 @@ test('a wide board scrolls inside its region, not the page', async ({
   )
   expect(overflows).toBe(true)
   expect(await hasHorizontalPageScroll(page)).toBe(false)
+})
+
+test('switching boards in the app updates whether the region is a Tab stop', async ({
+  page,
+}) => {
+  // The board component stays mounted across projects, so this checks that a
+  // new number of columns is measured again. All columns are empty, so only
+  // the width of the row changes.
+  const narrow = await seedWideBoard('Switch narrow', 3)
+  const wide = await seedWideBoard('Switch wide')
+  await openBoard(page, narrow.id)
+  await expect(board(page)).not.toHaveAttribute('tabindex')
+
+  await sidebar(page).getByRole('link', { name: wide.name }).click()
+  await expect(board(page).getByRole('heading', { level: 2 })).toHaveCount(6)
+  await expect(board(page)).toHaveAttribute('tabindex', '0')
+
+  await sidebar(page).getByRole('link', { name: narrow.name }).click()
+  await expect(board(page).getByRole('heading', { level: 2 })).toHaveCount(3)
+  await expect(board(page)).not.toHaveAttribute('tabindex')
 })
 
 test('a card is reached by Tab and opened with Enter', async ({ page }) => {

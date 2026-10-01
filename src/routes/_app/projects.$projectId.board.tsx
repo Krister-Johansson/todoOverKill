@@ -47,7 +47,9 @@ function BoardPage() {
 
   // From md the columns sit in a row that scrolls inside this region, never
   // the page. The region takes focus only while it overflows, so keyboard
-  // users can scroll it then and meet no extra Tab stop otherwise.
+  // users can scroll it then and meet no extra Tab stop otherwise. From md the
+  // row is as wide as its columns (w-max), so a change in the number of
+  // columns resizes it and the observer measures again.
   return (
     <div
       ref={regionRef}
@@ -58,7 +60,7 @@ function BoardPage() {
     >
       <div
         ref={rowRef}
-        className="flex flex-col gap-4 md:flex-row md:items-start"
+        className="flex flex-col gap-4 md:w-max md:flex-row md:items-start"
       >
         {/* getProject returns the statuses sorted by Status.order. */}
         {project.statuses.map((status) => (
@@ -77,7 +79,8 @@ function BoardPage() {
 
 /**
  * Whether the region is wider inside than out. It watches the region and its
- * content, so a resize, a zoom change, or a new column updates it. False on
+ * content, so a resize, a zoom change, or a different number of columns
+ * updates it. The content must size to its children for the last one. False on
  * the server and until the first measurement.
  */
 function useOverflowsX(

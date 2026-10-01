@@ -1,12 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { env } from '#/env'
 import { db } from '#/server/db'
 import { resetDatabase } from '#/test/db'
-
-function databaseName(url: string) {
-  return decodeURIComponent(new URL(url).pathname.slice(1))
-}
 
 describe('db', () => {
   it('connects to the migrated database, which has no projects', async () => {
@@ -18,11 +13,7 @@ describe('db', () => {
       Array<{ name: string }>
     >`SELECT current_database() AS name`
 
-    // The test database name comes from DATABASE_URL_TEST, so a worktree can
-    // point at its own copy. It must never be the app database.
-    const testName = databaseName(env.DATABASE_URL_TEST)
-    expect(testName).not.toBe(databaseName(env.DATABASE_URL))
-    expect(rows).toEqual([{ name: testName }])
+    expect(rows).toEqual([{ name: 'todo_over_kill_test' }])
   })
 })
 

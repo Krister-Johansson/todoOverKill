@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   createProjectSchema,
+  listProjectsQuerySchema,
   listProjectsSchema,
   projectKeySchema,
   updateProjectSchema,
@@ -95,5 +96,32 @@ describe('updateProjectSchema', () => {
 describe('listProjectsSchema', () => {
   it('defaults includeArchived to false', () => {
     expect(listProjectsSchema.parse({})).toEqual({ includeArchived: false })
+  })
+})
+
+describe('listProjectsQuerySchema', () => {
+  it('defaults includeArchived to false when the parameter is absent', () => {
+    expect(listProjectsQuerySchema.parse({})).toEqual({
+      includeArchived: false,
+    })
+  })
+
+  it.each([
+    ['true', true],
+    ['false', false],
+    ['1', true],
+    ['0', false],
+  ])('reads includeArchived=%s as %s', (value, expected) => {
+    expect(listProjectsQuerySchema.parse({ includeArchived: value })).toEqual({
+      includeArchived: expected,
+    })
+  })
+
+  it('rejects a value that is not a boolean word', () => {
+    const result = listProjectsQuerySchema.safeParse({
+      includeArchived: 'maybe',
+    })
+    expect(result.success).toBe(false)
+    expect(result.error?.issues[0].path).toEqual(['includeArchived'])
   })
 })

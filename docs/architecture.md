@@ -29,13 +29,16 @@ src/
     _app/projects.$projectId.settings.tsx
     _app/tasks.$taskId.tsx  Task detail (full page; also rendered in a dialog). Until F17, a placeholder with the reference, title, and project
     _app/settings.tsx
-    _app/help.tsx
-    api/v1/...              REST server routes
+    _app/help.tsx           Help: glossary, keyboard shortcuts, browser support
+    api/v1/...              REST server routes, with their Vitest files next to them
+    api/v1/projects.ts      GET list, POST create
+    api/v1/projects.$projectId.ts           GET, PATCH, DELETE (archive)
+    api/v1/projects.$projectId.statuses.ts  GET
     api/mcp.ts              MCP server route
     api/chat.ts             TanStack AI chat route
     api/openapi[.]json.ts
   components/
-    ui/                     shadcn primitives: dialog, button, input, label, switch (written from the CLI's view output, edited for contrast and 44 px targets)
+    ui/                     shadcn primitives: dialog, button, input, label, switch, table, kbd (written from the CLI's view output, edited for contrast and 44 px targets)
     app/                    Composed components: sidebar, top-bar, live-region, create-project-dialog, theme-switch, motion-switch, preference-switch, task-card, board-column, assistant-panel, voice-button, ...
   server/
     projects.ts             Service functions: createProject, listProjects, ...; DEFAULT_STATUSES
@@ -49,7 +52,7 @@ src/
     errors.ts               NotFoundError and ConflictError, thrown by services
     db.ts                   Prisma client singleton
     seed.ts                 Demo data for pnpm db:seed (projects TOK and DEMO)
-  fns/                      createServerFn wrappers used by routes and client tools, plus their TanStack Query options
+  fns/                      createServerFn wrappers used by page routes and client tools, plus their TanStack Query options; REST handlers call src/server directly
     projects.ts             listProjectsFn, getProjectFn, createProjectFn; projectsQueryOptions, projectQueryOptions
     tasks.ts                listTasksFn, getTaskFn; tasksQueryOptions (key ['projects', id, 'tasks']), taskQueryOptions (key ['tasks', id])
   tools/
@@ -59,13 +62,13 @@ src/
     webmcp.ts               Registers tools on document.modelContext
     mcp.ts                  Maps definitions onto @modelcontextprotocol/sdk McpServer
   schemas/                  Zod schemas shared by forms, REST, MCP, and tools: project.ts, status.ts, task.ts
-  lib/                      Utilities: dates (calendar days: today, formatting, past check), priority (label, icon, and colour per priority), cn, keyboard helpers, motion presets, speech, project-key (key suggestion), project-colors (the project colour palette), preferences (on or off settings in localStorage)
+  lib/                      Utilities: dates (calendar days: today, formatting, past check), priority (label, icon, and colour per priority), cn, keyboard helpers, motion presets, speech, project-key (key suggestion), project-colors (the project colour palette), preferences (on or off settings in localStorage), rest (the REST error envelope: handle, errorResponse, readJsonBody)
   hooks/                    useReducedMotion, useTheme, usePreference, useHotkeys, useSpeechRecognition, useSpeechSynthesis
 prisma/
   schema.prisma
   migrations/
   seed.ts                   Entry for pnpm db:seed: loads .env, calls src/server/seed.ts
-  test/                     Vitest and Playwright helpers: database setup and reset
+  test/                     Vitest and Playwright helpers: database setup and reset, callRoute (rest.ts) for REST handler tests
 prisma.config.ts            Prisma CLI config: loads .env, schema and migrations paths, seed command
 docs/
 tests/
@@ -100,7 +103,7 @@ The activity log is append-only and written by the service layer, never directly
 
 `src/server/*.ts` exports plain async functions. Each takes the schema's input type (`z.input`), parses it again with the shared Zod schema from `src/schemas/`, and returns plain objects, so a caller that skips validation still gets trimmed strings and an upper-case project key. Invalid input throws a `ZodError`. The services are the only place that touches Prisma. Server functions, REST handlers, MCP tools, and AI tools are thin: parse input with the shared Zod schema, call the service, shape the response.
 
-Services do not leak Prisma error codes. A missing record throws `NotFoundError` (`code: 'not_found'`) and a unique-rule clash, such as a taken project key, throws `ConflictError` (`code: 'conflict'`), both from `src/server/errors.ts`. The transports map these two classes, and `ZodError`, to their own error shapes.
+Services do not leak Prisma error codes. A missing record throws `NotFoundError` (`code: 'not_found'`) and a unique-rule clash, such as a taken project key, throws `ConflictError` (`code: 'conflict'`), both from `src/server/errors.ts`. The transports map these two classes, and `ZodError`, to their own error shapes. The REST handlers share one mapping, `errorResponse` in `src/lib/rest.ts`, described under REST API.
 
 The projects service creates every project with `DEFAULT_STATUSES` (Backlog, Todo, In progress, Done) and its `project.created` row in one transaction. `listProjects` leaves archived projects out unless `includeArchived` is true. Archiving an archived project and restoring one that is not archived change nothing. The seed imports `DEFAULT_STATUSES` and `ACTIVITY_TYPES` from the services, so demo data and real data cannot drift apart.
 
@@ -121,7 +124,7 @@ Each task mutation writes one activity row in its transaction: `task.created` wi
 - The board (`projects.$projectId.board.tsx`) renders one `section` per status in `Status.order`, named by its `h2` (status name and task count), with a `ul` of task cards. Each card is one `Link` to `/tasks/$taskId`, at least 44 px tall, showing the task reference in an `abbr`, the title, the priority as an icon and a word, the due date in a `time` element with "Overdue" in words once the day has passed (never for a completed task), and the labels as a list of chips. Visually hidden commas separate those parts, so the link's accessible name does not run them together. A label's user-chosen colour is only an `aria-hidden` dot; text and borders use theme tokens. From `md` the columns sit in a row inside a labelled region that scrolls on its own, so the page never scrolls sideways; below `md` they stack. The region takes `tabIndex={0}` only while its content is wider than it (a `ResizeObserver` watches both), so keyboard users can scroll it then and meet no extra Tab stop otherwise. It keeps `tabIndex={0}` while it holds focus, so focus does not drop to the body if a resize or zoom ends the overflow. The scrolling region clips anything painted outside it, so the row inside has 4 px of padding: room for a card's focus outline (2 px with a 2 px offset) in the first and last columns. "Today" for the Overdue check is the local calendar day computed in the board loader and read with `Route.useLoaderData()`, so the server render and hydration agree; the app is local, so server and browser share a time zone. A board left open past midnight shows the new day's Overdue marks after its next load.
 - The bare project URL redirects to the board in `beforeLoad`. The sidebar still links to `/projects/$projectId`, and its link stays current on every project view because `Link` matches by path prefix unless `activeOptions.exact` is set.
 - Forms use TanStack Form with the shared Zod schema as the form-level `onSubmit` validator. The `form` has `noValidate` so the browser never shows its own bubbles, and required inputs have `aria-required` and say "(required)" in the label. Each error shows under its field, linked with `aria-describedby` and `aria-invalid`, and in a summary at the top of the form: a `tabIndex={-1}` container with a heading and a link to each field, which takes focus after a failed submit, so it is read once without `role="alert"`. Fields have no blur validation: a blur would clear the submit error of a field that is still invalid.
-- The shadcn components in `src/components/ui/` were written by hand from `shadcn view` output rather than installed, because the current registry imports `cn` from a separate `cn` package; they import `cn` from `#/lib/utils`. They are edited to the contrast rules in `src/styles.css` (no opacity on theme colours, token pairs instead of `text-white`), every size is at least 44 px, and the focus ring comes from the global `:focus-visible` rule.
+- The shadcn components in `src/components/ui/` were written by hand from `shadcn view` output rather than installed, because the current registry imports `cn` from a separate `cn` package; they import `cn` from `#/lib/utils`. They are edited to the contrast rules in `src/styles.css` (no opacity on theme colours, token pairs instead of `text-white`), every size is at least 44 px, and the focus ring comes from the global `:focus-visible` rule. `Table` cells wrap rather than staying on one line, so a narrow table reflows at 320 px; its container still scrolls a table too wide to wrap, and a table that can overflow passes `tabIndex`, `role` and `aria-label` to that container through `containerProps`, so the keyboard can scroll it. `Kbd` draws a key cap in foreground text on muted with a minimum size rather than a fixed height.
 - URL holds view state that should survive reload: active project, view (board or list), filters, open task. Search params are validated with Zod through the route's `validateSearch`.
 - Task detail opens as a dialog from the board (search param `task=`) and as a full page on direct navigation.
 - The shell's `LiveRegionProvider` renders the app's one polite `aria-live` region. Components announce status changes with `useAnnounce()` from `src/components/app/live-region.tsx` and do not add their own live regions (4.1.3).
@@ -131,19 +134,35 @@ Each task mutation writes one activity row in its transaction: `task.created` wi
 - `PreferencesProvider` (`src/components/app/preferences.tsx`) is always mounted in the app shell. It keeps the stores subscribed on every route and wraps the app in Motion's `MotionConfig` with `reducedMotion` set from `useReducedMotion()`. Motion components take their transitions and variants from `src/lib/motion.ts` (`durations`, `easings`, `fade`, `scaleIn`), which return zero durations and no transform when motion is reduced.
 - The on or off settings live in `localStorage` as `on` or `off`: `todoOverKill.shortcuts` (single-key shortcuts, default `on`), `todoOverKill.voice.sendOnPause` ("send when I stop speaking", default `off`) and `todoOverKill.voice.readAloud` ("read replies aloud", default `off`). `src/lib/preferences.ts` holds the keys, defaults and Zod schema; `usePreference(name)` (`src/hooks/use-preference.ts`) reads one through `useSyncExternalStore`, listens for `storage` events from other tabs, and renders the default as the server snapshot, so the stored value appears just after hydration. F14's hotkey hook reads `todoOverKill.shortcuts`; F41 and F42 read the voice settings.
 - The Settings page has three sections. Appearance holds the theme and motion radio groups (F08). Keyboard holds the single-key shortcuts switch. Voice holds the "send when I stop speaking" and "read replies aloud" switches, shown disabled with a "Not available yet" note until F41 and F42 enable them. Each switch is a `PreferenceSwitch` (`src/components/app/preference-switch.tsx`): a visible label, a description and, when disabled, the note, both linked by `aria-describedby`, with the change announced through `useAnnounce()`.
+- The Help page (`src/routes/_app/help.tsx`) is static. It has three sections, Glossary, Keyboard shortcuts and Browser support, each a labelled `section` with an id (`glossary`, `shortcuts`, `browsers`) that a contents list at the top links to. The contents links are plain `href="#id"` anchors, like the skip link: the browser scrolls to the section and focuses it (`tabIndex={-1}`), so the next Tab continues from it, and no script runs on a click that opens a new tab. Each glossary term's `dt` has an id with a `term-` prefix, such as `term-backlog` or `term-webmcp`, so other pages can link a term to its definition (3.1.3) without clashing with ids in the app shell. Terms for features that have not shipped (Board, Assistant, Voice, MCP, WebMCP) carry a "Not available yet. Arrives in a later release." note. The REST API entry says which endpoints exist today (F30's projects and statuses) and that tasks come later. The shortcuts table draws every key as a `Kbd` and shows how a row's keys are pressed: a chord is a `KbdGroup` with `+` between the caps (Shift+Tab), a sequence is joined by "then" (Tab then Enter), and a choice by "or" (the arrow keys). Glyph keys (the arrows and ⌘) and Ctrl show the glyph with `aria-hidden` and a visually hidden name, such as "Up arrow" or "Control". It lists the keys that work today, and `c` (F14) and Ctrl+K and ⌘+K (F25) with the same later note, which those features remove when they land. The assistant panel's shortcut is left out until F38 picks a key. Browser support says voice and WebMCP work only in Chrome, that other browsers hide their controls, and that Chrome's speech recognition may send audio to Google while the app sends only text to OpenRouter.
 - Drag and drop with `@dnd-kit`, keyboard sensors enabled, and a visible "Move to" menu on every card as the non-drag path.
 
 ## REST API
 
 Base path `/api/v1`, implemented as TanStack Start server routes (`createFileRoute` with `server.handlers`). JSON in and out. No auth. Errors return `{ error: { code, message, issues? } }`.
 
+A handler parses the query or body with the shared Zod schema, calls the service, and returns `Response.json`. Its body runs inside `handle()` from `src/lib/rest.ts`, which turns a thrown error into the envelope:
+
+| Thrown                                                               | Status | `code`                                                                  |
+| -------------------------------------------------------------------- | ------ | ----------------------------------------------------------------------- |
+| `ZodError`                                                           | 400    | `validation`, with the Zod `issues` (each has a `path` and a `message`) |
+| Body that is not JSON (`readJsonBody`)                               | 400    | `invalid_json`                                                          |
+| Body whose `Content-Type` is not `application/json` (`readJsonBody`) | 415    | `unsupported_media_type`                                                |
+| `NotFoundError`                                                      | 404    | `not_found`                                                             |
+| `ConflictError`                                                      | 409    | `conflict`                                                              |
+| anything else                                                        | 500    | `internal`; the error is logged and its message is not sent             |
+
+POST and PATCH must send `Content-Type: application/json` (a `charset` parameter is fine). Without it, a page on another site could post a `text/plain` body with `mode: 'no-cors'`, which the browser sends without a CORS preflight. Requiring JSON forces the preflight, which fails because the API sends no CORS headers.
+
+A success returns the bare resource or array, not a wrapper. Create returns 201, everything else 200. `GET /projects` leaves archived projects out unless the query has `includeArchived=true` (`listProjectsQuerySchema`, a `z.stringbool()` that also reads `1`/`0` and `yes`/`no`; any other value is a 400). `DELETE /projects/:id` archives and returns the archived project; a second DELETE returns it unchanged. Start runs only the handlers of the deepest matching route, so `/projects/:id` does not inherit the GET and POST of `/projects`. Status writes and restoring a project are not on REST yet.
+
 ```
-GET    /projects                 list
+GET    /projects                 list; ?includeArchived=true
 POST   /projects                 create
-GET    /projects/:id
+GET    /projects/:id             with statuses
 PATCH  /projects/:id
 DELETE /projects/:id             archive (soft)
-GET    /projects/:id/statuses
+GET    /projects/:id/statuses    board order
 GET    /projects/:id/tasks       filters: status, priority, label, due, q
 POST   /projects/:id/tasks
 GET    /tasks/:id
@@ -198,6 +217,7 @@ Tools marked `needsApproval` (delete, archive) surface a confirmation in the ass
 - Vitest runs two projects from `vitest.config.ts`. The `server` project covers test files under `src/server/`, `src/fns/`, `src/tools/`, and `src/routes/api/`. It runs in Node against the real test database (`DATABASE_URL_TEST`), one file at a time, and `src/test/setup-server.ts` empties every table with `resetDatabase` from `src/test/db.ts` before each file. The `client` project runs every other test file in jsdom, in parallel. A file in the client project that imports server code still needs the `// @vitest-environment node` docblock.
 - Playwright for user flows. Every spec that opens a page or dialog calls `expectAccessible(page)` from `tests/e2e/accessibility.ts`. It runs `@axe-core/playwright` with the tags `wcag2a`, `wcag2aa`, `wcag2aaa`, `wcag21a`, `wcag21aa`, and `wcag22aa` and fails with a list of every violating element. axe has no `wcag22aaa` tag. `tests/e2e/accessibility.spec.ts` checks that the helper fails a page with a missing `alt`.
 - `playwright.config.ts` builds the app and serves it with `vite preview` on port 3100, with `DATABASE_URL` set to `DATABASE_URL_TEST`, so e2e runs never touch the app database. It runs Chromium only, because voice and WebMCP exist only in Chrome. Playwright starts the web server before its global setup. That is safe because the app opens its Prisma connection on the first query. The global setup in `tests/e2e/global-setup.ts` then migrates the test database and empties it, once per run. Specs that write data clean up after themselves or use names no other spec uses.
+- REST routes are tested in Vitest by calling the route's handler with a `Request` through `callRoute` in `src/test/rest.ts`, because Start's fetch handler needs the Vite plugin's virtual modules and does not boot under Vitest. `tests/e2e/api.spec.ts` sends real requests to the preview server, which covers what the handler tests cannot: that each route is in the route tree and not shadowed by its parent. The route generator leaves `src/routes/api/v1/projects.test.ts` out of the route tree because it exports no `Route`, and logs a warning saying so.
 - A keyboard-only smoke test walks the main flows with Tab, Enter, Space, arrows, and Escape only.
 - Speech APIs are mocked in Playwright with `page.addInitScript`; tests assert the transcript flow, not recognition quality.
 - Contrast is checked in CI by a script that reads the theme CSS variables and computes ratios for every foreground and background pair.

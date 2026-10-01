@@ -21,7 +21,8 @@ type ActivityLogProps = {
  * happened twice, as visible text: relative ("2 hours ago") and absolute in
  * the local zone, inside one time element whose datetime is the ISO moment.
  * Sentences quote user text, so they break inside long words rather than
- * widening the page.
+ * widening the page, and the list is capped at max-w-prose like the
+ * Description, keeping lines under 80 characters.
  */
 export function ActivityLog({ rows, now, headingLevel = 2 }: ActivityLogProps) {
   const Heading = `h${headingLevel}` as const
@@ -36,7 +37,7 @@ export function ActivityLog({ rows, now, headingLevel = 2 }: ActivityLogProps) {
         Activity
       </Heading>
       {rows.length > 0 ? (
-        <ol className="flex min-w-0 flex-col gap-4">
+        <ol className="flex max-w-prose min-w-0 flex-col gap-4">
           {rows.map((row) => (
             <li
               key={row.id}

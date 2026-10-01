@@ -44,6 +44,9 @@ function BoardPage() {
   const regionRef = useRef<HTMLDivElement>(null)
   const rowRef = useRef<HTMLDivElement>(null)
   const scrollable = useOverflowsX(regionRef, rowRef)
+  // Keeps the region a Tab stop while it holds focus, so focus does not fall
+  // to the body if it stops overflowing then (a zoom or resize).
+  const [regionFocused, setRegionFocused] = useState(false)
 
   // From md the columns sit in a row that scrolls inside this region, never
   // the page. The region takes focus only while it overflows, so keyboard
@@ -52,18 +55,26 @@ function BoardPage() {
   // columns resizes it and the observer measures again. The region is
   // relative so it contains the cards' sr-only separators, which are
   // absolutely positioned; without it, cards scrolled out of view to the right
-  // widen the page.
+  // widen the page. The region clips what it paints outside its box, so the
+  // row's 4 px padding leaves room for the cards' focus outline (2 px with a
+  // 2 px offset) on every side.
   return (
     <div
       ref={regionRef}
       role="region"
       aria-label="Board columns"
-      tabIndex={scrollable ? 0 : undefined}
+      tabIndex={scrollable || regionFocused ? 0 : undefined}
+      onFocus={(event) => {
+        if (event.target === event.currentTarget) setRegionFocused(true)
+      }}
+      onBlur={(event) => {
+        if (event.target === event.currentTarget) setRegionFocused(false)
+      }}
       className="relative min-w-0 md:overflow-x-auto md:pb-2"
     >
       <div
         ref={rowRef}
-        className="flex flex-col gap-4 md:w-max md:flex-row md:items-start"
+        className="flex flex-col gap-4 md:w-max md:flex-row md:items-start md:p-1"
       >
         {/* getProject returns the statuses sorted by Status.order. */}
         {project.statuses.map((status) => (

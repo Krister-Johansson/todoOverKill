@@ -4,7 +4,7 @@ import { THEME_STORAGE_KEY } from '../../src/lib/theme'
 import { createTestPrismaClient } from '../../src/test/db.ts'
 import { expectAccessible } from './accessibility'
 
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 
 // Tests run in parallel against one database, and keys are unique, so every
 // project here gets its own name and key.
@@ -148,6 +148,40 @@ async function hasHorizontalPageScroll(page: Page) {
   )
 }
 
+/**
+ * Whether the focused element's outline, offset included, lies inside the
+ * board region's client box. The region scrolls from md up and clips whatever
+ * is painted outside that box.
+ */
+async function focusRingFitsInBoard(page: Page) {
+  return board(page).evaluate((region) => {
+    const focused = document.activeElement
+    if (!focused || !region.contains(focused)) return false
+    const style = getComputedStyle(focused)
+    const reach =
+      parseFloat(style.outlineWidth) + parseFloat(style.outlineOffset)
+    const card = focused.getBoundingClientRect()
+    const box = region.getBoundingClientRect()
+    const left = box.left + region.clientLeft
+    const top = box.top + region.clientTop
+    return (
+      reach > 0 &&
+      card.left - reach >= left &&
+      card.top - reach >= top &&
+      card.right + reach <= left + region.clientWidth &&
+      card.bottom + reach <= top + region.clientHeight
+    )
+  })
+}
+
+async function tabTo(page: Page, target: Locator) {
+  for (let i = 0; i < 60; i += 1) {
+    await page.keyboard.press('Tab')
+    if (await target.evaluate((el) => el === document.activeElement)) break
+  }
+  await expect(target).toBeFocused()
+}
+
 test('the sidebar opens the board, with columns in status order', async ({
   page,
 }) => {
@@ -252,6 +286,47 @@ test('a wide board scrolls inside its region, not the page', async ({
   expect(widths.scrollWidth).toBe(widths.clientWidth)
 })
 
+test('the focus outline of a card in the last column is not clipped', async ({
+  page,
+}) => {
+  const project = await seedWideBoard('Ring', 6, true)
+  await openBoard(page, project.id)
+
+  // Focus scrolls the card into view at the region's right edge.
+  const card = board(page).getByRole('link')
+  await tabTo(page, card)
+  expect(await focusRingFitsInBoard(page)).toBe(true)
+
+  // Scrolled fully to the end, the row's padding still leaves room.
+  await board(page).evaluate((region) => {
+    region.scrollLeft = region.scrollWidth
+  })
+  expect(await focusRingFitsInBoard(page)).toBe(true)
+})
+
+test('the region stays a Tab stop while focused, even when it stops overflowing', async ({
+  page,
+}) => {
+  const project = await seedWideBoard('Keep focus')
+  await openBoard(page, project.id)
+  await expect(board(page)).toHaveAttribute('tabindex', '0')
+  await board(page).focus()
+
+  // Wide enough that all six columns fit.
+  await page.setViewportSize({ width: 2400, height: 800 })
+  await expect
+    .poll(() =>
+      board(page).evaluate((region) => region.scrollWidth > region.clientWidth),
+    )
+    .toBe(false)
+  await expect(board(page)).toBeFocused()
+  await expect(board(page)).toHaveAttribute('tabindex', '0')
+
+  // Once focus leaves, the region is no Tab stop.
+  await page.keyboard.press('Shift+Tab')
+  await expect(board(page)).not.toHaveAttribute('tabindex')
+})
+
 test('switching boards in the app updates whether the region is a Tab stop', async ({
   page,
 }) => {
@@ -276,12 +351,11 @@ test('a card is reached by Tab and opened with Enter', async ({ page }) => {
   const { project, overdue } = await seedBoard('Keyboard')
   await openBoard(page, project.id)
 
+  // The card sits in the first column, flush with the region's left edge but
+  // for the row's padding.
   const card = board(page).getByRole('link', { name: /Ship the overdue/ })
-  for (let i = 0; i < 60; i += 1) {
-    await page.keyboard.press('Tab')
-    if (await card.evaluate((el) => el === document.activeElement)) break
-  }
-  await expect(card).toBeFocused()
+  await tabTo(page, card)
+  expect(await focusRingFitsInBoard(page)).toBe(true)
   await page.keyboard.press('Enter')
 
   await expect(page).toHaveURL(new RegExp(`/tasks/${overdue.id}$`))

@@ -26,6 +26,18 @@ export function formatDueDate(day: string) {
   return dueDateFormat.format(new Date(`${day}T00:00:00Z`))
 }
 
+// A moment, unlike a day, is shown in the local zone. The app is local, so
+// the server render and the browser share that zone.
+const dateTimeFormat = new Intl.DateTimeFormat('en', {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+})
+
+/** A moment as `Oct 1, 2026, 2:05 PM`, in the local zone. */
+export function formatDateTime(moment: Date) {
+  return dateTimeFormat.format(moment)
+}
+
 /** True when `day` is before `today`. Today itself is not past. */
 export function isPastDay(day: string, today: string) {
   return day < today

@@ -7,7 +7,7 @@ const viewLinkClass =
   'flex min-h-11 items-center rounded-md px-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground aria-[current=page]:bg-primary aria-[current=page]:text-primary-foreground'
 
 // The project layout: the project's h1 and the links to its views, with the
-// current view below. F22 adds the List link next to Board.
+// current view below.
 export const Route = createFileRoute('/_app/projects/$projectId')({
   loader: ({ context, params }) =>
     context.queryClient.ensureQueryData(projectQueryOptions(params.projectId)),
@@ -38,6 +38,15 @@ function ProjectLayout() {
               className={viewLinkClass}
             >
               Board
+            </Link>
+          </li>
+          <li>
+            <Link
+              to="/projects/$projectId/list"
+              params={{ projectId }}
+              className={viewLinkClass}
+            >
+              List
             </Link>
           </li>
         </ul>

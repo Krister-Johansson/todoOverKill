@@ -4,10 +4,15 @@ import {
   createRootRoute,
   createRouter,
 } from '@tanstack/react-router'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { TaskCard, TaskCardContent, taskCardId } from './task-card'
+import {
+  TaskCard,
+  TaskCardContent,
+  focusTaskCard,
+  taskCardId,
+} from './task-card'
 
 afterEach(cleanup)
 
@@ -101,27 +106,85 @@ describe('TaskCardContent', () => {
   })
 })
 
+/** Renders a board card for `task-1` inside a router. */
+async function renderBoardCard() {
+  const rootRoute = createRootRoute({
+    component: () => (
+      <ul>
+        <TaskCard
+          task={{ ...task(), id: 'task-1' }}
+          project={project}
+          today="2026-10-02"
+        />
+      </ul>
+    ),
+  })
+  const router = createRouter({
+    routeTree: rootRoute,
+    history: createMemoryHistory({ initialEntries: ['/'] }),
+  })
+  render(<RouterProvider router={router} />)
+  return screen.findByRole('link')
+}
+
+/** A button that holds focus until the card renders. */
+function holderButton() {
+  const holder = document.createElement('button')
+  holder.textContent = 'New task'
+  document.body.append(holder)
+  return holder
+}
+
 describe('TaskCard', () => {
   it('gives the link the id from taskCardId', async () => {
-    const rootRoute = createRootRoute({
-      component: () => (
-        <ul>
-          <TaskCard
-            task={{ ...task(), id: 'task-1' }}
-            project={project}
-            today="2026-10-02"
-          />
-        </ul>
-      ),
-    })
-    const router = createRouter({
-      routeTree: rootRoute,
-      history: createMemoryHistory({ initialEntries: ['/'] }),
-    })
-    render(<RouterProvider router={router} />)
-
-    const link = await screen.findByRole('link')
+    const link = await renderBoardCard()
     expect(link.id).toBe(taskCardId('task-1'))
     expect(taskCardId('task-1')).not.toBe(taskCardId('task-2'))
+  })
+})
+
+describe('focusTaskCard', () => {
+  it('focuses a card that is already on the page', async () => {
+    const link = await renderBoardCard()
+    const holder = holderButton()
+
+    act(() => focusTaskCard('task-1', holder))
+
+    expect(document.activeElement).toBe(link)
+    holder.remove()
+  })
+
+  it('holds focus until the card renders, then moves it there', async () => {
+    const holder = holderButton()
+
+    focusTaskCard('task-1', holder)
+    expect(document.activeElement).toBe(holder)
+
+    const link = await renderBoardCard()
+    expect(document.activeElement).toBe(link)
+    holder.remove()
+  })
+
+  it('keeps focus on the holder for another card', async () => {
+    const holder = holderButton()
+
+    focusTaskCard('task-2', holder)
+    await renderBoardCard()
+
+    expect(document.activeElement).toBe(holder)
+    holder.remove()
+  })
+
+  it('leaves focus alone once it has left the holder', async () => {
+    const holder = holderButton()
+    const other = holderButton()
+
+    focusTaskCard('task-1', holder)
+    other.focus()
+    await renderBoardCard()
+
+    expect(document.activeElement).toBe(other)
+    holder.remove()
+    other.remove()
   })
 })

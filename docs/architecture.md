@@ -20,9 +20,9 @@ Voice ──> SpeechRecognition ──> assistant panel; assistant ──> speec
 src/
   routes/                   File-based routes (TanStack Router)
     __root.tsx              html document, head, devtools
-    _app.tsx                Shell layout: skip link, sidebar, top bar, main, polite live region (assistant panel later)
+    _app.tsx                Shell layout: skip link, sidebar, top bar, main, polite live region (assistant panel later); its loader fills the sidebar's project list
     _app/index.tsx          Dashboard
-    _app/projects.$projectId.tsx          Project layout with view tabs
+    _app/projects.$projectId.tsx          Temporary project page (name and key) so sidebar links have a target; F13 replaces it with the project layout and view tabs
     _app/projects.$projectId.board.tsx
     _app/projects.$projectId.list.tsx
     _app/projects.$projectId.settings.tsx
@@ -34,8 +34,8 @@ src/
     api/chat.ts             TanStack AI chat route
     api/openapi[.]json.ts
   components/
-    ui/                     shadcn primitives (generated, edit sparingly)
-    app/                    Composed components: sidebar, top-bar, live-region, task-card, board-column, assistant-panel, voice-button, ...
+    ui/                     shadcn primitives: dialog, button, input, label (written from the CLI's view output, edited for contrast and 44 px targets)
+    app/                    Composed components: sidebar, top-bar, live-region, create-project-dialog, task-card, board-column, assistant-panel, voice-button, ...
   server/
     projects.ts             Service functions: createProject, listProjects, ...; DEFAULT_STATUSES
     statuses.ts
@@ -48,7 +48,8 @@ src/
     errors.ts               NotFoundError and ConflictError, thrown by services
     db.ts                   Prisma client singleton
     seed.ts                 Demo data for pnpm db:seed (projects TOK and DEMO)
-  fns/                      createServerFn wrappers used by routes and client tools
+  fns/                      createServerFn wrappers used by routes and client tools, plus their TanStack Query options
+    projects.ts             listProjectsFn, getProjectFn, createProjectFn; projectsQueryOptions, projectQueryOptions
   tools/
     definitions.ts          toolDefinition() for every domain tool (name, description, Zod in/out)
     server.ts               .server() implementations calling src/server
@@ -56,7 +57,7 @@ src/
     webmcp.ts               Registers tools on document.modelContext
     mcp.ts                  Maps definitions onto @modelcontextprotocol/sdk McpServer
   schemas/                  Zod schemas shared by forms, REST, MCP, and tools
-  lib/                      Utilities: dates, cn, keyboard helpers, motion presets, speech
+  lib/                      Utilities: dates, cn, keyboard helpers, motion presets, speech, project-key (key suggestion), project-colors (the project colour palette)
   hooks/                    useReducedMotion, useHotkeys, useSpeechRecognition, useSpeechSynthesis
 prisma/
   schema.prisma
@@ -105,6 +106,10 @@ The projects service creates every project with `DEFAULT_STATUSES` (Backlog, Tod
 
 - Routes load data with `loader` plus TanStack Query for client cache and invalidation.
 - Mutations go through `createServerFn({ method: 'POST' })` wrappers in `src/fns/`, called from TanStack Query mutations with optimistic updates for local changes (checkbox, status move).
+- A server function validates its input with the shared schema through `.inputValidator(schema)`. An error class thrown on the server reaches the client as a plain `Error` without its class or `code`, so an expected service error that a form shows on a field comes back as a value instead: `createProjectFn` returns `{ ok: true, project }` or `{ ok: false, code: 'conflict', message }`. Any other error is thrown, and the form shows a generic message. A `NotFoundError` in a route's server function becomes the router's `notFound()`.
+- The sidebar's project list is the `projectsQueryOptions()` query (key `['projects']`). The `_app` loader fills it with `ensureQueryData`, so the list is in the server HTML, and the sidebar reads it with `useSuspenseQuery`. After a create the sidebar adds the project to that cache with `setQueryData` and refetches it in the background. There is no `router.invalidate()`: the loader would only read the same cache.
+- Forms use TanStack Form with the shared Zod schema as the form-level `onSubmit` validator. The `form` has `noValidate` so the browser never shows its own bubbles, and required inputs have `aria-required` and say "(required)" in the label. Each error shows under its field, linked with `aria-describedby` and `aria-invalid`, and in a summary at the top of the form: a `tabIndex={-1}` container with a heading and a link to each field, which takes focus after a failed submit, so it is read once without `role="alert"`. Fields have no blur validation: a blur would clear the submit error of a field that is still invalid.
+- The shadcn components in `src/components/ui/` were written by hand from `shadcn view` output rather than installed, because the current registry imports `cn` from a separate `cn` package; they import `cn` from `#/lib/utils`. They are edited to the contrast rules in `src/styles.css` (no opacity on theme colours, token pairs instead of `text-white`), every size is at least 44 px, and the focus ring comes from the global `:focus-visible` rule.
 - URL holds view state that should survive reload: active project, view (board or list), filters, open task. Search params are validated with Zod through the route's `validateSearch`.
 - Task detail opens as a dialog from the board (search param `task=`) and as a full page on direct navigation.
 - The shell's `LiveRegionProvider` renders the app's one polite `aria-live` region. Components announce status changes with `useAnnounce()` from `src/components/app/live-region.tsx` and do not add their own live regions (4.1.3).

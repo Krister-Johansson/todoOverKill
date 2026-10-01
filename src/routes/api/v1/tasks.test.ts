@@ -276,6 +276,41 @@ describe('POST /api/v1/projects/:id/tasks', () => {
     expect(await db.task.count()).toBe(0)
   })
 
+  it('creates a task with labels and returns them sorted by name', async () => {
+    const { project, design } = await createBoard()
+    const bug = await db.label.create({
+      data: { projectId: project.id, name: 'bug', color: '#dc2626' },
+    })
+
+    const { status, json } = await create(project.id, {
+      title: 'Fix the footer',
+      labelIds: [design.id, bug.id],
+    })
+
+    expect(status).toBe(201)
+    expect(json.labels.map((l: { id: string }) => l.id)).toEqual([
+      bug.id,
+      design.id,
+    ])
+  })
+
+  it('returns 404 for a label of another project and creates nothing', async () => {
+    const { project, other } = await createBoard()
+    const foreign = await db.label.create({
+      data: { projectId: other.id, name: 'design', color: '#1d4ed8' },
+    })
+    const before = await db.task.count()
+
+    const { status, json } = await create(project.id, {
+      title: 'Fix the footer',
+      labelIds: [foreign.id],
+    })
+
+    expect(status).toBe(404)
+    expect(json.error.code).toBe('not_found')
+    expect(await db.task.count()).toBe(before)
+  })
+
   it('returns 404 for a status outside the project', async () => {
     const project = await createProject({ name: 'Website', key: 'WEB' })
     const other = await createProject({ name: 'Other', key: 'OTH' })
@@ -451,6 +486,58 @@ describe('PATCH /api/v1/tasks/:id', () => {
     expect(json.error.code).toBe('not_found')
     const task = await db.task.findUniqueOrThrow({ where: { id: copy.id } })
     expect(task).toMatchObject({ title: 'Write copy', statusId: copy.statusId })
+    expect(await activityTypes(project.id)).toEqual(before)
+  })
+
+  it('replaces the whole label set with labelIds', async () => {
+    const { project, logo } = await createBoard()
+    const bug = await db.label.create({
+      data: { projectId: project.id, name: 'bug', color: '#dc2626' },
+    })
+
+    const { status, json } = await patch(logo.id, { labelIds: [bug.id] })
+
+    expect(status).toBe(200)
+    expect(json.labels).toEqual([expect.objectContaining({ id: bug.id })])
+    const fetched = await callRoute(taskRoute, 'GET', {
+      url: `/api/v1/tasks/${logo.id}`,
+      params: { taskId: logo.id },
+    })
+    expect(fetched.json.labels.map((l: { id: string }) => l.id)).toEqual([
+      bug.id,
+    ])
+  })
+
+  it('returns 404 for a label of another project and changes nothing', async () => {
+    const { project, other, logo } = await createBoard()
+    const foreign = await db.label.create({
+      data: { projectId: other.id, name: 'design', color: '#1d4ed8' },
+    })
+    const before = await activityTypes(project.id)
+
+    const { status, json } = await patch(logo.id, { labelIds: [foreign.id] })
+
+    expect(status).toBe(404)
+    expect(json.error.code).toBe('not_found')
+    const task = await db.task.findUniqueOrThrow({
+      where: { id: logo.id },
+      include: { labels: { select: { label: { select: { name: true } } } } },
+    })
+    expect(task.labels).toEqual([{ label: { name: 'design' } }])
+    expect(await activityTypes(project.id)).toEqual(before)
+  })
+
+  it('returns 400 for a repeated label id and writes nothing', async () => {
+    const { project, copy, design } = await createBoard()
+    const before = await activityTypes(project.id)
+
+    const { status, json } = await patch(copy.id, {
+      labelIds: [design.id, design.id],
+    })
+
+    expect(status).toBe(400)
+    expect(issuePaths(json)).toEqual([['labelIds']])
+    expect(await db.taskLabel.count({ where: { taskId: copy.id } })).toBe(0)
     expect(await activityTypes(project.id)).toEqual(before)
   })
 

@@ -105,6 +105,30 @@ test('the projects, statuses and tasks routes answer through the router', async 
     status: { name: 'Backlog' },
   })
 
+  // REST has no labels route until F32, so the label comes from Prisma. The
+  // project's cascade removes it in afterAll.
+  const label = await db.label.create({
+    data: { projectId: project.id, name: 'design', color: '#2563eb' },
+  })
+  const labelledTask = await request.post(
+    `/api/v1/projects/${project.id}/tasks`,
+    { data: { title: 'Draw the logo', labelIds: [label.id] } },
+  )
+  expect(labelledTask.status()).toBe(201)
+  const labelled = await labelledTask.json()
+  expect(labelled.labels).toEqual([
+    expect.objectContaining({ id: label.id, name: 'design' }),
+  ])
+  const fetchedLabelled = await request.get(`/api/v1/tasks/${labelled.id}`)
+  expect((await fetchedLabelled.json()).labels).toEqual([
+    expect.objectContaining({ id: label.id }),
+  ])
+  const unlabelled = await request.patch(`/api/v1/tasks/${labelled.id}`, {
+    data: { labelIds: [] },
+  })
+  expect(unlabelled.status()).toBe(200)
+  expect((await unlabelled.json()).labels).toEqual([])
+
   const done = statusList.find((s: { name: string }) => s.name === 'Done')
   const movedTask = await request.patch(`/api/v1/tasks/${task.id}`, {
     data: { title: 'Write the copy', statusId: done.id },

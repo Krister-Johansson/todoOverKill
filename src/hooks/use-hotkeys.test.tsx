@@ -45,6 +45,22 @@ describe('useHotkeys', () => {
     expect(onC).toHaveBeenCalledOnce()
   })
 
+  it('ignores a keydown with no key, as from Chrome autofill', () => {
+    const onC = vi.fn()
+    const errors: Array<unknown> = []
+    const onError = (event: ErrorEvent) => errors.push(event.error)
+    window.addEventListener('error', onError)
+    render(<Harness onC={onC} />)
+
+    try {
+      document.body.dispatchEvent(new Event('keydown', { bubbles: true }))
+    } finally {
+      window.removeEventListener('error', onError)
+    }
+    expect(errors).toEqual([])
+    expect(onC).not.toHaveBeenCalled()
+  })
+
   it('ignores other keys', () => {
     const onC = vi.fn()
     render(<Harness onC={onC} />)

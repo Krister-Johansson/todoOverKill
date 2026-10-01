@@ -17,6 +17,8 @@ export function useHotkeys(
   const { value } = usePreference('shortcuts')
 
   const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    // Chrome's autofill dispatches a keydown with no key.
+    if (typeof event.key !== 'string') return
     // Lower case, so a letter works with Caps Lock or Shift too.
     const handler = handlers[event.key.toLowerCase()]
     if (!handler || !isSingleKeyShortcut(event)) return

@@ -168,7 +168,13 @@ Tools marked `needsApproval` (delete, archive) surface a confirmation in the ass
 
 ## Local infrastructure
 
-`docker-compose.yml` starts PostgreSQL on port 5434 (5432 and 5433 are already in use on the development machine). `.env.example` documents `DATABASE_URL`, `DATABASE_URL_TEST`, `OPENROUTER_API_KEY`, and `OPENROUTER_MODEL`. Environment variables are validated with `t3env`.
+`docker-compose.yml` starts PostgreSQL on port 5434, bound to 127.0.0.1 only (5432 and 5433 are already in use on the development machine). `.env.example` documents `DATABASE_URL`, `DATABASE_URL_TEST`, `OPENROUTER_API_KEY`, and `OPENROUTER_MODEL`. Environment variables are validated with `t3env`.
+
+The compose file mounts `docker/init-test-db.sql`, which creates the `todo_over_kill_test` database for `DATABASE_URL_TEST` the first time the volume is initialised. On an older volume the database has to be created by hand; the README gives the command. The schema in `src/env.ts` reads `process.env`, because server variables have no `VITE_` prefix and never reach `import.meta.env`. It validates the raw strings and passes them through unchanged, so `env` and `process.env` (which Prisma reads) hold the same values. t3-env treats the module as client code whenever `window` exists and blocks server variables there, so unit tests of server code need the `// @vitest-environment node` docblock.
+
+The config function in `vite.config.ts` loads `.env` into `process.env` with `src/lib/load-dot-env.ts` before any plugin hook runs. Variables already set in the shell take precedence. The loader drops the keys it loaded before, so a key deleted from `.env` does not survive a dev server restart. TanStack Start's load-env plugin copies `.env` again later, which changes nothing because every key already holds the value it would write. For the dev and preview servers the config function then imports the schema, so a missing or invalid variable stops startup with a readable message. When a restart after a `.env` edit fails validation, `process.env` goes back to its previous values, Vite logs the message and "server restart failed", and the old server keeps running with its old environment. `vite build` does not evaluate the schema and runs without a `.env`.
+
+`src/server.ts`, the custom server entry, imports the schema first, so `dist/server/server.js` fails when it loads rather than on the first request. It does not read `.env`: outside `pnpm preview` the variables come from the real environment, for example `node --env-file=.env`.
 
 ## Scaffold
 

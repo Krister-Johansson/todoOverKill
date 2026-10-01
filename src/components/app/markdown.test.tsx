@@ -18,6 +18,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 function renderMarkdown(source: string, headingLevel: 1 | 2 = 2) {
@@ -82,9 +83,26 @@ describe('Markdown', () => {
     expect(screen.getByText('not done')).toBeTruthy()
   })
 
-  it('puts a code block in a region named Code block', () => {
+  it('keeps the visually hidden footnotes heading right below the section', () => {
+    renderMarkdown('A note.[^1]\n\n[^1]: The note.', 2)
+    const heading = screen.getByRole('heading', { name: 'Footnotes' })
+    expect(heading.tagName).toBe('H3')
+    expect(heading.classList.contains('sr-only')).toBe(true)
+  })
+
+  it('adds no region or Tab stop for a code block that fits', () => {
+    const container = renderMarkdown('```\nconst a = 1\n```')
+    expect(screen.queryByRole('region')).toBeNull()
+    expect(container.querySelector('[tabindex]')).toBeNull()
+    expect(container.querySelector('pre')?.textContent).toContain('const a = 1')
+  })
+
+  it('makes an overflowing code block a region named Code block', () => {
+    vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockReturnValue(500)
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(100)
     renderMarkdown('```\nconst a = 1\n```')
     const region = screen.getByRole('region', { name: 'Code block' })
+    expect(region.getAttribute('tabindex')).toBe('0')
     expect(region.querySelector('pre')?.textContent).toContain('const a = 1')
   })
 })

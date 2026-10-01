@@ -113,7 +113,7 @@ export function TaskDetail({
               {task.labels.map((label) => (
                 <li
                   key={label.id}
-                  className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full border border-border px-2 text-sm"
+                  className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full border border-border px-2 text-sm leading-relaxed"
                 >
                   <span
                     aria-hidden="true"

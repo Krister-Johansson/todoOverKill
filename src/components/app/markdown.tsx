@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
+import { useOverflowsX } from '#/hooks/use-overflows-x'
 import { cn } from '#/lib/utils'
 
 import type { Components } from 'react-markdown'
@@ -10,37 +11,10 @@ import type { ReactNode, RefObject } from 'react'
 type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6
 
 /**
- * Whether the region is wider inside than out. It watches the region and its
- * content, so a resize or a zoom change updates it. False on the server and
- * until the first measurement. The same hook as the board route's; F22 moves
- * it to src/hooks/use-overflows-x.ts, and this copy goes once that lands.
- */
-function useOverflowsX(
-  regionRef: RefObject<HTMLElement | null>,
-  contentRef: RefObject<HTMLElement | null>,
-) {
-  const [overflows, setOverflows] = useState(false)
-
-  useEffect(() => {
-    const region = regionRef.current
-    const content = contentRef.current
-    if (!region || !content) return
-    const measure = () => setOverflows(region.scrollWidth > region.clientWidth)
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(region)
-    observer.observe(content)
-    return () => observer.disconnect()
-  }, [regionRef, contentRef])
-
-  return overflows
-}
-
-/**
  * A code block or table that scrolls sideways inside itself, never the page
- * (1.4.10). Like the board, the region is a Tab stop only while it overflows,
- * or while it holds focus, so keyboard users can scroll it and meet no extra
- * stop otherwise.
+ * (1.4.10). Like the board, it is a named region and a Tab stop only while it
+ * overflows, or while it holds focus, so keyboard users can scroll it, and a
+ * description with many short snippets adds no landmarks or Tab stops.
  */
 function ScrollableBlock({
   label,
@@ -53,13 +27,14 @@ function ScrollableBlock({
   const contentRef = useRef<HTMLElement>(null)
   const scrollable = useOverflowsX(regionRef, contentRef)
   const [regionFocused, setRegionFocused] = useState(false)
+  const isRegion = scrollable || regionFocused
 
   return (
     <div
       ref={regionRef}
-      role="region"
-      aria-label={label}
-      tabIndex={scrollable || regionFocused ? 0 : undefined}
+      role={isRegion ? 'region' : undefined}
+      aria-label={isRegion ? label : undefined}
+      tabIndex={isRegion ? 0 : undefined}
       onFocus={(event) => {
         if (event.target === event.currentTarget) setRegionFocused(true)
       }}
@@ -73,13 +48,19 @@ function ScrollableBlock({
   )
 }
 
-/** The heading components for Markdown under a heading of `headingLevel`. */
+/**
+ * The heading components for Markdown under a heading of `headingLevel`. HTML
+ * stops at h6, so with `headingLevel` 2 the depths from `####` down all render
+ * as h6. remark-gfm titles the footnotes with a visually hidden h2; that one
+ * sits directly below the section heading, so the outline skips no level.
+ */
 function headingComponents(headingLevel: HeadingLevel) {
   const heading = (depth: number): Components['h1'] =>
-    function Heading({ node: _node, ...props }) {
+    function Heading({ node: _node, className, ...props }) {
+      const level = props.id?.endsWith('footnote-label') ? 1 : depth
       const Tag =
-        `h${Math.min(6, headingLevel + depth) as HeadingLevel}` as const
-      return <Tag {...props} className="font-semibold break-words" />
+        `h${Math.min(6, headingLevel + level) as HeadingLevel}` as const
+      return <Tag {...props} className={cn(className, 'font-semibold')} />
     }
   return {
     h1: heading(1),
@@ -92,8 +73,9 @@ function headingComponents(headingLevel: HeadingLevel) {
 }
 
 const components: Components = {
-  // The default urlTransform empties a javascript:, vbscript: or data: URL, so
-  // such a link is shown as its text and never becomes a link.
+  // The default urlTransform keeps http, https, irc, ircs, mailto and xmpp URLs
+  // and empties any other scheme, javascript: included, so such a link is shown
+  // as its text and never becomes a link.
   a({ node: _node, href, children, ...props }) {
     if (!href) return <span>{children}</span>
     return (
@@ -115,22 +97,37 @@ const components: Components = {
       </>
     )
   },
+  // A loose list's items are paragraphs, so they get paragraph spacing too.
   ul({ node: _node, className, ...props }) {
     return (
       <ul
         {...props}
         className={cn(
-          'flex list-disc flex-col gap-1 pl-6',
+          'flex list-disc flex-col gap-1 pl-6 has-[>li>p]:gap-10',
           className?.includes('contains-task-list') && 'list-none pl-0',
         )}
       />
     )
   },
   ol({ node: _node, className: _className, ...props }) {
-    return <ol {...props} className="flex list-decimal flex-col gap-1 pl-6" />
+    return (
+      <ol
+        {...props}
+        className="flex list-decimal flex-col gap-1 pl-6 has-[>li>p]:gap-10"
+      />
+    )
+  },
+  // A loose list item holds paragraphs; space them like the ones outside.
+  li({ node: _node, ...props }) {
+    return <li {...props} className="[&>p+*]:mt-10" />
   },
   blockquote({ node: _node, ...props }) {
-    return <blockquote {...props} className="border-l-2 border-border pl-3" />
+    return (
+      <blockquote
+        {...props}
+        className="flex flex-col gap-10 border-l-2 border-border pl-3"
+      />
+    )
   },
   // Inline code. Inside a pre the pre's classes clear the background and
   // padding.
@@ -152,7 +149,7 @@ const components: Components = {
           <pre
             {...props}
             ref={contentRef as RefObject<HTMLPreElement | null>}
-            className="w-max min-w-full rounded-md border border-border bg-muted p-3 text-sm whitespace-pre [&>code]:bg-transparent [&>code]:p-0"
+            className="w-max min-w-full rounded-md border border-border bg-muted p-3 text-sm leading-relaxed whitespace-pre [&>code]:bg-transparent [&>code]:p-0"
           />
         )}
       </ScrollableBlock>
@@ -201,9 +198,10 @@ const COMPONENTS_BY_LEVEL = ([1, 2, 3, 4, 5, 6] as const).map(
  * Markdown from a task description, with GitHub tables, strikethrough and task
  * lists. There is no rehype-raw, so raw HTML in the source is shown as text,
  * and unsafe link URLs are dropped. Headings start one level below
- * `headingLevel`, the heading of the section the Markdown sits in. Lines are
- * capped at max-w-prose (65ch, under 80 characters) with relaxed spacing
- * (1.4.8).
+ * `headingLevel`, the heading of the section the Markdown sits in. For 1.4.8,
+ * lines are capped at max-w-prose (65ch, under 80 characters), line height is
+ * 1.625, and blocks sit 40 px apart, over 1.5 times the 26 px line height, as
+ * on the Help page.
  */
 export function Markdown({
   children,
@@ -213,7 +211,7 @@ export function Markdown({
   headingLevel: HeadingLevel
 }) {
   return (
-    <div className="flex max-w-prose min-w-0 flex-col gap-4 leading-relaxed break-words">
+    <div className="flex max-w-prose min-w-0 flex-col gap-10 leading-relaxed break-words">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={COMPONENTS_BY_LEVEL[headingLevel - 1]}

@@ -6,3 +6,131 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+enum StatusCategory {
+  todo
+  in_progress
+  done
+}
+
+enum Priority {
+  none
+  low
+  medium
+  high
+  urgent
+}
+
+model Project {
+  id             String     @id @default(cuid(2))
+  name           String
+  /// Short code such as "TOK", used in task references like TOK-42.
+  key            String     @unique
+  description    String?
+  color          String?
+  /// The number the next task in this project gets.
+  nextTaskNumber Int        @default(1)
+  archivedAt     DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  statuses       Status[]
+  tasks          Task[]
+  labels         Label[]
+  activities     Activity[]
+}
+
+model Status {
+  id        String         @id @default(cuid(2))
+  projectId String
+  project   Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name      String
+  order     Float
+  category  StatusCategory
+  tasks     Task[]
+
+  @@index([projectId])
+}
+
+model Task {
+  id          String      @id @default(cuid(2))
+  projectId   String
+  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// A status with tasks cannot be deleted; move its tasks first.
+  statusId    String
+  status      Status      @relation(fields: [statusId], references: [id], onDelete: Restrict)
+  number      Int
+  title       String
+  description String?
+  priority    Priority    @default(none)
+  /// A calendar date with no time or zone.
+  dueDate     DateTime?   @db.Date
+  order       Float
+  completedAt DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  subtasks    Subtask[]
+  labels      TaskLabel[]
+  comments    Comment[]
+  activities  Activity[]
+
+  @@unique([projectId, number])
+  @@index([projectId, statusId])
+}
+
+model Subtask {
+  id     String  @id @default(cuid(2))
+  taskId String
+  task   Task    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  title  String
+  done   Boolean @default(false)
+  order  Float
+
+  @@index([taskId])
+}
+
+model Label {
+  id        String      @id @default(cuid(2))
+  projectId String
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name      String
+  color     String
+  tasks     TaskLabel[]
+
+  @@unique([projectId, name])
+}
+
+model TaskLabel {
+  taskId  String
+  task    Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  labelId String
+  label   Label  @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([taskId, labelId])
+  @@index([labelId])
+}
+
+model Comment {
+  id        String   @id @default(cuid(2))
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  body      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([taskId])
+}
+
+model Activity {
+  id        String   @id @default(cuid(2))
+  /// Set to null when the task is deleted, so the project history keeps the entry.
+  taskId    String?
+  task      Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  type      String
+  payload   Json
+  createdAt DateTime @default(now())
+
+  @@index([projectId, createdAt])
+  @@index([taskId])
+}

@@ -1,7 +1,13 @@
+import {
+  RouterProvider,
+  createMemoryHistory,
+  createRootRoute,
+  createRouter,
+} from '@tanstack/react-router'
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { TaskCardContent } from './task-card'
+import { TaskCard, TaskCardContent, taskCardId } from './task-card'
 
 afterEach(cleanup)
 
@@ -92,5 +98,30 @@ describe('TaskCardContent', () => {
   it('renders no list without labels', () => {
     renderCard({ labels: [] })
     expect(screen.queryByRole('list')).toBeNull()
+  })
+})
+
+describe('TaskCard', () => {
+  it('gives the link the id from taskCardId', async () => {
+    const rootRoute = createRootRoute({
+      component: () => (
+        <ul>
+          <TaskCard
+            task={{ ...task(), id: 'task-1' }}
+            project={project}
+            today="2026-10-02"
+          />
+        </ul>
+      ),
+    })
+    const router = createRouter({
+      routeTree: rootRoute,
+      history: createMemoryHistory({ initialEntries: ['/'] }),
+    })
+    render(<RouterProvider router={router} />)
+
+    const link = await screen.findByRole('link')
+    expect(link.id).toBe(taskCardId('task-1'))
+    expect(taskCardId('task-1')).not.toBe(taskCardId('task-2'))
   })
 })

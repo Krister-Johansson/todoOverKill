@@ -97,6 +97,14 @@ export function TaskCardContent({ task, project, today }: CardProps) {
   )
 }
 
+/**
+ * The id of a task's board card link, so the create task dialog can move
+ * focus to a new card.
+ */
+export function taskCardId(taskId: string) {
+  return `task-card-${taskId}`
+}
+
 /** A board card: one link to the task page, at least 44 px tall. */
 export function TaskCard({
   task,
@@ -106,6 +114,7 @@ export function TaskCard({
   return (
     <li>
       <Link
+        id={taskCardId(task.id)}
         to="/tasks/$taskId"
         params={{ taskId: task.id }}
         className="flex min-h-11 min-w-0 flex-col gap-1 rounded-md border border-border bg-card p-3 text-card-foreground hover:bg-accent hover:text-accent-foreground"

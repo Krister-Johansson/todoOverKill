@@ -38,7 +38,7 @@ src/
     app/                    Composed components: sidebar, top-bar, live-region, create-project-dialog, task-card, board-column, assistant-panel, voice-button, ...
   server/
     projects.ts             Service functions: createProject, listProjects, ...; DEFAULT_STATUSES
-    statuses.ts
+    statuses.ts             Service functions: listStatuses, addStatus, renameStatus, reorderStatuses, deleteStatus
     tasks.ts
     subtasks.ts
     labels.ts
@@ -56,7 +56,7 @@ src/
     client.ts               .client() implementations for UI-only tools (navigate, open task, filter, theme)
     webmcp.ts               Registers tools on document.modelContext
     mcp.ts                  Maps definitions onto @modelcontextprotocol/sdk McpServer
-  schemas/                  Zod schemas shared by forms, REST, MCP, and tools
+  schemas/                  Zod schemas shared by forms, REST, MCP, and tools: project.ts, status.ts
   lib/                      Utilities: dates, cn, keyboard helpers, motion presets, speech, project-key (key suggestion), project-colors (the project colour palette)
   hooks/                    useReducedMotion, useHotkeys, useSpeechRecognition, useSpeechSynthesis
 prisma/
@@ -101,6 +101,8 @@ The activity log is append-only and written by the service layer, never directly
 Services do not leak Prisma error codes. A missing record throws `NotFoundError` (`code: 'not_found'`) and a unique-rule clash, such as a taken project key, throws `ConflictError` (`code: 'conflict'`), both from `src/server/errors.ts`. The transports map these two classes, and `ZodError`, to their own error shapes.
 
 The projects service creates every project with `DEFAULT_STATUSES` (Backlog, Todo, In progress, Done) and its `project.created` row in one transaction. `listProjects` leaves archived projects out unless `includeArchived` is true. Archiving an archived project and restoring one that is not archived change nothing. The seed imports `DEFAULT_STATUSES` and `ACTIVITY_TYPES` from the services, so demo data and real data cannot drift apart.
+
+The statuses service lists a project's statuses in board order and adds, renames, reorders, and deletes them. `addStatus` appends after the highest `order`; two adds at the same moment can store the same value, which a single-user app accepts. `reorderStatuses` takes every status id of the project in the new order and rewrites `order` as 1..n on each call, so the float `order` holds whole numbers in practice. A list that misses a status or holds one from another project throws `ConflictError`, because the client's view is stale. `deleteStatus` throws `ConflictError` while tasks still use the status, and the `RESTRICT` key backs that check up for a task created in between; the remaining statuses keep their `order` values. A project may lose its last status, and archived projects accept new statuses. Status changes write no activity rows.
 
 ## Web UI
 

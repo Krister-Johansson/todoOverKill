@@ -83,6 +83,19 @@ describe('createLabel', () => {
     await expect(db.label.count()).resolves.toBe(1)
   })
 
+  it('throws ConflictError for the same name in another case', async () => {
+    const project = await createWebsite()
+    await createLabel(project.id, { name: 'Bug', color: BLUE })
+
+    const attempt = createLabel(project.id, { name: 'bug', color: GREEN })
+
+    await expect(attempt).rejects.toBeInstanceOf(ConflictError)
+    await expect(attempt).rejects.toMatchObject({
+      message: 'A label named Bug already exists in this project.',
+    })
+    await expect(db.label.count()).resolves.toBe(1)
+  })
+
   it('allows the same name in another project', async () => {
     const project = await createWebsite()
     const other = await createProject({ name: 'Other', key: 'OTH' })

@@ -27,24 +27,33 @@ export async function listLabels(projectId: string) {
   return project.labels
 }
 
+function nameTaken(name: string) {
+  return new ConflictError(`A label named ${name} already exists in this project.`)
+}
+
 /**
  * Creates a label with a palette colour. Throws NotFoundError for an unknown
- * project and ConflictError when the project already has a label of that name.
+ * project and ConflictError when the project already has a label of that name
+ * in any case, so "Bug" and "bug" never sit side by side in a picker.
  */
 export async function createLabel(projectId: string, input: CreateLabelInput) {
   const id = projectIdSchema.parse(projectId)
   const data = createLabelSchema.parse(input)
+  // The database index is case-sensitive, so this check is the rule. A create
+  // racing it with another case of the name can get through; the app has one
+  // user, so that is accepted.
+  const existing = await db.label.findFirst({
+    where: { projectId: id, name: { equals: data.name, mode: 'insensitive' } },
+    select: { name: true },
+  })
+  if (existing) throw nameTaken(existing.name)
   try {
     return await db.label.create({
       data: { ...data, project: { connect: { id } } },
     })
   } catch (error) {
     if (isPrismaError(error, 'P2025')) throw projectNotFound(id)
-    if (isPrismaError(error, 'P2002')) {
-      throw new ConflictError(
-        `A label named ${data.name} already exists in this project.`,
-      )
-    }
+    if (isPrismaError(error, 'P2002')) throw nameTaken(data.name)
     throw error
   }
 }

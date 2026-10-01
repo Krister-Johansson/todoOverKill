@@ -75,10 +75,12 @@ export function TaskTable({
           sortFn: sortBy('key'),
           cell: ({ row }) => {
             const reference = `${project.key}-${row.original.number}`
+            // Above the row link's overlay, so a pointer can hover the abbr
+            // and see its expansion (3.1.4). The other cells stay row link.
             return (
               <abbr
                 title={`${project.name} task ${reference}`}
-                className="font-medium whitespace-nowrap text-muted-foreground no-underline"
+                className="relative z-10 font-medium whitespace-nowrap text-muted-foreground no-underline"
               >
                 {reference}
               </abbr>

@@ -13,9 +13,9 @@ import {
   sortingToSearch,
 } from '#/lib/task-sort'
 
-import type { ListSorting } from '#/lib/task-sort'
+import type { ListSorting, SortColumn } from '#/lib/task-sort'
 
-const COLUMN_NAMES: Record<string, string> = {
+const COLUMN_NAMES: Record<SortColumn, string> = {
   key: 'Key',
   title: 'Title',
   status: 'Status',
@@ -42,10 +42,9 @@ export const Route = createFileRoute('/_app/projects/$projectId/list')({
 
 /** What the live region says after a sort change. */
 function sortAnnouncement(sorting: ListSorting) {
-  const first = sorting.at(0)
-  if (!first) return 'Sorting cleared'
-  const name = COLUMN_NAMES[first.id] ?? first.id
-  return `Sorted by ${name}, ${first.desc ? 'descending' : 'ascending'}`
+  const { sort, dir } = sortingToSearch(sorting)
+  if (!sort) return 'Sorting cleared'
+  return `Sorted by ${COLUMN_NAMES[sort]}, ${dir === 'desc' ? 'descending' : 'ascending'}`
 }
 
 function ListPage() {

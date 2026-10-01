@@ -405,6 +405,17 @@ test('a click on a cell outside the link opens the task', async ({ page }) => {
   const [x, y] = await centreOf(statusCell)
   expect(await clickableAt(page, x, y)).toBe('A')
 
+  // The Key abbr sits above the overlay, so a pointer reaches it and its
+  // title, while the Status cell next to it still belongs to the row link.
+  const abbr = row.getByRole('cell').first().locator('abbr')
+  const [ax, ay] = await centreOf(abbr)
+  expect(
+    await page.evaluate(
+      ([px, py]) => document.elementFromPoint(px, py)?.tagName,
+      [ax, ay],
+    ),
+  ).toBe('ABBR')
+
   await page.mouse.click(x, y)
   await expect(page).toHaveURL(new RegExp(`/tasks/${bravo.id}$`))
 })
@@ -461,9 +472,13 @@ test('at 320 px the page does not scroll sideways', async ({ page }) => {
   // In the narrow region too, a row's overlay covers its cells and leaves
   // every header button uncovered.
   expect(await headerButtonsUncovered(page)).toBe(true)
-  const keyCell = table(page).locator('tbody tr').first().getByRole('cell')
-  const [kx, ky] = await centreOf(keyCell.first())
-  expect(await clickableAt(page, kx, ky)).toBe('A')
+  const statusCell = table(page)
+    .locator('tbody tr')
+    .first()
+    .getByRole('cell')
+    .nth(2)
+  const [sx, sy] = await centreOf(statusCell)
+  expect(await clickableAt(page, sx, sy)).toBe('A')
 
   if (sizes.scrollWidth > sizes.clientWidth) {
     await expect(region(page)).toHaveAttribute('role', 'region')

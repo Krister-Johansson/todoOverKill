@@ -19,8 +19,8 @@ Voice ──> SpeechRecognition ──> assistant panel; assistant ──> speec
 ```
 src/
   routes/                   File-based routes (TanStack Router)
-    __root.tsx              html, theme, live region, skip link
-    _app.tsx                Shell layout: sidebar, top bar, assistant panel
+    __root.tsx              html document, head, devtools
+    _app.tsx                Shell layout: skip link, sidebar, top bar, main, polite live region (assistant panel later)
     _app/index.tsx          Dashboard
     _app/projects.$projectId.tsx          Project layout with view tabs
     _app/projects.$projectId.board.tsx
@@ -35,7 +35,7 @@ src/
     api/openapi[.]json.ts
   components/
     ui/                     shadcn primitives (generated, edit sparingly)
-    app/                    Composed components: sidebar, task-card, board-column, assistant-panel, voice-button, ...
+    app/                    Composed components: sidebar, top-bar, live-region, task-card, board-column, assistant-panel, voice-button, ...
   server/
     projects.ts             Service functions: createProject, listProjects, ...
     statuses.ts
@@ -102,6 +102,8 @@ The activity log is append-only and written by the service layer, never directly
 - Mutations go through `createServerFn({ method: 'POST' })` wrappers in `src/fns/`, called from TanStack Query mutations with optimistic updates for local changes (checkbox, status move).
 - URL holds view state that should survive reload: active project, view (board or list), filters, open task. Search params are validated with Zod through the route's `validateSearch`.
 - Task detail opens as a dialog from the board (search param `task=`) and as a full page on direct navigation.
+- The shell's `LiveRegionProvider` renders the app's one polite `aria-live` region. Components announce status changes with `useAnnounce()` from `src/components/app/live-region.tsx` and do not add their own live regions (4.1.3).
+- Each route under `_app` sets `staticData: { title }`, typed by a `StaticDataRouteOption` augmentation in `src/routes/_app.tsx`. The shell reads the deepest match's title with `useMatches()` and shows it as the breadcrumb's current item. F48 replaces this with full breadcrumbs built from loader data.
 - Theme is a `class` on `html`, persisted in `localStorage`, with both themes defined as CSS variables in `src/styles.css`.
 - Drag and drop with `@dnd-kit`, keyboard sensors enabled, and a visible "Move to" menu on every card as the non-drag path.
 

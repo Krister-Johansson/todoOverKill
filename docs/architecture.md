@@ -37,8 +37,8 @@ src/
     api/chat.ts             TanStack AI chat route
     api/openapi[.]json.ts
   components/
-    ui/                     shadcn primitives: dialog, button, input, label (written from the CLI's view output, edited for contrast and 44 px targets)
-    app/                    Composed components: sidebar, top-bar, live-region, create-project-dialog, task-card, board-column, assistant-panel, voice-button, ...
+    ui/                     shadcn primitives: dialog, button, input, label, switch (written from the CLI's view output, edited for contrast and 44 px targets)
+    app/                    Composed components: sidebar, top-bar, live-region, create-project-dialog, theme-switch, motion-switch, preference-switch, task-card, board-column, assistant-panel, voice-button, ...
   server/
     projects.ts             Service functions: createProject, listProjects, ...; DEFAULT_STATUSES
     statuses.ts             Service functions: listStatuses, addStatus, renameStatus, reorderStatuses, deleteStatus
@@ -60,8 +60,8 @@ src/
     webmcp.ts               Registers tools on document.modelContext
     mcp.ts                  Maps definitions onto @modelcontextprotocol/sdk McpServer
   schemas/                  Zod schemas shared by forms, REST, MCP, and tools: project.ts, status.ts, task.ts
-  lib/                      Utilities: dates, cn, keyboard helpers, motion presets, speech, project-key (key suggestion), project-colors (the project colour palette), rest (the REST error envelope: handle, errorResponse, readJsonBody)
-  hooks/                    useReducedMotion, useHotkeys, useSpeechRecognition, useSpeechSynthesis
+  lib/                      Utilities: dates, cn, keyboard helpers, motion presets, speech, project-key (key suggestion), project-colors (the project colour palette), preferences (on or off settings in localStorage), rest (the REST error envelope: handle, errorResponse, readJsonBody)
+  hooks/                    useReducedMotion, useTheme, usePreference, useHotkeys, useSpeechRecognition, useSpeechSynthesis
 prisma/
   schema.prisma
   migrations/
@@ -128,7 +128,8 @@ Each task mutation writes one activity row in its transaction: `task.created` wi
 - Theme is a `dark` class on `html`, with both themes defined as CSS variables in `src/styles.css`. The motion override is a `data-motion` attribute on `html` (`reduce` or `allow`, absent for "follow system"); CSS uses it, together with `prefers-reduced-motion`, to collapse transitions and animations. Both settings live in `localStorage` (`todoOverKill.theme`: `system`, `light` or `dark`; `todoOverKill.motion`: `system`, `reduce` or `allow`). A blocking inline script (`THEME_INIT_SCRIPT` in `src/lib/theme.ts`) in the root document's `head` applies both before `body` is parsed, so the first paint already has the right theme.
 - `useTheme()` (`src/hooks/use-theme.ts`) and `useMotionSetting()`, `useReducedMotion()` and `useMotionPresets()` (`src/hooks/use-reduced-motion.ts`) read module-level stores through `useSyncExternalStore`. The stores listen for `storage` events from other tabs and `change` on the OS media queries. Hydration renders the server snapshot (`system`) first, so the class and attribute are never written from a rendered value: the stores write them from live values when something changes and once on mount, and the writes do nothing when the DOM already matches. That way hydration cannot undo what the head script set.
 - `PreferencesProvider` (`src/components/app/preferences.tsx`) is always mounted in the app shell. It keeps the stores subscribed on every route and wraps the app in Motion's `MotionConfig` with `reducedMotion` set from `useReducedMotion()`. Motion components take their transitions and variants from `src/lib/motion.ts` (`durations`, `easings`, `fade`, `scaleIn`), which return zero durations and no transform when motion is reduced.
-- The Settings page hosts the theme and motion controls (F08); F26 adds the rest of the settings.
+- The on or off settings live in `localStorage` as `on` or `off`: `todoOverKill.shortcuts` (single-key shortcuts, default `on`), `todoOverKill.voice.sendOnPause` ("send when I stop speaking", default `off`) and `todoOverKill.voice.readAloud` ("read replies aloud", default `off`). `src/lib/preferences.ts` holds the keys, defaults and Zod schema; `usePreference(name)` (`src/hooks/use-preference.ts`) reads one through `useSyncExternalStore`, listens for `storage` events from other tabs, and renders the default as the server snapshot, so the stored value appears just after hydration. F14's hotkey hook reads `todoOverKill.shortcuts`; F41 and F42 read the voice settings.
+- The Settings page has three sections. Appearance holds the theme and motion radio groups (F08). Keyboard holds the single-key shortcuts switch. Voice holds the "send when I stop speaking" and "read replies aloud" switches, shown disabled with a "Not available yet" note until F41 and F42 enable them. Each switch is a `PreferenceSwitch` (`src/components/app/preference-switch.tsx`): a visible label, a description and, when disabled, the note, both linked by `aria-describedby`, with the change announced through `useAnnounce()`.
 - Drag and drop with `@dnd-kit`, keyboard sensors enabled, and a visible "Move to" menu on every card as the non-drag path.
 
 ## REST API

@@ -1,5 +1,7 @@
 import * as z from 'zod'
 
+import { statusOutputSchema } from '#/schemas/status'
+
 /** Short code such as "TOK" that prefixes task references (TOK-42). */
 export const projectKeySchema = z
   .string()
@@ -54,3 +56,26 @@ export const listProjectsQuerySchema = z.object({
 export type CreateProjectInput = z.input<typeof createProjectSchema>
 export type UpdateProjectInput = z.input<typeof updateProjectSchema>
 export type ListProjectsInput = z.input<typeof listProjectsSchema>
+
+/** A project as a tool returns it, after JSON: timestamps are ISO strings. */
+export const projectOutputSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  key: z.string(),
+  description: z.string().nullable(),
+  color: z.string().nullable(),
+  nextTaskNumber: z.int(),
+  archivedAt: z.iso.datetime().nullable(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+})
+
+/** getProject's shape: the project with its statuses in board order. */
+export const projectWithStatusesOutputSchema = projectOutputSchema.extend({
+  statuses: z.array(statusOutputSchema),
+})
+
+export type ProjectOutput = z.infer<typeof projectOutputSchema>
+export type ProjectWithStatusesOutput = z.infer<
+  typeof projectWithStatusesOutputSchema
+>

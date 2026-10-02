@@ -34,24 +34,46 @@ const PART_WORDS: Partial<Record<Intl.DateTimeFormatPartTypes, string>> = {
   day: 'day',
 }
 
+// The order matches the example, which is the value the field holds.
+const FALLBACK_HINT = { order: 'year, month and day', example: '2026-10-01' }
+
+function hintFormat(locale?: string) {
+  try {
+    // The native field shows Gregorian dates in Latin digits whatever the
+    // locale's own calendar and numbers, such as th-TH's Buddhist years.
+    return new Intl.DateTimeFormat(locale, {
+      calendar: 'gregory',
+      numberingSystem: 'latn',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      timeZone: 'UTC',
+    })
+  } catch {
+    // A malformed locale tag throws a RangeError.
+    return undefined
+  }
+}
+
 /**
  * How a native date input shows a day in `locale`: its parts in order, such
  * as `month, day and year`, and 2026-10-01 written that way, such as
  * `10/01/2026` in en-US. Chrome draws the field from the locale, so help text
- * built from this matches what the user sees (3.3.2).
+ * built from this matches what the user sees (3.3.2). A locale whose format
+ * does not give exactly a year, a month and a day gets fixed wording with the
+ * ISO date instead.
  */
 export function dueDateInputHint(locale?: string) {
-  const format = new Intl.DateTimeFormat(locale, {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    timeZone: 'UTC',
-  })
+  const format = hintFormat(locale)
+  if (!format) return FALLBACK_HINT
   const words = format
     .formatToParts(HINT_DAY)
     .flatMap(({ type }) => PART_WORDS[type] ?? [])
-  const order = `${words.slice(0, -1).join(', ')} and ${words.at(-1)}`
-  return { order, example: format.format(HINT_DAY) }
+  if (words.length !== 3 || new Set(words).size !== 3) return FALLBACK_HINT
+  return {
+    order: `${words[0]}, ${words[1]} and ${words[2]}`,
+    example: format.format(HINT_DAY),
+  }
 }
 
 /**

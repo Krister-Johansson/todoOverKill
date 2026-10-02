@@ -95,7 +95,8 @@ function errorText(errors: Array<unknown>) {
  * worded by its cause, such as a status or the project deleted elsewhere. A
  * due date the browser cannot read, such as one with no year, has an empty
  * value, so the form checks `validity.badInput` on submit and reports it
- * like any other field error. Its help text follows the browser's locale,
+ * like any other field error, checked again on each edit of the field. Its
+ * help text follows the browser's locale,
  * which is what the native field draws (3.3.2).
  * After a create the task joins the board's cache, the live region announces
  * it, and focus moves to its card, or to the button on a page without cards
@@ -123,6 +124,8 @@ export function CreateTaskDialog({
   const [formError, setFormError] = useState<string | null>(null)
   // Bumped to move focus to the summary once it has rendered.
   const [summaryFocus, setSummaryFocus] = useState(0)
+  // The locale does not change while the page is open.
+  const [dueDateHelpText] = useState(dueDateHelp)
 
   useEffect(() => {
     if (summaryFocus > 0) summaryRef.current?.focus()
@@ -428,7 +431,7 @@ export function CreateTaskDialog({
                   id={`${id}-dueDate-help`}
                   className="text-sm text-muted-foreground"
                 >
-                  {dueDateHelp()}
+                  {dueDateHelpText}
                 </p>
                 <Input
                   ref={dueDateRef}
@@ -444,6 +447,16 @@ export function CreateTaskDialog({
                   )}
                   value={field.state.value}
                   onChange={(event) => field.handleChange(event.target.value)}
+                  onInput={(event) => {
+                    // Clearing a partly typed date leaves the value '', so no
+                    // change runs. Check the field again on every edit, so
+                    // its error goes as soon as the date is whole or empty.
+                    if (!field.state.meta.errorMap.onSubmit) return
+                    const { error } = formSchema.shape.dueDate.safeParse(
+                      event.currentTarget.value,
+                    )
+                    field.setErrorMap({ onSubmit: error?.issues })
+                  }}
                 />
                 <FieldError
                   id={errorId('dueDate')}

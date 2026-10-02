@@ -75,6 +75,25 @@ function countServerCalls(page: Page) {
   return calls
 }
 
+/**
+ * Records the task list requests the page sends from now on. listTasksFn is
+ * the GET whose payload names a projectId; getProjectFn sends the bare id.
+ */
+function recordTaskListRequests(page: Page) {
+  const urls: Array<string> = []
+  page.on('request', (request) => {
+    const url = decodeURIComponent(request.url())
+    if (
+      request.method() === 'GET' &&
+      url.includes('/_serverFn/') &&
+      url.includes('projectId')
+    ) {
+      urls.push(url)
+    }
+  })
+  return urls
+}
+
 /** Waits for hydration, so clicks and key presses reach React. */
 async function openBoard(page: Page, projectId: string) {
   await page.goto(`/projects/${projectId}/board`, { waitUntil: 'networkidle' })
@@ -369,6 +388,7 @@ test('a deleted project keeps the dialog open with a focused summary', async ({
   await db.project.delete({ where: { id: project.id } })
   await titleField(page).fill('Write copy')
   const calls = countServerCalls(page)
+  const taskLists = recordTaskListRequests(page)
   await dialog(page).getByRole('button', { name: 'Create task' }).click()
 
   const summary = errorSummary(page, 'There is a problem')
@@ -376,9 +396,12 @@ test('a deleted project keeps the dialog open with a focused summary', async ({
   const message =
     'This project no longer exists, so the task cannot be added to it. Close this dialog.'
   await expect(summary).toContainText(message)
-  // The create, then the project refetch, which fails. The route keeps the
-  // cached project, so the dialog and its message stay.
+  // The create, then the project refetch, which fails, and may retry. The
+  // route keeps the cached project, so the dialog and its message stay.
   await expect.poll(() => calls.count).toBeGreaterThanOrEqual(2)
+  // The refetch is exact: the board's task list, under the same key prefix,
+  // is not fetched again.
+  expect(taskLists).toEqual([])
   await expect(dialog(page)).toBeVisible()
   await expect(summary).toContainText(message)
 })

@@ -11,17 +11,24 @@ import {
   archiveProject,
   createProject,
 } from '#/server/projects'
-import { completeTask, createTask } from '#/server/tasks'
+import { completeTask, createTask, getTask } from '#/server/tasks'
 import { toolDefinitions } from '#/tools/definitions'
 import { ToolError } from '#/tools/errors'
 import {
+  archiveProjectTool,
+  completeTaskTool,
+  createProjectTool,
+  createTaskTool,
+  deleteTaskTool,
   getProjectTool,
   getTaskTool,
   listProjectsTool,
   listTasksTool,
+  moveTaskTool,
   readServerTools,
   searchTool,
   serverTools,
+  updateTaskTool,
 } from '#/tools/server'
 import { resetDatabase } from '#/test/db'
 
@@ -88,11 +95,31 @@ describe('tool definitions', () => {
       'list_tasks',
       'get_task',
       'search',
+      'create_project',
+      'archive_project',
+      'create_task',
+      'update_task',
+      'move_task',
+      'complete_task',
+      'delete_task',
     ])
     expect(new Set(names).size).toBe(names.length)
   })
 
-  it('lists only the read tools for the MCP server', () => {
+  it('asks for approval before archiving a project or deleting a task only', () => {
+    const needingApproval = ['archive_project', 'delete_task']
+
+    expect(
+      toolDefinitions
+        .filter((definition) => definition.needsApproval)
+        .map((definition) => definition.name),
+    ).toEqual(needingApproval)
+    expect(
+      serverTools.filter((tool) => tool.needsApproval).map((tool) => tool.name),
+    ).toEqual(needingApproval)
+  })
+
+  it('lists the tools that only read, for the read-only MCP server', () => {
     expect(readServerTools.map((tool) => tool.name)).toEqual([
       'list_projects',
       'get_project',
@@ -367,5 +394,323 @@ describe('search', () => {
     const { message } = error as ToolError
     expect(message).toContain('Search text is required.')
     expect(message).toContain('→ at query')
+  })
+})
+
+/** Asserts a validation ToolError whose message contains every given text. */
+function expectValidation(error: unknown, ...texts: Array<string>) {
+  expect(error).toBeInstanceOf(ToolError)
+  expect(error).toMatchObject({ code: 'validation' })
+  expect(error).not.toHaveProperty('issues')
+  for (const text of texts) {
+    expect((error as ToolError).message).toContain(text)
+  }
+}
+
+/** Asserts a not_found ToolError with the given message. */
+function expectNotFound(error: unknown, message: string) {
+  expect(error).toBeInstanceOf(ToolError)
+  expect(error).toMatchObject({ code: 'not_found', message })
+}
+
+describe('create_project', () => {
+  it('returns the project with its statuses in board order', async () => {
+    const result = await createProjectTool.execute?.({
+      name: ' Website ',
+      key: ' site ',
+    })
+
+    expect(result).toMatchObject({ name: 'Website', key: 'SITE' })
+    expect(result?.statuses.map((status) => status.name)).toEqual(
+      DEFAULT_STATUSES.map((status) => status.name),
+    )
+    expectOutput(createProjectTool.outputSchema, result)
+  })
+
+  // Creating has no id to miss, so a taken key stands in for not found.
+  it('reports a taken key as a conflict', async () => {
+    await createProject({ name: 'Website', key: 'SITE' })
+
+    const error = await rejection(
+      createProjectTool.execute?.({ name: 'Other', key: 'site' }),
+    )
+
+    expect(error).toBeInstanceOf(ToolError)
+    expect(error).toMatchObject({ code: 'conflict' })
+    expect((error as ToolError).message).toContain('SITE')
+  })
+
+  it('reports an unknown field in readable words', async () => {
+    const error = await rejection(
+      callUnchecked(createProjectTool, {
+        name: 'Website',
+        key: 'SITE',
+        colour: '#1d4ed8',
+      }),
+    )
+
+    expectValidation(error, 'colour')
+  })
+})
+
+describe('archive_project', () => {
+  it('sets archivedAt and leaves it unchanged the second time', async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+
+    const first = await archiveProjectTool.execute?.({ projectId: project.id })
+    const second = await archiveProjectTool.execute?.({
+      projectId: project.id,
+    })
+
+    expect(first?.archivedAt).toEqual(expect.any(String))
+    expect(second?.archivedAt).toBe(first?.archivedAt)
+    expectOutput(archiveProjectTool.outputSchema, first)
+  })
+
+  it('reports an unknown project as not found', async () => {
+    const error = await rejection(
+      archiveProjectTool.execute?.({ projectId: 'missing' }),
+    )
+
+    expectNotFound(error, 'No project with id missing.')
+  })
+
+  it('reports a missing project id in readable words', async () => {
+    const error = await rejection(callUnchecked(archiveProjectTool, {}))
+
+    expectValidation(error, '→ at projectId')
+  })
+})
+
+describe('create_task', () => {
+  it("puts the task in the project's first status with its labels", async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+    const bug = await createLabel(project.id, {
+      name: 'Bug',
+      color: '#dc2626',
+    })
+
+    const result = await createTaskTool.execute?.({
+      projectId: project.id,
+      title: 'Fix the header',
+      dueDate: '2026-10-15',
+      labelIds: [bug.id],
+    })
+
+    expect(result).toMatchObject({
+      title: 'Fix the header',
+      number: 1,
+      priority: 'none',
+      dueDate: '2026-10-15',
+      status: { name: 'Backlog' },
+      labels: [{ id: bug.id, name: 'Bug' }],
+    })
+    expectOutput(createTaskTool.outputSchema, result)
+  })
+
+  it('reports a label of another project as not found', async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+    const other = await createProject({ name: 'Other', key: 'OTHER' })
+    const label = await createLabel(other.id, {
+      name: 'Bug',
+      color: '#dc2626',
+    })
+
+    const error = await rejection(
+      createTaskTool.execute?.({
+        projectId: project.id,
+        title: 'Fix the header',
+        labelIds: [label.id],
+      }),
+    )
+
+    expectNotFound(error, `No label with id ${label.id} in this project.`)
+  })
+
+  it('reports an unknown project as not found', async () => {
+    const error = await rejection(
+      createTaskTool.execute?.({ projectId: 'missing', title: 'Ship' }),
+    )
+
+    expectNotFound(error, 'No project with id missing.')
+  })
+
+  it('reports a bad priority in readable words', async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+
+    const error = await rejection(
+      callUnchecked(createTaskTool, {
+        projectId: project.id,
+        title: 'Ship',
+        priority: 'top',
+      }),
+    )
+
+    expectValidation(
+      error,
+      'Priority must be none, low, medium, high, or urgent.',
+      '→ at priority',
+    )
+  })
+})
+
+describe('update_task', () => {
+  it('replaces the labels and clears the due date', async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+    const bug = await createLabel(project.id, {
+      name: 'Bug',
+      color: '#dc2626',
+    })
+    const ux = await createLabel(project.id, { name: 'UX', color: '#2563eb' })
+    const task = await createTask(project.id, {
+      title: 'Fix the header',
+      dueDate: '2026-10-15',
+      labelIds: [bug.id],
+    })
+
+    const replaced = await updateTaskTool.execute?.({
+      taskId: task.id,
+      labelIds: [ux.id],
+      dueDate: null,
+    })
+    const cleared = await updateTaskTool.execute?.({
+      taskId: task.id,
+      labelIds: [],
+    })
+
+    expect(replaced?.labels.map((label) => label.name)).toEqual(['UX'])
+    expect(replaced?.dueDate).toBeNull()
+    expect(cleared?.labels).toEqual([])
+    expect(cleared?.title).toBe('Fix the header')
+    expectOutput(updateTaskTool.outputSchema, replaced)
+  })
+
+  it('reports an unknown task as not found', async () => {
+    const error = await rejection(
+      updateTaskTool.execute?.({ taskId: 'missing', title: 'Ship' }),
+    )
+
+    expectNotFound(error, 'No task with id missing.')
+  })
+
+  it('reports a move field rather than dropping it', async () => {
+    const error = await rejection(
+      callUnchecked(updateTaskTool, { taskId: 't1', statusId: 's1' }),
+    )
+
+    expectValidation(error, 'statusId')
+  })
+})
+
+describe('move_task', () => {
+  it('moves the task into Done and sets completedAt', async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+    const done = project.statuses[3]
+    const task = await createTask(project.id, { title: 'Ship' })
+
+    const result = await moveTaskTool.execute?.({
+      taskId: task.id,
+      statusId: done.id,
+    })
+
+    expect(result?.status.name).toBe('Done')
+    expect(result?.completedAt).toEqual(expect.any(String))
+    expectOutput(moveTaskTool.outputSchema, result)
+  })
+
+  it('puts the task first at index 0', async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+    await createTask(project.id, { title: 'First' })
+    const last = await createTask(project.id, { title: 'Last' })
+
+    await moveTaskTool.execute?.({ taskId: last.id, index: 0 })
+    const list = await listTasksTool.execute?.({ projectId: project.id })
+
+    expect(list?.tasks.map((task) => task.title)).toEqual(['Last', 'First'])
+  })
+
+  it('reports a status of another project as not found', async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+    const other = await createProject({ name: 'Other', key: 'OTHER' })
+    const task = await createTask(project.id, { title: 'Ship' })
+    const status = other.statuses[0]
+
+    const error = await rejection(
+      moveTaskTool.execute?.({ taskId: task.id, statusId: status.id }),
+    )
+
+    expectNotFound(error, `No status with id ${status.id} in this project.`)
+  })
+
+  it('reports an unknown task as not found', async () => {
+    const error = await rejection(
+      moveTaskTool.execute?.({ taskId: 'missing', index: 0 }),
+    )
+
+    expectNotFound(error, 'No task with id missing.')
+  })
+
+  it('reports a move with neither a status nor an index', async () => {
+    const error = await rejection(moveTaskTool.execute?.({ taskId: 't1' }))
+
+    expectValidation(error, 'Give a status, an index, or both.')
+  })
+})
+
+describe('complete_task', () => {
+  it('moves the task to Done and sets completedAt', async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+    const task = await createTask(project.id, { title: 'Ship' })
+
+    const result = await completeTaskTool.execute?.({ taskId: task.id })
+
+    expect(result?.status.name).toBe('Done')
+    expect(result?.completedAt).toEqual(expect.any(String))
+    expectOutput(completeTaskTool.outputSchema, result)
+  })
+
+  it('reports an unknown task as not found', async () => {
+    const error = await rejection(
+      completeTaskTool.execute?.({ taskId: 'missing' }),
+    )
+
+    expectNotFound(error, 'No task with id missing.')
+  })
+
+  it('reports an unknown option in readable words', async () => {
+    const error = await rejection(
+      callUnchecked(completeTaskTool, { taskId: 't1', done: true }),
+    )
+
+    expectValidation(error, 'done')
+  })
+})
+
+describe('delete_task', () => {
+  it('returns the task and deletes it', async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+    const task = await createTask(project.id, { title: 'Ship' })
+
+    const result = await deleteTaskTool.execute?.({ taskId: task.id })
+
+    expect(result).toMatchObject({ id: task.id, title: 'Ship' })
+    expectOutput(deleteTaskTool.outputSchema, result)
+    await expect(getTask(task.id)).rejects.toThrow('No task with id')
+  })
+
+  it('reports an unknown task as not found', async () => {
+    const error = await rejection(
+      deleteTaskTool.execute?.({ taskId: 'missing' }),
+    )
+
+    expectNotFound(error, 'No task with id missing.')
+  })
+
+  it('reports an unknown option in readable words', async () => {
+    const error = await rejection(
+      callUnchecked(deleteTaskTool, { taskId: 't1', force: true }),
+    )
+
+    expectValidation(error, 'force')
   })
 })

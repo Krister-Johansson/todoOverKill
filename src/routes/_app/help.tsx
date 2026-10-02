@@ -300,7 +300,8 @@ function HelpPage() {
           <ShortcutKeys keys={['Ctrl', 'K']} kind="combo" /> and{' '}
           <ShortcutKeys keys={['⌘', 'K']} kind="combo" /> work even while you
           type in a field. They are not single-key shortcuts, so that setting
-          does not turn them off.
+          does not turn them off. On a Mac, Ctrl+K in a text field opens the
+          command menu instead of deleting to the end of the line.
         </p>
       </HelpSection>
 

@@ -11,27 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: todo
-          POSTGRES_PASSWORD: todo
-          POSTGRES_DB: todo_over_kill_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U todo -d todo_over_kill_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
+    # No database service: pnpm test and pnpm test:e2e each start their own
+    # PostgreSQL container with Testcontainers, on the runner's Docker.
     env:
       CI: true
-      # Both point at the test database: CI has no app data, and the unit tests
-      # check that they run against todo_over_kill_test.
-      DATABASE_URL: postgresql://todo:todo@localhost:5432/todo_over_kill_test
-      DATABASE_URL_TEST: postgresql://todo:todo@localhost:5432/todo_over_kill_test
 
     steps:
       - uses: actions/checkout@v7

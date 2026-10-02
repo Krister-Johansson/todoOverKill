@@ -11,8 +11,7 @@
       "autoPort": true,
       // The local values from .env.example and docker-compose.yml, so a fresh checkout without .env starts.
       "env": {
-        "DATABASE_URL": "postgresql://todo:todo@localhost:5434/todo_over_kill",
-        "DATABASE_URL_TEST": "postgresql://todo:todo@localhost:5434/todo_over_kill_test"
+        "DATABASE_URL": "postgresql://todo:todo@localhost:5434/todo_over_kill"
       }
     }
   ]

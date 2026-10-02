@@ -36,7 +36,9 @@ const postgresUrl = () =>
 export const env = createEnv({
   server: {
     DATABASE_URL: postgresUrl(),
-    DATABASE_URL_TEST: postgresUrl(),
+    // Optional: the test runs set it to their own container's URL, and
+    // src/server/db.ts says so when it is missing under NODE_ENV=test.
+    DATABASE_URL_TEST: postgresUrl().optional(),
     OPENROUTER_API_KEY: z.string().min(1).optional(),
     OPENROUTER_MODEL: z.string().min(1).default('openai/gpt-4o-mini'),
   },

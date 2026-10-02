@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, inject, it } from 'vitest'
 
 import { db } from '#/server/db'
 import { resetDatabase } from '#/test/db'
@@ -8,12 +8,17 @@ describe('db', () => {
     await expect(db.project.count()).resolves.toBe(0)
   })
 
-  it('uses the test database under NODE_ENV=test', async () => {
+  it("uses this run's test container under NODE_ENV=test", async () => {
+    const url = inject('testDatabaseUrl')
     const rows = await db.$queryRaw<
       Array<{ name: string }>
     >`SELECT current_database() AS name`
 
-    expect(rows).toEqual([{ name: 'todo_over_kill_test' }])
+    // The setup file ran before src/env.ts loaded, so the db singleton,
+    // created while setup-server.ts loaded, points at the container.
+    expect(process.env.DATABASE_URL_TEST).toBe(url)
+    expect(rows).toEqual([{ name: new URL(url).pathname.slice(1) }])
+    expect(rows[0].name).toMatch(/^todo_over_kill_[0-9a-f]{8}$/)
   })
 })
 

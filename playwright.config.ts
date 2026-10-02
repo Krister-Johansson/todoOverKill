@@ -1,21 +1,30 @@
+import { execFileSync } from 'node:child_process'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { defineConfig, devices } from '@playwright/test'
 
-import { loadDotEnv } from './src/lib/load-dot-env.ts'
+// tests/e2e/serve.ts writes the URL of this run's database container here, and
+// the global setup reads it. The main process sets the path once; the workers
+// load this config again but inherit the variable, so all agree on it.
+process.env.E2E_DATABASE_URL_FILE ??= join(
+  tmpdir(),
+  `todo-over-kill-e2e-${process.pid}.url`,
+)
 
-// Variables exported in the shell win over .env, as in vite.config.ts.
-loadDotEnv('test', process.cwd())
+// A free port per run, so e2e runs in several worktrees do not clash. The
+// main process asks the OS for one; the workers inherit the variable, as above.
+// Export E2E_PORT to choose it yourself.
+process.env.E2E_PORT ??= execFileSync(
+  process.execPath,
+  [
+    '-e',
+    "const s = require('node:net').createServer().listen(0, '127.0.0.1', () => { process.stdout.write(String(s.address().port)); s.close() })",
+  ],
+  { encoding: 'utf8' },
+)
 
-const testDatabaseUrl = process.env.DATABASE_URL_TEST
-if (!testDatabaseUrl) {
-  throw new Error(
-    [
-      'DATABASE_URL_TEST is not set. The e2e tests serve the app against the',
-      'test database: copy .env.example to .env, or export DATABASE_URL_TEST.',
-    ].join('\n'),
-  )
-}
-
-const port = 3100
+const port = Number(process.env.E2E_PORT)
 const baseURL = `http://localhost:${port}`
 
 export default defineConfig({
@@ -30,30 +39,21 @@ export default defineConfig({
   },
   // Chromium only: voice and WebMCP exist only in Chrome.
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
-  // Migrates and empties the test database. Playwright starts the web server
-  // before the global setup, which is safe because the app opens its Prisma
-  // connection on the first query, not at startup.
+  // Passes the container URL to the specs. Playwright runs it after the web
+  // server is up.
   globalSetup: './tests/e2e/global-setup.ts',
   webServer: {
-    // Vite is started with node rather than pnpm exec: pnpm runs it in a
-    // separate process group, which Playwright's shutdown does not reach, so
-    // the server outlived the run and Playwright waited minutes for it.
-    command: `pnpm build && node node_modules/vite/bin/vite.js preview --port ${port} --strictPort`,
+    // Starts a PostgreSQL container for this run, builds the app, and serves
+    // it against the container. See tests/e2e/serve.ts.
+    command: `node tests/e2e/serve.ts ${port}`,
     url: baseURL,
-    reuseExistingServer: !process.env.CI,
-    timeout: 180_000,
-    // The app reads DATABASE_URL, so pointing it at the test database keeps
-    // e2e runs away from the app data. vite.config.ts validates every variable
-    // on serve, so DATABASE_URL_TEST is passed as well.
-    env: {
-      DATABASE_URL: testDatabaseUrl,
-      DATABASE_URL_TEST: testDatabaseUrl,
-      // A placeholder, so the assistant panel is enabled. tests/e2e/
-      // assistant.spec.ts mocks /api/chat in the browser, so the key is never
-      // sent anywhere. Outside CI a server already running on this port is
-      // reused as is, without this key; the assistant spec then fails and
-      // says to stop that server or export OPENROUTER_API_KEY.
-      OPENROUTER_API_KEY: 'e2e-placeholder',
-    },
+    // Never reuse a running server: it would not point at this run's
+    // container, and the specs would read a different database than it.
+    reuseExistingServer: false,
+    // Pulling the PostgreSQL image on a first run adds to the build time.
+    timeout: 300_000,
+    // SIGTERM lets serve.ts stop the container. Without it Playwright kills
+    // the process group at once and Ryuk removes the container later.
+    gracefulShutdown: { signal: 'SIGTERM', timeout: 30_000 },
   },
 })

@@ -1,13 +1,13 @@
 // Relative imports, and nothing from #/server/db or #/env: the Playwright
-// global setup loads this file too, outside Vite and without NODE_ENV=test.
+// specs load this file too, outside Vite and without NODE_ENV=test.
 import { PrismaPg } from '@prisma/adapter-pg'
 
 import { PrismaClient } from '../generated/prisma/client.ts'
 
 /**
  * A Prisma client for the test database, for code that cannot use the db
- * singleton because NODE_ENV is not test. Throws when DATABASE_URL_TEST is
- * unset.
+ * singleton because NODE_ENV is not test, such as the Playwright specs, whose
+ * global setup sets DATABASE_URL_TEST. Throws when it is unset.
  */
 export function createTestPrismaClient() {
   const connectionString = process.env.DATABASE_URL_TEST

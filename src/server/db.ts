@@ -5,9 +5,17 @@ import { PrismaClient } from '#/generated/prisma/client'
 
 /** Vitest sets NODE_ENV to test, so unit tests never touch the app database. */
 function databaseUrl() {
-  return process.env.NODE_ENV === 'test'
-    ? env.DATABASE_URL_TEST
-    : env.DATABASE_URL
+  if (process.env.NODE_ENV !== 'test') return env.DATABASE_URL
+  if (!env.DATABASE_URL_TEST) {
+    throw new Error(
+      [
+        'DATABASE_URL_TEST is not set and NODE_ENV is test. The Vitest global',
+        'setup (src/test/global-setup.ts) and tests/e2e/serve.ts set it to the',
+        "URL of the run's PostgreSQL container.",
+      ].join('\n'),
+    )
+  }
+  return env.DATABASE_URL_TEST
 }
 
 export function createPrismaClient(connectionString: string) {

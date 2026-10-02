@@ -3,8 +3,8 @@ import { defineConfig } from 'prisma/config'
 import { loadDotEnv } from './src/lib/load-dot-env.ts'
 
 // Same loader as vite.config.ts, so variables exported in the shell win over
-// .env. The test global setup relies on that to point migrations at
-// DATABASE_URL_TEST.
+// .env. src/test/prepare-test-database.ts relies on that to point migrations at
+// the test container.
 loadDotEnv('development', process.cwd())
 
 // Not the env() helper from prisma/config: it throws while the config loads,

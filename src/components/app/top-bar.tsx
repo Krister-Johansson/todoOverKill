@@ -8,7 +8,7 @@ import { CreateTaskDialog } from './create-task-dialog'
 
 /**
  * The top bar. The breadcrumb shows only the current page until F48 builds
- * the full trail, and the search form is a placeholder for F25. On a project
+ * the full trail, and the search form is a placeholder for F65. On a project
  * route it holds the New task button, which `c` also opens. Not sticky, so it
  * never covers the focused element (2.4.12).
  */

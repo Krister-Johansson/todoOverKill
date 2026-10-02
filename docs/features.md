@@ -172,10 +172,20 @@ The rest of the dashboard, split out of F24: a "Recent activity" section with th
 Depends on: F24.
 Acceptance: each section has a heading and a text empty state; activity shows relative and absolute time; the query count does not grow with the number of projects; axe clean in light and dark themes and no horizontal scroll at 320 px.
 
-### F25 Search service and command palette (#25)
-`src/server/search.ts` (projects and tasks by text) and a command palette (`cmd/ctrl+k`) listing actions (new task, go to project, switch theme) and search results.
-Depends on: F24.
-Acceptance: palette follows the combobox/listbox pattern; results announce their count.
+### F25 Search service (#25)
+The backend for search, with no UI. `src/schemas/search.ts` (the query trimmed to 1 to 200 characters; an optional `limit` per kind, 1 to 50, default 10; strict) and `search(query, options?)` in `src/server/search.ts`, which returns matching projects by name or key and tasks by title, description or reference. Matching ignores case and takes `%`, `_` and `\` as plain text. A query shaped like a reference (`KEY-N`, such as `tok-12`) finds that task by exact key and number, never by part of one. Archived projects and their tasks are left out; completed tasks are included. Within each kind, names or titles that start with the query (and the referenced task) come first, then the rest, each most recently updated first. A task result has id, number, title, project key and name, and status name; a project result has id, name, key and colour. Scope was reduced on 2026-10-02 to keep it to one PR: the command palette moved to F65 (#96) and search results in the palette to F66 (#97). REST search and the search tool come with F32 and F34.
+Depends on: F12.
+Acceptance: unit tests against the test database cover project by name and by key, task by title, description and reference, case-insensitivity, wildcard characters taken literally, archived projects left out, the limit, the order, and invalid input (ZodError); `docs/architecture.md` describes the service.
+
+### F65 Command palette with actions (#96)
+A command palette opened with `cmd/ctrl+k` and from the Search button in the top bar: a dialog with a labelled text input and a list of actions, following the WAI-ARIA combobox with listbox pattern. Actions: New task, Go to project (one per unarchived project), Go to Dashboard, Settings and Help, and Switch theme. Typing filters the actions; a polite live region announces the number of matching options, or "No results". Escape closes it and returns focus to the opener. The shortcut works on every page, fires no browser default, and is not a single-key shortcut, so the Settings toggle does not apply. Search results come with F66.
+Depends on: F14, F26.
+Acceptance: with the keyboard alone a user can open the palette, filter, run each kind of action, and close it, and focus returns to the opener; the count of matching options is announced as the text changes; every option is at least 44 px tall; axe is clean with the palette open in light and dark themes, with no horizontal scroll at 320 px; `docs/architecture.md` describes the palette and the Help page lists the shortcut.
+
+### F66 Search results in the command palette (#97)
+`src/fns/search.ts` wraps the F25 service, with query options keyed by the query text. From two characters on, the palette shows matching projects and tasks below the actions in labelled groups ("Projects", "Tasks"). A task option shows its reference, title and project name and goes to the task page; a project option goes to its board. Requests are debounced and a stale response never replaces newer results. The live region announces the total number of options once results arrive, or "No results"; a failed search shows and announces an error without closing the palette.
+Depends on: F25, F65.
+Acceptance: typing a task title or reference lists the task and Enter opens its page, and the same works for a project name; the groups have labels screen readers read, and the announced count includes actions and results; axe is clean with results shown in light and dark themes, with no horizontal scroll at 320 px.
 
 ### F26 Settings page (#26)
 Theme, motion override, single-key shortcuts on or off, "send when I stop speaking" and "read replies aloud" placeholders (disabled until F41 and F42).

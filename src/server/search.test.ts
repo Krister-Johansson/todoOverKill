@@ -291,6 +291,23 @@ describe('search', () => {
     ])
   })
 
+  it('puts a project whose key is the query in the first group', async () => {
+    const projects = {
+      'Web site': await createProject({ name: 'Web site', key: 'SITE' }),
+      'Old web': await createProject({ name: 'Old web', key: 'OLD' }),
+      'Our web': await createProject({ name: 'Our web', key: 'WEB' }),
+    }
+    await touchProject(projects['Our web'].id, 1)
+    await touchProject(projects['Web site'].id, 2)
+    await touchProject(projects['Old web'].id, 3)
+
+    expect(names((await search('web')).projects)).toEqual([
+      'Web site',
+      'Our web',
+      'Old web',
+    ])
+  })
+
   it.each([
     ['an empty query', '', undefined],
     ['a blank query', '   ', undefined],

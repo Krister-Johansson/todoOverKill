@@ -80,6 +80,31 @@ test('the MCP server answers through the router', async ({
     })
 
     const taskId = (await task.json()).id
+    const { resourceTemplates } = await client.listResourceTemplates()
+    expect(resourceTemplates.map((template) => template.uriTemplate)).toEqual([
+      'project://{id}',
+      'task://{id}',
+    ])
+    const { contents } = await client.readResource({ uri: `task://${taskId}` })
+    expect(contents).toEqual([
+      {
+        uri: `task://${taskId}`,
+        mimeType: 'text/markdown',
+        text: expect.stringContaining(`Check the MCP route ${run}`),
+      },
+    ])
+
+    const { messages } = await client.getPrompt({ name: 'daily_review' })
+    expect(messages).toEqual([
+      {
+        role: 'user',
+        content: {
+          type: 'text',
+          text: expect.stringMatching(/^Daily review for /),
+        },
+      },
+    ])
+
     const refused = await client.callTool({
       name: 'delete_task',
       arguments: { taskId },

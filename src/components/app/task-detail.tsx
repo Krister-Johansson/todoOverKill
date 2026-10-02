@@ -4,6 +4,7 @@ import { useId } from 'react'
 import { formatDateTime, formatDueDate, isPastDay } from '#/lib/dates'
 import { PRIORITY_DISPLAY } from '#/lib/priority'
 
+import { LabelChip } from './label-chip'
 import { Markdown } from './markdown'
 
 import type { ReactNode } from 'react'
@@ -51,8 +52,8 @@ function Moment({ value }: { value: Date }) {
 /**
  * Every field of a task, read only, and its description as Markdown. The
  * priority and the overdue state are words, with colour and an icon as extra
- * cues, and a completed task is never overdue. A label's own colour appears
- * only in its aria-hidden dot, as on the board card.
+ * cues, and a completed task is never overdue. Labels render as LabelChip,
+ * as on the board card.
  */
 export function TaskDetail({
   task,
@@ -111,16 +112,11 @@ export function TaskDetail({
           {task.labels.length > 0 ? (
             <ul className="flex flex-wrap gap-1">
               {task.labels.map((label) => (
-                <li
-                  key={label.id}
-                  className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full border border-border px-2 text-sm leading-relaxed"
-                >
-                  <span
-                    aria-hidden="true"
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: label.color }}
+                <li key={label.id} className="max-w-full min-w-0">
+                  <LabelChip
+                    label={label}
+                    className="text-sm leading-relaxed"
                   />
-                  <span className="min-w-0 break-words">{label.name}</span>
                 </li>
               ))}
             </ul>

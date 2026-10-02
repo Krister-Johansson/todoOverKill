@@ -102,6 +102,12 @@ describe('TaskDetail', () => {
       'Bug',
       'Design',
     ])
+    expect(
+      [...labels].map(
+        (label) =>
+          label.querySelector<HTMLElement>('.border-2')?.style.borderColor,
+      ),
+    ).toEqual(['rgb(220, 38, 38)', 'rgb(37, 99, 235)'])
   })
 
   it('says when there are no labels and no due date', async () => {

@@ -111,6 +111,13 @@ describe('TaskCardContent', () => {
     const items = within(screen.getByRole('list')).getAllByRole('listitem')
     // Each chip starts with a comma that only screen readers get.
     expect(items.map((item) => item.textContent)).toEqual([', Bug', ', Design'])
+    // Each chip's border is its label's palette colour.
+    expect(
+      items.map(
+        (item) =>
+          item.querySelector<HTMLElement>('.border-2')?.style.borderColor,
+      ),
+    ).toEqual(['rgb(220, 38, 38)', 'rgb(37, 99, 235)'])
   })
 
   it('separates the parts of the link name with commas', () => {

@@ -187,6 +187,9 @@ importers:
       '@tanstack/ai-client':
         specifier: 0.36.0
         version: 0.36.0(zod@4.6.5)
+      '@tanstack/ai-openrouter':
+        specifier: 0.9.8
+        version: 0.9.8(@tanstack/ai@0.63.0(zod@4.6.5))
       '@tanstack/ai-react':
         specifier: 0.29.3
         version: 0.29.3(@tanstack/ai@0.63.0(zod@4.6.5))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.6.5)
@@ -797,6 +800,9 @@ packages:
   '@oozcitak/util@10.0.0':
     resolution: {integrity: sha512-hAX0pT/73190NLqBPPWSdBVGtbY6VOhWYK3qqHqtXQ1gK7kS2yz4+ivsN07hpJ6I3aeMtKP6J6npsEKOAzuTLA==}
     engines: {node: '>=20.0'}
+
+  '@openrouter/sdk@0.12.35':
+    resolution: {integrity: sha512-s4QVLLnG1AmfW3TjnnHUqGfsCkzwVK+kboGcZmKbde09m1DPqgzl4RUFt/HJ5v97MX8aEaN0UG3mKv2S+qj2Gw==}
 
   '@oxc-parser/binding-android-arm-eabi@0.120.0':
     resolution: {integrity: sha512-WU3qtINx802wOl8RxAF1v0VvmC2O4D9M8Sv486nLeQ7iPHVmncYZrtBhB4SYyX+XZxj2PNnCcN+PW21jHgiOxg==}
@@ -2061,6 +2067,11 @@ packages:
   '@tanstack/ai-event-client@0.13.0':
     resolution: {integrity: sha512-qGN7saScQHqDd06DE5CNG+wl1O9v6anwsGCCeP4N7zFbZd5k9/2C1u4cdJ2+Qxl2aA8drusLFZMhY/ljhBJqLQ==}
 
+  '@tanstack/ai-openrouter@0.9.8':
+    resolution: {integrity: sha512-QKXY9kVkgOsbhfRcfca0S8hDlIsSfQbJR/vLLIPTPFjxtwR7coQHTD1mvXG47JNJ8zQJsBgZMKKffFhitPQB4A==}
+    peerDependencies:
+      '@tanstack/ai': ^0.22.0
+
   '@tanstack/ai-react@0.29.3':
     resolution: {integrity: sha512-JLU4Pp/Qi3r8pBquugDKyEwJ36W2irwKCH391Ln4k3tdtk4a0rI8jsz3xepdWXkgWr/DhJAlKDzZ6sYZPJWVNg==}
     peerDependencies:
@@ -2074,6 +2085,9 @@ packages:
         optional: true
       react-dom:
         optional: true
+
+  '@tanstack/ai-utils@0.2.1':
+    resolution: {integrity: sha512-cFsSeaiAOOEtAOWvFWD0jHiLlFSYi+FYmbEPeD70zHntM8ws2YFb4Dgz94+J8rsoffLXIFTkKswTowx5QlTsWg==}
 
   '@tanstack/ai-utils@0.4.1':
     resolution: {integrity: sha512-B3PGn2WYiRtivZCt7MUN2iXeoK9fwZhgdbrPIz5hPqVR8r8sNDZMmMqtiOkp7sxzPvVlCBItFVHw7QpZ9g6e9w==}
@@ -5447,6 +5461,10 @@ snapshots:
 
   '@oozcitak/util@10.0.0': {}
 
+  '@openrouter/sdk@0.12.35':
+    dependencies:
+      zod: 4.6.5
+
   '@oxc-parser/binding-android-arm-eabi@0.120.0':
     optional: true
 
@@ -6654,6 +6672,12 @@ snapshots:
     dependencies:
       '@tanstack/devtools-event-client': 0.4.4
 
+  '@tanstack/ai-openrouter@0.9.8(@tanstack/ai@0.63.0(zod@4.6.5))':
+    dependencies:
+      '@openrouter/sdk': 0.12.35
+      '@tanstack/ai': 0.63.0(zod@4.6.5)
+      '@tanstack/ai-utils': 0.2.1
+
   '@tanstack/ai-react@0.29.3(@tanstack/ai@0.63.0(zod@4.6.5))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.6.5)':
     dependencies:
       '@tanstack/ai': 0.63.0(zod@4.6.5)
@@ -6667,6 +6691,8 @@ snapshots:
       - '@opentelemetry/api'
       - octane
       - zod
+
+  '@tanstack/ai-utils@0.2.1': {}
 
   '@tanstack/ai-utils@0.4.1': {}
 

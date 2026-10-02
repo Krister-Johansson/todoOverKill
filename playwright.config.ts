@@ -48,6 +48,12 @@ export default defineConfig({
     env: {
       DATABASE_URL: testDatabaseUrl,
       DATABASE_URL_TEST: testDatabaseUrl,
+      // A placeholder, so the assistant panel is enabled. tests/e2e/
+      // assistant.spec.ts mocks /api/chat in the browser, so the key is never
+      // sent anywhere. Outside CI a server already running on this port is
+      // reused as is, without this key; the assistant spec then fails and
+      // says to stop that server or export OPENROUTER_API_KEY.
+      OPENROUTER_API_KEY: 'e2e-placeholder',
     },
   },
 })

@@ -241,6 +241,7 @@ describe('createTask', () => {
     })
 
     await expect(attempt).rejects.toBeInstanceOf(NotFoundError)
+    await expect(attempt).rejects.toMatchObject({ entity: 'status' })
     await expect(db.task.count()).resolves.toBe(0)
     await expect(nextTaskNumberOf(project.id)).resolves.toBe(1)
   })
@@ -249,7 +250,10 @@ describe('createTask', () => {
     const attempt = createTask(UNKNOWN_ID, { title: 'Write copy' })
 
     await expect(attempt).rejects.toBeInstanceOf(NotFoundError)
-    await expect(attempt).rejects.toMatchObject({ code: 'not_found' })
+    await expect(attempt).rejects.toMatchObject({
+      code: 'not_found',
+      entity: 'project',
+    })
   })
 
   it('throws ConflictError when the project has no statuses', async () => {
@@ -307,6 +311,7 @@ describe('createTask', () => {
       await expect(attempt).rejects.toBeInstanceOf(NotFoundError)
       await expect(attempt).rejects.toMatchObject({
         message: `No label with id ${foreign} in this project.`,
+        entity: 'label',
       })
       await expect(db.task.count()).resolves.toBe(0)
       await expect(nextTaskNumberOf(project.id)).resolves.toBe(1)
@@ -349,6 +354,7 @@ describe('createTask', () => {
       await expect(attempt).rejects.toBeInstanceOf(NotFoundError)
       await expect(attempt).rejects.toMatchObject({
         message: `No status with id ${status.id} in this project.`,
+        entity: 'status',
       })
       await expect(db.task.count()).resolves.toBe(0)
     },

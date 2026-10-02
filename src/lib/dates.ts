@@ -26,6 +26,58 @@ export function formatDueDate(day: string) {
   return dueDateFormat.format(new Date(`${day}T00:00:00Z`))
 }
 
+const HINT_DAY = new Date('2026-10-01T00:00:00Z')
+
+// The order matches the example, which is the value the field holds.
+const FALLBACK_HINT = { order: 'year, month and day', example: '2026-10-01' }
+
+function hintFormat(locale?: string) {
+  try {
+    // The native field shows Gregorian dates in Latin digits whatever the
+    // locale's own calendar and numbers, such as th-TH's Buddhist years.
+    return new Intl.DateTimeFormat(locale, {
+      calendar: 'gregory',
+      numberingSystem: 'latn',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      timeZone: 'UTC',
+    })
+  } catch {
+    // A malformed locale tag throws a RangeError.
+    return undefined
+  }
+}
+
+/**
+ * How a native date input shows a day in `locale`: its parts in order, such
+ * as `month, day and year`, and 2026-10-01 written that way, such as
+ * `10/01/2026` in en-US. Chrome draws the field from the locale, so help text
+ * built from this matches what the user sees (3.3.2). A locale whose format
+ * does not give exactly a year, a month and a day gets fixed wording with the
+ * ISO date instead.
+ */
+export function dueDateInputHint(locale?: string) {
+  const format = hintFormat(locale)
+  if (!format) return FALLBACK_HINT
+  const words = format
+    .formatToParts(HINT_DAY)
+    .map(({ type }) => type)
+    .filter((type) => type === 'year' || type === 'month' || type === 'day')
+  if (words.length !== 3 || new Set(words).size !== 3) return FALLBACK_HINT
+  return {
+    order: `${words[0]}, ${words[1]} and ${words[2]}`,
+    example: format.format(HINT_DAY),
+  }
+}
+
+/**
+ * The error for a date input the browser cannot read, such as a month and day
+ * with no year. Its value is then empty, so only `validity.badInput` shows it.
+ */
+export const INCOMPLETE_DUE_DATE_MESSAGE =
+  'Enter the whole date, with day, month and year, or clear the field.'
+
 // A moment, unlike a day, is shown in the local zone. The app is local, so
 // the server render and the browser share that zone.
 const dateTimeFormat = new Intl.DateTimeFormat('en', {

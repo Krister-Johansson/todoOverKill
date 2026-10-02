@@ -38,18 +38,23 @@ const FENCE = /^ {0,3}(`{3,}|~{3,})/
 const ATX_HEADING = /^ {0,3}(#{1,6})(?=[ \t]|$)/
 const SETEXT_UNDERLINE = /^ {0,3}(=+|-+)[ \t]*$/
 /** A line that cannot be the text of a setext heading. */
-const NOT_PARAGRAPH = /^\s*$|^ {0,3}(#|>|[-*+][ \t]|\d{1,9}[.)][ \t])|^ {4}/
+const NOT_PARAGRAPH =
+  /^\s*$|^ {0,3}(#|>|[-*+][ \t]|\d{1,9}[.)][ \t])|^ {4}|^ {0,3}([-*_])([ \t]*\2){2,}[ \t]*$/
 
 /**
  * Markdown with every heading moved `depth` levels down, as the UI's Markdown
  * renders it under a section heading, so the text's own headings sit below
  * the section's and never read as one of its sections. Levels stop at 6. A
- * setext heading becomes an ATX one, and code blocks are left alone.
+ * setext heading becomes an ATX one, and code blocks are left alone. A code
+ * block still open at the end is closed, so it cannot swallow what follows.
  */
 export function demoteHeadings(markdown: string, depth: number) {
   const lines = markdown.split('\n')
   const out: Array<string> = []
   let fence: string | undefined
+  // Whether the last line pushed is paragraph text a setext underline can
+  // turn into a heading. Fence lines and headings never are.
+  let paragraph = false
   for (const line of lines) {
     const fenceMatch = FENCE.exec(line)
     if (fence !== undefined) {
@@ -62,28 +67,33 @@ export function demoteHeadings(markdown: string, depth: number) {
         fence = undefined
       }
       out.push(line)
+      paragraph = false
       continue
     }
     if (fenceMatch) {
       fence = fenceMatch[1]
       out.push(line)
+      paragraph = false
       continue
     }
     const heading = ATX_HEADING.exec(line)
     if (heading) {
       const level = Math.min(6, heading[1].length + depth)
       out.push('#'.repeat(level) + line.slice(heading[0].length))
+      paragraph = false
       continue
     }
-    const previous = out.at(-1)
     const underline = SETEXT_UNDERLINE.exec(line)
-    if (underline && previous !== undefined && !NOT_PARAGRAPH.test(previous)) {
+    if (underline && paragraph) {
       const level = Math.min(6, (underline[1][0] === '=' ? 1 : 2) + depth)
-      out[out.length - 1] = `${'#'.repeat(level)} ${previous.trim()}`
+      out[out.length - 1] = `${'#'.repeat(level)} ${out[out.length - 1].trim()}`
+      paragraph = false
       continue
     }
     out.push(line)
+    paragraph = !NOT_PARAGRAPH.test(line)
   }
+  if (fence !== undefined) out.push(fence)
   return out.join('\n')
 }
 

@@ -372,4 +372,21 @@ describe('demoteHeadings', () => {
 
     expect(demoteHeadings(markdown, 2)).toBe(markdown)
   })
+
+  it('keeps a closing fence followed by a rule as it is', () => {
+    expect(demoteHeadings('```sh\nnpm i\n```\n---\n# Next', 2)).toBe(
+      '```sh\nnpm i\n```\n---\n### Next',
+    )
+  })
+
+  it('treats a rule after a rule as a rule, not a heading', () => {
+    expect(demoteHeadings('***\n---\n\n---\n---', 2)).toBe(
+      '***\n---\n\n---\n---',
+    )
+  })
+
+  it('closes a code block left open at the end', () => {
+    expect(demoteHeadings('```\nnotes', 2)).toBe('```\nnotes\n```')
+    expect(demoteHeadings('~~~~\nnotes\n~~~', 2)).toBe('~~~~\nnotes\n~~~\n~~~~')
+  })
 })

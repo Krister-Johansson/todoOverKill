@@ -19,6 +19,19 @@ import { statusIdSchema } from '#/schemas/status'
 import type { Priority } from '#/generated/prisma/enums'
 
 /**
+ * The router parses each search value as JSON, so a hand-typed `?q=2026` or
+ * `?q=true` arrives as a number or a boolean. Text is text, so those go back
+ * to the string the user typed.
+ */
+const searchParamText = z.preprocess(
+  (value) =>
+    typeof value === 'number' || typeof value === 'boolean'
+      ? String(value)
+      : value,
+  searchTextSchema,
+)
+
+/**
  * The filter search params. A value that fails is dropped rather than
  * thrown, so a hand-edited or stale URL shows every task instead of an error.
  * An empty value fails too, and blank text means no text filter.
@@ -28,7 +41,7 @@ export const taskFilterSearchSchema = z.object({
   priority: taskPrioritySchema.optional().catch(undefined),
   label: z.string().min(1).optional().catch(undefined),
   due: dueFilterSchema.optional().catch(undefined),
-  q: searchTextSchema.optional().catch(undefined),
+  q: searchParamText.optional().catch(undefined),
 })
 
 export type TaskFilters = z.infer<typeof taskFilterSearchSchema>

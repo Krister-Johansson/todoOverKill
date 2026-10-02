@@ -1,6 +1,7 @@
 // @vitest-environment node
 // Node, because the route tests import the board and list routes, which
 // import server code.
+import { defaultParseSearch } from '@tanstack/react-router'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -81,6 +82,15 @@ describe('taskFilterSearchSchema', () => {
   it('trims the text and treats blank text as no filter', () => {
     expect(taskFilterSearchSchema.parse({ q: '  copy ' }).q).toBe('copy')
     expect(taskFilterSearchSchema.parse({ q: '   ' }).q).toBeUndefined()
+  })
+
+  it('keeps text the router parsed as a number or a boolean', () => {
+    const parsed = defaultParseSearch('?q=2026')
+    expect(parsed.q).toBe(2026)
+    expect(taskFilterSearchSchema.parse(parsed).q).toBe('2026')
+    expect(taskFilterSearchSchema.parse({ q: true }).q).toBe('true')
+    expect(taskFilterSearchSchema.parse({ q: 1.5 }).q).toBe('1.5')
+    expect(taskFilterSearchSchema.parse({ q: { a: 1 } }).q).toBeUndefined()
   })
 
   it('accepts an empty search', () => {
@@ -239,6 +249,16 @@ describe('the board and list routes', () => {
     expect(result).toMatchObject({
       value: { priority: 'high', due: undefined, q: 'copy' },
     })
+  })
+
+  it('the board filters by text the router parsed as a number', async () => {
+    const { Route } = await import('#/routes/_app/projects.$projectId.board')
+    const schema = Route.options.validateSearch
+    if (!schema || !('~standard' in schema)) throw new Error('No schema')
+    const result = await schema['~standard'].validate(
+      defaultParseSearch('?q=2026'),
+    )
+    expect(result).toMatchObject({ value: { q: '2026' } })
   })
 
   it('the list takes the filters and keeps its sort', async () => {

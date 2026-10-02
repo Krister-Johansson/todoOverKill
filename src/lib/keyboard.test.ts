@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
 import {
+  isCommandPaletteKey,
   isCommandPaletteShortcut,
   isEditableTarget,
+  isModalOpen,
   isSingleKeyShortcut,
 } from '#/lib/keyboard'
 
@@ -114,6 +116,54 @@ describe('isSingleKeyShortcut', () => {
     const button = document.querySelector('button')!
     expect(isSingleKeyShortcut(keydown(button))).toBe(false)
   })
+
+  it('fails while a menu is open', () => {
+    document.body.innerHTML =
+      '<div role="menu" aria-label="Move"><button role="menuitem">Go</button></div>'
+    const item = document.querySelector('button')!
+    expect(isSingleKeyShortcut(keydown(item))).toBe(false)
+  })
+})
+
+describe('isModalOpen', () => {
+  it.each(['dialog', 'alertdialog', 'menu'])('is true with a %s', (role) => {
+    document.body.innerHTML = `<div role="${role}"></div>`
+    expect(isModalOpen()).toBe(true)
+  })
+
+  it('is false with none', () => {
+    document.body.innerHTML = '<div role="listbox"></div>'
+    expect(isModalOpen()).toBe(false)
+  })
+})
+
+describe('isCommandPaletteKey', () => {
+  it('passes the K key on a layout without Latin letters', () => {
+    const event = keydown(element('<button>Go</button>'), {
+      key: 'л',
+      code: 'KeyK',
+      ctrlKey: true,
+    })
+    expect(isCommandPaletteKey(event)).toBe(true)
+  })
+
+  it('fails on the K position when it types another letter', () => {
+    // Dvorak puts t there, and Control+T opens a tab.
+    const event = keydown(element('<button>Go</button>'), {
+      key: 't',
+      code: 'KeyK',
+      ctrlKey: true,
+    })
+    expect(isCommandPaletteKey(event)).toBe(false)
+  })
+
+  it('passes the chord while a dialog is open', () => {
+    document.body.innerHTML = '<input><div role="dialog"></div>'
+    const input = document.querySelector('input')!
+    const event = keydown(input, { key: 'k', ctrlKey: true })
+    expect(isCommandPaletteKey(event)).toBe(true)
+    expect(isCommandPaletteShortcut(event)).toBe(false)
+  })
 })
 
 describe('isCommandPaletteShortcut', () => {
@@ -179,6 +229,15 @@ describe('isCommandPaletteShortcut', () => {
     const input = document.querySelector('input')!
     expect(
       isCommandPaletteShortcut(keydown(input, { key: 'k', ctrlKey: true })),
+    ).toBe(false)
+  })
+
+  it('fails while a menu is open', () => {
+    document.body.innerHTML =
+      '<div role="menu" aria-label="Move"><button role="menuitem">Go</button></div>'
+    const item = document.querySelector('button')!
+    expect(
+      isCommandPaletteShortcut(keydown(item, { key: 'k', ctrlKey: true })),
     ).toBe(false)
   })
 })

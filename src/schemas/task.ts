@@ -83,7 +83,7 @@ export const moveTaskSchema = z
 export const patchTaskSchema = updateTaskSchema.extend(moveFields).strict()
 
 /** Matched against title and description, ignoring case. Blank means no filter. */
-const searchTextSchema = z
+export const searchTextSchema = z
   .string()
   .trim()
   .max(200, { error: 'Search text must be 200 characters or fewer.' })

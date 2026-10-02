@@ -2,12 +2,14 @@ import { useSuspenseQuery } from '@tanstack/react-query'
 import { Link, Outlet, createFileRoute } from '@tanstack/react-router'
 
 import { projectQueryOptions } from '#/fns/projects'
+import { pickFilters } from '#/lib/task-filter'
 
 const viewLinkClass =
   'flex min-h-11 items-center rounded-md px-3 text-sm font-medium hover:bg-accent hover:text-accent-foreground aria-[current=page]:bg-primary aria-[current=page]:text-primary-foreground'
 
 // The project layout: the project's h1 and the links to its views, with the
-// current view below.
+// current view below. The view links carry the filters, so switching views
+// keeps them; the board link leaves the list's sort behind.
 export const Route = createFileRoute('/_app/projects/$projectId')({
   loader: ({ context, params }) =>
     context.queryClient.ensureQueryData(projectQueryOptions(params.projectId)),
@@ -35,6 +37,7 @@ function ProjectLayout() {
             <Link
               to="/projects/$projectId/board"
               params={{ projectId }}
+              search={(previous) => pickFilters(previous)}
               className={viewLinkClass}
             >
               Board
@@ -44,6 +47,7 @@ function ProjectLayout() {
             <Link
               to="/projects/$projectId/list"
               params={{ projectId }}
+              search={(previous) => previous}
               className={viewLinkClass}
             >
               List

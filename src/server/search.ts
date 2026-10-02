@@ -69,8 +69,13 @@ async function inTwoGroups<T>(
 
 function searchProjects(query: string, limit: number) {
   const text = escapeLike(query)
+  // Keys are stored in upper case, so a plain equals finds the project whose
+  // key is the query; an insensitive one would be another ILIKE.
   const startsWith: Prisma.ProjectWhereInput = {
-    name: { startsWith: text, mode: 'insensitive' },
+    OR: [
+      { name: { startsWith: text, mode: 'insensitive' } },
+      { key: query.toUpperCase() },
+    ],
   }
   const matches: Prisma.ProjectWhereInput = {
     OR: [
@@ -129,7 +134,8 @@ function searchTasks(query: string, limit: number) {
  * of each kind. `%`, `_` and `\` in the query are plain text. A query shaped
  * like `KEY-N` also finds that one task; no other query matches on reference.
  * Completed tasks are included. Within each kind, names or titles that start
- * with the query come first (and the referenced task), then the rest, each
+ * with the query come first (with the project whose key is the query and the
+ * referenced task), then the rest, each
  * most recently updated first. Throws a ZodError for a query that is blank or
  * over 200 characters after trimming, or a limit outside 1 to 50.
  */

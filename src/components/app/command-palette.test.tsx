@@ -16,7 +16,15 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
 
 import { CommandPalette } from './command-palette'
 import { LiveRegionProvider } from './live-region'
@@ -30,6 +38,38 @@ vi.mock('#/fns/projects', () => ({
   }),
 }))
 
+type Results = {
+  projects: Array<{ id: string; name: string; key: string; color: null }>
+  tasks: Array<{
+    id: string
+    number: number
+    title: string
+    project: { key: string; name: string }
+    status: { name: string }
+  }>
+}
+
+const searchMock = vi.hoisted(() =>
+  vi.fn<(query: string) => Promise<Results>>(),
+)
+
+// The real query options with the server function swapped for searchMock.
+vi.mock('#/fns/search', () => ({
+  MIN_SEARCH_LENGTH: 2,
+  MAX_SEARCH_LENGTH: 200,
+  searchQueryOptions: (text: string) => ({
+    queryKey: ['search', text.trim()],
+    queryFn: () => searchMock(text.trim()),
+    staleTime: 0,
+  }),
+}))
+
+const NOTHING: Results = { projects: [], tasks: [] }
+
+beforeEach(() => {
+  searchMock.mockImplementation(() => Promise.resolve(NOTHING))
+})
+
 beforeAll(() => {
   // jsdom does not lay out, so it has no scrollIntoView.
   Element.prototype.scrollIntoView = vi.fn()
@@ -37,6 +77,7 @@ beforeAll(() => {
 
 afterEach(() => {
   cleanup()
+  searchMock.mockReset()
   localStorage.clear()
   document.documentElement.className = ''
 })
@@ -79,6 +120,7 @@ async function renderAt(
         ['/settings', 'Settings'],
         ['/help', 'Help'],
         ['/projects/$projectId/board', 'Board'],
+        ['/tasks/$taskId', 'Task'],
       ] as const
     ).map(([routePath, name]) =>
       createRoute({
@@ -131,6 +173,44 @@ function optionNames() {
   return screen.queryAllByRole('option').map((option) => option.textContent)
 }
 
+function groupOptions(name: string) {
+  return within(screen.getByRole('group', { name }))
+    .getAllByRole('option')
+    .map((option) => option.textContent)
+}
+
+function wait(ms: number) {
+  return act(() => new Promise((resolve) => setTimeout(resolve, ms)))
+}
+
+/** A promise the test settles by hand. */
+function deferred() {
+  let resolve!: (results: Results) => void
+  let reject!: (error: Error) => void
+  const promise = new Promise<Results>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
+function project(id: string, name: string, key: string) {
+  return { id, name, key, color: null }
+}
+
+function task(id: string, number: number, title: string) {
+  return {
+    id,
+    number,
+    title,
+    project: { key: 'APO', name: 'Apollo' },
+    status: { name: 'Backlog' },
+  }
+}
+
+const apolloTwo = project('p9', 'Apollo Two', 'AP2')
+const launch = task('t1', 4, 'Launch plan')
+
 /** The live region inside the dialog. */
 function paletteRegion() {
   return screen
@@ -147,8 +227,9 @@ describe('CommandPalette', () => {
     expect(document.activeElement).toBe(input)
     expect(input.getAttribute('aria-expanded')).toBe('true')
     expect(input.getAttribute('aria-autocomplete')).toBe('list')
-    const listbox = within(dialog).getByRole('listbox', { name: 'Actions' })
+    const listbox = within(dialog).getByRole('listbox', { name: 'Options' })
     expect(input.getAttribute('aria-controls')).toBe(listbox.id)
+    expect(within(listbox).getByRole('group', { name: 'Actions' })).toBeTruthy()
     expect(optionNames()).toEqual([
       'Go to Dashboard',
       'Go to Settings',
@@ -179,7 +260,9 @@ describe('CommandPalette', () => {
 
     type('nothing like this')
     expect(optionNames()).toEqual([])
-    expect(screen.getByText('No results')).toBeTruthy()
+    // Until the search comes back empty.
+    expect(screen.getByText('Searching…')).toBeTruthy()
+    expect(await screen.findByText('No results')).toBeTruthy()
     expect(combobox().getAttribute('aria-expanded')).toBe('false')
     expect(combobox().hasAttribute('aria-activedescendant')).toBe(false)
     // Hidden, not removed, so aria-controls still points at it.
@@ -436,5 +519,274 @@ describe('CommandPalette', () => {
 
     fireEvent.keyDown(document.body, { key: 'k', ctrlKey: true })
     expect(screen.getByRole('dialog', { name: 'Command menu' })).toBeTruthy()
+  })
+
+  describe('search results', () => {
+    it('does not search under two characters', async () => {
+      await renderAt('/')
+      openFromButton()
+      type(' g ')
+
+      await wait(400)
+      expect(searchMock).not.toHaveBeenCalled()
+      expect(screen.queryByRole('group', { name: 'Tasks' })).toBeNull()
+    })
+
+    it('lists projects and tasks in named groups after the actions', async () => {
+      searchMock.mockResolvedValue({ projects: [apolloTwo], tasks: [launch] })
+      await renderAt('/')
+      openFromButton()
+      type('ap')
+      type('apollo')
+
+      await screen.findByRole('group', { name: 'Tasks' })
+      // Debounced: only the last text is searched.
+      expect(searchMock).toHaveBeenCalledOnce()
+      expect(searchMock).toHaveBeenCalledWith('apollo')
+      expect(groupOptions('Actions')).toEqual(['Go to Apollo'])
+      expect(groupOptions('Projects')).toEqual(['Apollo Two, AP2'])
+      expect(groupOptions('Tasks')).toEqual(['APO-4, Launch plan, Apollo'])
+      expect(optionNames()).toHaveLength(3)
+    })
+
+    it('announces actions and results together, once the results arrive', async () => {
+      const response = deferred()
+      searchMock.mockReturnValue(response.promise)
+      await renderAt('/')
+      openFromButton()
+      type('apollo')
+
+      await waitFor(() => expect(searchMock).toHaveBeenCalled())
+      expect(screen.getByRole('option', { name: 'Go to Apollo' })).toBeTruthy()
+      await wait(400)
+      // The action alone is not announced while the search is out.
+      expect(paletteRegion().textContent).toBe('')
+
+      act(() => response.resolve({ projects: [apolloTwo], tasks: [launch] }))
+      await waitFor(() => expect(paletteRegion().textContent).toBe('3 options'))
+    })
+
+    it('shows Searching… while a search is out', async () => {
+      searchMock.mockReturnValue(deferred().promise)
+      await renderAt('/')
+      openFromButton()
+      type('zz')
+
+      expect(screen.getByText('Searching…')).toBeTruthy()
+      expect(screen.queryByText('No results')).toBeNull()
+
+      // Also when actions match.
+      type('go to')
+      expect(optionNames()).toHaveLength(5)
+      expect(screen.getByText('Searching…')).toBeTruthy()
+    })
+
+    it('never runs a result for older text while the search is out', async () => {
+      const later = deferred()
+      searchMock.mockImplementation((query) =>
+        query === 'apo-12'
+          ? later.promise
+          : Promise.resolve({ projects: [], tasks: [launch] }),
+      )
+      const router = await renderAt('/settings')
+      openFromButton()
+      type('apo')
+      await waitFor(() =>
+        expect(optionNames()).toContain('APO-4, Launch plan, Apollo'),
+      )
+
+      type('apo-12')
+      // Inside the debounce, the results for "apo" are gone at once.
+      expect(optionNames()).toEqual([])
+      expect(screen.getByText('Searching…')).toBeTruthy()
+      press('Enter')
+      // And while the request for "apo-12" is out.
+      await waitFor(() => expect(searchMock).toHaveBeenCalledWith('apo-12'))
+      expect(optionNames()).toEqual([])
+      press('Enter')
+      await wait(50)
+      expect(router.state.location.pathname).toBe('/settings')
+      expect(screen.getByRole('dialog', { name: 'Command menu' })).toBeTruthy()
+
+      act(() =>
+        later.resolve({ projects: [], tasks: [task('t12', 12, 'Rocket')] }),
+      )
+      await waitFor(() =>
+        expect(optionNames()).toEqual(['APO-12, Rocket, Apollo']),
+      )
+      press('Enter')
+      await screen.findByRole('heading', { name: 'Task' })
+      expect(router.state.location.pathname).toBe('/tasks/t12')
+    })
+
+    it('opens a task on Enter and moves focus to the main landmark', async () => {
+      searchMock.mockResolvedValue({ projects: [], tasks: [launch] })
+      const router = await renderAt('/settings')
+      openFromButton()
+      type('launch')
+
+      await waitFor(() =>
+        expect(optionNames()).toContain('APO-4, Launch plan, Apollo'),
+      )
+      expect(activeOption()?.textContent).toBe('APO-4, Launch plan, Apollo')
+      press('Enter')
+
+      await screen.findByRole('heading', { name: 'Task' })
+      expect(router.state.location.pathname).toBe('/tasks/t1')
+      await waitFor(() => expect(document.activeElement?.id).toBe('main'))
+    })
+
+    it('goes to the board of a project result', async () => {
+      searchMock.mockResolvedValue({ projects: [apolloTwo], tasks: [] })
+      const router = await renderAt('/')
+      openFromButton()
+      type('apollo')
+
+      await screen.findByRole('group', { name: 'Projects' })
+      press('ArrowDown')
+      expect(activeOption()?.textContent).toBe('Apollo Two, AP2')
+      press('Enter')
+
+      await screen.findByRole('heading', { name: 'Board' })
+      expect(router.state.location.pathname).toBe('/projects/p9/board')
+    })
+
+    it('moves across the groups with the arrows and wraps', async () => {
+      searchMock.mockResolvedValue({ projects: [apolloTwo], tasks: [launch] })
+      await renderAt('/')
+      openFromButton()
+      type('apollo')
+      await screen.findByRole('group', { name: 'Tasks' })
+
+      press('ArrowDown')
+      press('ArrowDown')
+      expect(activeOption()?.textContent).toBe('APO-4, Launch plan, Apollo')
+      press('ArrowDown')
+      expect(activeOption()?.textContent).toBe('Go to Apollo')
+      press('ArrowUp')
+      expect(activeOption()?.textContent).toBe('APO-4, Launch plan, Apollo')
+      press('Home')
+      expect(activeOption()?.textContent).toBe('Go to Apollo')
+    })
+
+    it('keeps the active result when the results change, or falls back to the first', async () => {
+      searchMock.mockResolvedValue({ projects: [apolloTwo], tasks: [launch] })
+      const queryClient = new QueryClient()
+      await renderAt('/', { queryClient })
+      openFromButton()
+      type('apollo')
+      await screen.findByRole('group', { name: 'Tasks' })
+      press('End')
+      expect(activeOption()?.textContent).toBe('APO-4, Launch plan, Apollo')
+
+      // A refetch puts another result above the active one.
+      act(() => {
+        queryClient.setQueryData(['search', 'apollo'], {
+          projects: [apolloTwo, project('p8', 'Apollo Three', 'AP3')],
+          tasks: [launch],
+        })
+      })
+      await waitFor(() => expect(optionNames()).toContain('Apollo Three, AP3'))
+      expect(activeOption()?.textContent).toBe('APO-4, Launch plan, Apollo')
+
+      // The active result is gone, so the first option is active.
+      act(() => {
+        queryClient.setQueryData(['search', 'apollo'], {
+          projects: [apolloTwo],
+          tasks: [],
+        })
+      })
+      await waitFor(() =>
+        expect(screen.queryByRole('group', { name: 'Tasks' })).toBeNull(),
+      )
+      expect(activeOption()?.textContent).toBe('Go to Apollo')
+      expect(
+        screen
+          .getAllByRole('option')
+          .filter((option) => option.getAttribute('aria-selected') === 'true'),
+      ).toHaveLength(1)
+    })
+
+    it('never lets a slow response for older text replace newer results', async () => {
+      const slow = deferred()
+      searchMock.mockImplementation((query) =>
+        query === 'laun'
+          ? slow.promise
+          : Promise.resolve({ projects: [], tasks: [launch] }),
+      )
+      await renderAt('/')
+      openFromButton()
+      type('laun')
+      await waitFor(() => expect(searchMock).toHaveBeenCalledWith('laun'))
+      type('launch')
+
+      await waitFor(() =>
+        expect(optionNames()).toContain('APO-4, Launch plan, Apollo'),
+      )
+      act(() =>
+        slow.resolve({ projects: [], tasks: [task('t2', 9, 'Laundry')] }),
+      )
+      await wait(50)
+      expect(optionNames()).toEqual(['APO-4, Launch plan, Apollo'])
+      await waitFor(() => expect(paletteRegion().textContent).toBe('1 option'))
+    })
+
+    it('shows and announces a failed search and keeps the actions', async () => {
+      searchMock.mockRejectedValue(new Error('Network down'))
+      await renderAt('/')
+      openFromButton()
+      type('go')
+
+      await screen.findByText('Search failed. Try again.')
+      await waitFor(() =>
+        expect(paletteRegion().textContent).toBe('Search failed. Try again.'),
+      )
+      expect(screen.getByRole('dialog', { name: 'Command menu' })).toBeTruthy()
+      expect(optionNames()).toHaveLength(5)
+      expect(screen.queryByRole('group', { name: 'Tasks' })).toBeNull()
+    })
+
+    it('shows a retry after a failed search as searching, not failed', async () => {
+      const retry = deferred()
+      let goCalls = 0
+      searchMock.mockImplementation((query) => {
+        if (query !== 'go') return Promise.resolve(NOTHING)
+        goCalls += 1
+        return goCalls === 1
+          ? Promise.reject(new Error('Network down'))
+          : retry.promise
+      })
+      await renderAt('/')
+      openFromButton()
+      type('go')
+      await screen.findByText('Search failed. Try again.')
+
+      type('gox')
+      await waitFor(() => expect(searchMock).toHaveBeenCalledWith('gox'))
+      type('go')
+      await waitFor(() => expect(goCalls).toBe(2))
+
+      expect(screen.queryByText('Search failed. Try again.')).toBeNull()
+      expect(screen.getByText('Searching…')).toBeTruthy()
+      act(() => retry.resolve({ projects: [], tasks: [launch] }))
+      await waitFor(() =>
+        expect(optionNames()).toContain('APO-4, Launch plan, Apollo'),
+      )
+      expect(screen.queryByText('Search failed. Try again.')).toBeNull()
+    })
+
+    it('lists a result that comes back twice once', async () => {
+      searchMock.mockResolvedValue({
+        projects: [apolloTwo, apolloTwo],
+        tasks: [launch, launch],
+      })
+      await renderAt('/')
+      openFromButton()
+      type('apollo')
+
+      await screen.findByRole('group', { name: 'Tasks' })
+      expect(groupOptions('Projects')).toHaveLength(1)
+      expect(groupOptions('Tasks')).toHaveLength(1)
+    })
   })
 })

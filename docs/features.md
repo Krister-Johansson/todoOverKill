@@ -102,10 +102,20 @@ Board cards link to the board with `?task=<id>`, and a `TaskDialog` renders `Tas
 Depends on: F17, F56.
 Acceptance: opening a task from a card shows the dialog, and Escape or Close returns focus to that card; reloading with `?task=` reopens it; Escape while editing returns to the read view; axe is clean on the open dialog in both themes.
 
-### F18 Subtasks (#18)
-Service (`src/server/subtasks.ts`) plus a checklist in task detail: add, toggle, rename, reorder, delete. Card shows "2 of 5 done".
+### F18 Subtasks service (#18)
+The backend for subtasks, with no UI. `src/schemas/subtask.ts` (title trimmed to 1 to 200 characters; strict create, update with title and done, and move with an index) and `src/server/subtasks.ts` (`listSubtasks` in order, `addSubtask` at the end, `updateSubtask`, `moveSubtask`, `deleteSubtask`, with NotFoundError for an unknown task or subtask). Each mutation writes one activity row on the task (`subtask.added`, `subtask.updated`, `subtask.completed`, `subtask.reopened`, `subtask.moved`, `subtask.deleted`), each with a sentence in the Activity section, and a call that changes nothing writes none. `getTask` and `listTasks` are unchanged. The checklist moved to F61 and the reorder buttons and card progress to F62.
 Depends on: F17.
-Acceptance: toggling is optimistic; checkbox targets are 44 px; unit tests for the service.
+Acceptance: unit tests for every service function against the test database cover order after add and move, toggle, rename, delete, not-found cases, one activity row per mutation, and none for a no-op; every activity type has a sentence; `docs/architecture.md` describes the service and its activity rows.
+
+### F61 Subtask checklist on the task page (#87)
+A Subtasks section on the task page: subtasks as checkboxes with visible labels and a "2 of 5 done" line, add (Enter submits, focus returns to the input), rename, and delete, through server functions in `src/fns/subtasks.ts` wrapping the F18 service. Toggling is optimistic, rolls back with an announced error, and announces "Subtask X done" or "not done".
+Depends on: F18.
+Acceptance: with the keyboard alone a user can add, toggle, rename, and delete a subtask, and each change is announced and survives a reload; checkbox and button targets are at least 44 by 44 px; axe is clean on the task page with subtasks in light and dark themes, with no horizontal scroll at 320 px.
+
+### F62 Reorder subtasks and show progress on board cards (#88)
+"Move up" and "Move down" buttons per subtask row (disabled at the ends), optimistic, announcing the move, with focus staying on the moved row's button. Board cards and list rows show "2 of 5 done" as text, from a subtask count on each task in `listTasks`, not a query per card.
+Depends on: F18, F61.
+Acceptance: with the keyboard alone a user can move a subtask up and down, and the order is announced and survives a reload; a card for a task with subtasks shows "N of M done" and one without shows nothing; the tasks request count does not grow with the number of cards; axe is clean on the task page and the board in light and dark themes, with no horizontal scroll at 320 px.
 
 ### F19 Labels service and labelIds on tasks (#19)
 The backend for labels, with no UI. `src/schemas/label.ts` (name trimmed to 1 to 50 characters, colour from `PROJECT_COLORS`, a `labelIds` array of unique ids), `src/server/labels.ts` (`listLabels` by name, `createLabel` with NotFoundError for the project and ConflictError on a duplicate name, `deleteLabel`), and `labelIds` on task create and update: create attaches them in its transaction, and update treats them as the whole new set, writes only the difference, names `labels` in the `task.updated` fields, and writes nothing for an unchanged set. A label outside the project is a NotFoundError. The REST task POST and PATCH accept `labelIds` through the shared schemas. `listLabelsFn` and `labelsQueryOptions(projectId)` let F23 and F59 read labels. The chip moved to F58, the picker to F59, and label management to F60.

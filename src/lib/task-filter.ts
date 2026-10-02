@@ -20,8 +20,11 @@ import type { Priority } from '#/generated/prisma/enums'
 
 /**
  * The router parses each search value as JSON, so a hand-typed `?q=2026` or
- * `?q=true` arrives as a number or a boolean. Text is text, so those go back
- * to the string the user typed.
+ * `?q=true` arrives as a number or a boolean. Text is text, so those become
+ * strings again with `String`. That gives back plain digits and `true` as
+ * typed, but not every number: a hand-typed `?q=1e3` or `?q=1.50` becomes
+ * "1000" or "1.5". Text applied through the bar is not affected, because the
+ * router quotes a string that looks like JSON.
  */
 const searchParamText = z.preprocess(
   (value) =>

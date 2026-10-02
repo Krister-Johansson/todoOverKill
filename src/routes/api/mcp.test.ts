@@ -11,7 +11,11 @@ import { archiveProject, createProject } from '#/server/projects'
 import { createTask } from '#/server/tasks'
 import { resetDatabase } from '#/test/db'
 import { fetchRoute } from '#/test/rest'
-import { listProjectsTool } from '#/tools/server'
+import {
+  listProjectsTool,
+  readServerTools,
+  serverTools,
+} from '#/tools/server'
 
 beforeEach(() => resetDatabase(db))
 
@@ -107,11 +111,20 @@ describe('/api/mcp', () => {
 
   it('leaves the write tools off until F36', async () => {
     const client = await connect()
+    const writeNames = serverTools
+      .map((tool) => tool.name)
+      .filter((name) => !readServerTools.some((tool) => tool.name === name))
 
     const names = (await client.listTools()).tools.map((tool) => tool.name)
 
+    expect(writeNames).toEqual(
+      expect.arrayContaining(['archive_project', 'delete_task']),
+    )
     expect(names).not.toContain('archive_project')
     expect(names).not.toContain('delete_task')
+    for (const name of writeNames) {
+      expect(names).not.toContain(name)
+    }
   })
 
   it('keeps no session between requests', async () => {

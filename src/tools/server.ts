@@ -257,3 +257,12 @@ export const serverTools = [
   updateCommentTool,
   deleteCommentTool,
 ]
+
+/**
+ * The tools chat() offers the assistant: every server tool except the four
+ * with needsApproval (archive_project, delete_task, delete_subtask and
+ * delete_comment). Until the panel can ask the user to approve a call, such
+ * a call would pause the run with nothing to answer it. F40 adds that prompt
+ * and removes this filter.
+ */
+export const assistantTools = serverTools.filter((tool) => !tool.needsApproval)

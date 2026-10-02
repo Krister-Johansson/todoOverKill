@@ -19,9 +19,17 @@ import {
   MAX_CHAT_MESSAGE_LENGTH,
   MESSAGE_TOO_LONG_ERROR,
 } from '#/lib/assistant'
+import {
+  TOOL_CALL_STATUS_LABELS,
+  toolCallStatus,
+  toolDisplayName,
+  toolResultSummary,
+  withAnsweredToolCalls,
+} from '#/lib/tool-call'
 
 import { useAnnounce } from './live-region'
 import { Markdown } from './markdown'
+import { ToolCallCard } from './tool-call-card'
 
 import type { ConnectConnectionAdapter, UIMessage } from '@tanstack/ai-react'
 
@@ -44,7 +52,9 @@ function replyErrorText(error: Error) {
 /**
  * Sends only the newest MAX_CHAT_MESSAGES of the conversation. The server
  * keeps no more than that, and a long conversation sent whole would pass the
- * body limit before the server could trim it.
+ * body limit before the server could trim it. A tool call that has no
+ * result, as Stop leaves behind, is left out with withAnsweredToolCalls,
+ * since the model provider refuses it; the server drops one too.
  */
 function newestMessagesOnly<T extends ConnectConnectionAdapter>(
   connection: T,
@@ -53,7 +63,9 @@ function newestMessagesOnly<T extends ConnectConnectionAdapter>(
     ...connection,
     connect: (messages, data, abortSignal, runContext) =>
       connection.connect(
-        messages.slice(-MAX_CHAT_MESSAGES),
+        withAnsweredToolCalls(
+          messages.slice(-MAX_CHAT_MESSAGES) as Array<unknown>,
+        ) as typeof messages,
         data,
         abortSignal,
         runContext,
@@ -72,11 +84,83 @@ function messageText(message: UIMessage) {
     .join('')
 }
 
+type MessagePart = UIMessage['parts'][number]
+
+/**
+ * What a finished reply announces: its text, or for a reply that is only
+ * tool calls, each tool with its summary or status, such as "Assistant used
+ * List tasks: 2 tasks".
+ */
+function replyAnnouncement(message: UIMessage) {
+  const text = messageText(message)
+  if (text) return `Assistant: ${text}`
+  const tools = message.parts.flatMap((part) => {
+    if (part.type !== 'tool-call') return []
+    const status = toolCallStatus(part, toolResultFor(message, part.id), false)
+    const outcome =
+      status === 'done'
+        ? toolResultSummary(part.output)
+        : TOOL_CALL_STATUS_LABELS[status]
+    return [`${toolDisplayName(part.name)}: ${outcome}`]
+  })
+  return tools.length > 0 ? `Assistant used ${tools.join('. ')}` : ''
+}
+
+function toolResultFor(message: UIMessage, toolCallId: string) {
+  return message.parts.find(
+    (part): part is Extract<MessagePart, { type: 'tool-result' }> =>
+      part.type === 'tool-result' && part.toolCallId === toolCallId,
+  )
+}
+
+/**
+ * A message's parts in order, for the list: consecutive text parts as one
+ * Markdown block, each tool call as a ToolCallCard. A tool result is not
+ * shown on its own; the engine copies its output onto the tool call, and
+ * the card reads its error. Other parts are not shown.
+ */
+function MessageParts({
+  message,
+  isLoading,
+}: {
+  message: UIMessage
+  isLoading: boolean
+}) {
+  const blocks: Array<React.ReactNode> = []
+  let text = ''
+  const flushText = () => {
+    if (text) {
+      blocks.push(
+        <Markdown key={`text-${blocks.length}`} headingLevel={3}>
+          {text}
+        </Markdown>,
+      )
+    }
+    text = ''
+  }
+  for (const part of message.parts) {
+    if (part.type === 'text') text += part.content
+    else if (part.type === 'tool-call') {
+      flushText()
+      blocks.push(
+        <ToolCallCard
+          key={part.id}
+          part={part}
+          result={toolResultFor(message, part.id)}
+          isLoading={isLoading}
+        />,
+      )
+    }
+  }
+  flushText()
+  return blocks
+}
+
 type Chat = ReturnType<typeof useChat>
 
 /**
  * The assistant panel: a right-hand Sheet headed "Assistant" that streams
- * text replies from /api/chat. It is non-modal, so the page beside it stays
+ * replies from /api/chat, with a ToolCallCard for each tool a reply uses. It is non-modal, so the page beside it stays
  * usable (2.4.11, 3.2.5): no overlay, an outside click or focus leaves it
  * open, and Escape closes it only when focus is inside; an Escape outside is
  * left to the page with its default intact. Without
@@ -87,7 +171,8 @@ type Chat = ReturnType<typeof useChat>
  * here, outside it: the conversation survives a close and reopen, and a reply
  * that is still streaming when the panel closes runs on and is announced
  * when it ends. The reply is announced once it has finished, not while it
- * streams, so a screen reader reads it once. A stop announces "Reply
+ * streams, so a screen reader reads it once; a reply with no text announces
+ * the tools it used instead. A stop announces "Reply
  * stopped", and an error is shown under the list and announced too; a
  * request the server refuses as too large says to clear the conversation.
  *
@@ -130,7 +215,8 @@ export function AssistantPanel({
   const { messages, isLoading, error } = chat
 
   const lastMessage = messages.at(-1)
-  const lastText = lastMessage ? messageText(lastMessage) : ''
+  const lastAnnouncement =
+    lastMessage?.role === 'assistant' ? replyAnnouncement(lastMessage) : ''
 
   useImperativeHandle(ref, () => ({
     focus: () => {
@@ -179,13 +265,13 @@ export function AssistantPanel({
         announce('Reply stopped')
       } else if (error) {
         announce(replyErrorText(error))
-      } else if (lastMessage?.role === 'assistant' && lastText) {
-        announce(`Assistant: ${lastText}`)
+      } else if (lastAnnouncement) {
+        announce(lastAnnouncement)
       }
       stopped.current = false
     }
     wasLoading.current = isLoading
-  }, [isLoading, error, lastMessage, lastText, announce])
+  }, [isLoading, error, lastAnnouncement, announce])
 
   return (
     <Sheet
@@ -229,7 +315,8 @@ export function AssistantPanel({
         <SheetHeader className="border-b border-border">
           <SheetTitle>Assistant</SheetTitle>
           <SheetDescription>
-            Ask questions in plain words. Replies are text only for now.
+            Ask questions in plain words. It can read and change your projects
+            and tasks, and shows each tool it uses.
           </SheetDescription>
         </SheetHeader>
         {status.enabled ? (
@@ -287,6 +374,7 @@ function Conversation({
 
   const lastMessage = messages.at(-1)
   const lastText = lastMessage ? messageText(lastMessage) : ''
+  const lastPartCount = lastMessage?.parts.length ?? 0
 
   useEffect(() => {
     const added = messages.length !== shownCount.current
@@ -294,7 +382,7 @@ function Conversation({
     if (added || atEnd.current) {
       listEnd.current?.scrollIntoView({ block: 'nearest' })
     }
-  }, [messages.length, lastText])
+  }, [messages.length, lastText, lastPartCount])
 
   function send() {
     const composer = composerRef.current
@@ -346,8 +434,11 @@ function Conversation({
               <span className="text-sm font-semibold">
                 {ROLE_NAMES[message.role] ?? message.role}
               </span>
-              <div className="max-w-prose">
-                <Markdown headingLevel={3}>{messageText(message)}</Markdown>
+              <div className="flex max-w-prose flex-col gap-2">
+                <MessageParts
+                  message={message}
+                  isLoading={isLoading && message === lastMessage}
+                />
               </div>
             </li>
           ))}

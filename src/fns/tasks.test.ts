@@ -1,9 +1,14 @@
 // @vitest-environment node
 // Server code runs without `window`. Under jsdom, t3-env treats the module as
 // client code and blocks every server variable.
+import { QueryClient } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { toCreateTaskResult } from '#/fns/tasks'
+import {
+  taskActivityQueryOptions,
+  taskQueryOptions,
+  toCreateTaskResult,
+} from '#/fns/tasks'
 import { db } from '#/server/db'
 import { createProject } from '#/server/projects'
 import { createTask } from '#/server/tasks'
@@ -49,5 +54,27 @@ describe('toCreateTaskResult', () => {
     await expect(
       toCreateTaskResult(() => createTask('missing', { title: 'Write copy' })),
     ).rejects.toMatchObject({ code: 'not_found' })
+  })
+})
+
+describe('taskActivityQueryOptions', () => {
+  it("sits under the task's key, so invalidating the task refreshes it", () => {
+    const taskKey = taskQueryOptions('t1').queryKey
+    const activityKey = taskActivityQueryOptions('t1').queryKey
+
+    expect(activityKey.slice(0, taskKey.length)).toEqual([...taskKey])
+    expect(activityKey).toEqual(['tasks', 't1', 'activity'])
+  })
+
+  it("is invalidated with the task, as the Move menu's onSettled does it", async () => {
+    const queryClient = new QueryClient()
+    const activityKey = taskActivityQueryOptions('t1').queryKey
+    queryClient.setQueryData(activityKey, [])
+
+    await queryClient.invalidateQueries({
+      queryKey: taskQueryOptions('t1').queryKey,
+    })
+
+    expect(queryClient.getQueryState(activityKey)?.isInvalidated).toBe(true)
   })
 })

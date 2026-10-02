@@ -12,11 +12,14 @@ import type { Page } from '@playwright/test'
 const run = Math.random().toString(36).slice(2, 6).toUpperCase()
 
 const db = createTestPrismaClient()
-const names: Array<string> = []
+const keys: Array<string> = []
 
 // One unbroken word, so the 320 px check covers a title that has to break
 // inside a word.
 const LONG_TITLE = `Fix${'thecheckout'.repeat(12)}`
+
+// Other specs do not name a project with one letter.
+const SHORT_NAME = 'Q'
 
 type Seeded = Awaited<ReturnType<typeof seed>>
 let seeded: Seeded
@@ -41,7 +44,7 @@ function minutesFromNow(minutes: number) {
 async function seed() {
   const today = toCalendarDay(new Date())
   const projectData = (name: string, key: string, archivedAt?: Date) => {
-    names.push(name)
+    keys.push(key)
     return {
       name,
       key,
@@ -63,6 +66,10 @@ async function seed() {
   const archived = await db.project.create({
     data: projectData(`Shelved ${run}`, `SH${run}`, new Date()),
     include: { statuses: true },
+  })
+  // A one-letter name, the shortest a project can have, for the target size.
+  const short = await db.project.create({
+    data: projectData(SHORT_NAME, `Q${run}`),
   })
   const status = (of: typeof project, name: string) =>
     of.statuses.find((s) => s.name === name)!.id
@@ -129,7 +136,15 @@ async function seed() {
       },
     ],
   })
-  return { project, archived, dueToday, overdue, completed, archivedTask }
+  return {
+    project,
+    archived,
+    short,
+    dueToday,
+    overdue,
+    completed,
+    archivedTask,
+  }
 }
 
 test.beforeAll(async () => {
@@ -138,8 +153,8 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   // Tasks first: a status with tasks cannot be deleted.
-  await db.task.deleteMany({ where: { project: { name: { in: names } } } })
-  await db.project.deleteMany({ where: { name: { in: names } } })
+  await db.task.deleteMany({ where: { project: { key: { in: keys } } } })
+  await db.project.deleteMany({ where: { key: { in: keys } } })
   await db.$disconnect()
 })
 
@@ -260,11 +275,25 @@ test('lists unarchived projects with their progress', async ({ page }) => {
   await expect(region.getByText(archived.name)).toHaveCount(0)
 })
 
+test('a project link is at least 44 by 44 px, even for a short name', async ({
+  page,
+}) => {
+  await openDashboard(page)
+  const link = page
+    .getByRole('region', { name: 'Projects' })
+    .locator(`a[href="/projects/${seeded.short.id}/board"]`)
+
+  await expect(link).toHaveAccessibleName(SHORT_NAME)
+  const box = await link.boundingBox()
+  expect(box?.height).toBeGreaterThanOrEqual(44)
+  expect(box?.width).toBeGreaterThanOrEqual(44)
+})
+
 test('updates progress and activity when returning to the dashboard', async ({
   page,
 }) => {
   const name = `Returning ${run}`
-  names.push(name)
+  keys.push(`RE${run}`)
   const other = await db.project.create({
     data: {
       name,

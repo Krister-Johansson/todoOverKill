@@ -59,6 +59,16 @@ describe('ProjectProgress', () => {
     expect(within(shop).getByText('No tasks yet')).toBeTruthy()
   })
 
+  it('keeps the link at least 44 by 44 px for a one-letter name', async () => {
+    await renderProgress([{ id: 'p1', name: 'Q', key: 'Q', total: 0, done: 0 }])
+    const link = screen.getByRole('link', { name: 'Q' })
+    // jsdom has no layout, so the size is read from the classes; the e2e
+    // spec measures the rendered box.
+    expect(link.className.split(' ')).toEqual(
+      expect.arrayContaining(['min-h-11', 'min-w-11']),
+    )
+  })
+
   it('says so when there are no projects', async () => {
     await renderProgress([])
     expect(screen.getByText('No projects yet.')).toBeTruthy()

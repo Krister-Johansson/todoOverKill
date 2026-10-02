@@ -35,10 +35,11 @@ export function ProjectProgress({ rows }: { rows: Array<ProjectProgressRow> }) {
               key={project.id}
               className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-card p-3 text-card-foreground"
             >
+              {/* min-w-11 keeps a one-letter name a 44 by 44 px target. */}
               <Link
                 to="/projects/$projectId/board"
                 params={{ projectId: project.id }}
-                className="inline-flex min-h-11 min-w-0 items-center font-medium break-words underline underline-offset-4"
+                className="inline-flex min-h-11 min-w-11 items-center font-medium break-words underline underline-offset-4"
               >
                 {project.name}
               </Link>

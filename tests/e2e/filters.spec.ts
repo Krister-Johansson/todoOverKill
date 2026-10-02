@@ -226,28 +226,36 @@ async function recordAnnouncements(page: Page) {
 }
 
 function announcements(page: Page) {
-  return page.evaluate(() => (window as unknown as { said: Array<string> }).said)
+  return page.evaluate(
+    () => (window as unknown as { said: Array<string> }).said,
+  )
 }
 
-/** Counts the history entries the router pushes or replaces from now on. */
+/**
+ * Counts the router navigations the page makes from now on. A navigation to
+ * the URL already shown writes no history entry, so the count comes from the
+ * router, which the client keeps on `window.__TSR_ROUTER__`.
+ */
 async function recordNavigations(page: Page) {
   await page.evaluate(() => {
-    const navigations = { count: 0 }
-    Object.assign(window, { navigations })
-    for (const method of ['pushState', 'replaceState'] as const) {
-      const original = history[method].bind(history)
-      history[method] = (...args) => {
-        navigations.count += 1
-        original(...args)
-      }
+    const made = { count: 0 }
+    const { __TSR_ROUTER__: router } = window as unknown as {
+      __TSR_ROUTER__: { navigate: (...args: Array<unknown>) => unknown }
     }
+    const navigate = router.navigate.bind(router)
+    router.navigate = (...args) => {
+      made.count += 1
+      return navigate(...args)
+    }
+    Object.assign(window, { navigations: made })
   })
 }
 
 function navigations(page: Page) {
   return page.evaluate(
-    () => (window as unknown as { navigations: { count: number } }).navigations
-      .count,
+    () =>
+      (window as unknown as { navigations: { count: number } }).navigations
+        .count,
   )
 }
 
@@ -536,16 +544,21 @@ test('a project switch without filters says no count and keeps focus', async ({
   await db.task.deleteMany({
     where: { projectId: second.project.id, number: { in: [4, 5] } },
   })
-  await open(page, first.project.id, 'board')
+  // The second project's tasks are cached, as they are once it has been
+  // opened, so the board stays mounted across the switch.
+  await open(page, second.project.id, 'board')
+  await page
+    .getByRole('navigation', { name: 'Main' })
+    .getByRole('link', { name: first.project.name })
+    .click()
   await expect.poll(() => references(boardCards(page))).toHaveLength(5)
   await recordAnnouncements(page)
 
   // Leaves focus on the page, as an unmounted Move button would, so a wrong
   // focus move to the results line would show.
   await page.evaluate((id) => {
-    const link = document.getElementById(id)!
-    link.click()
-    link.blur()
+    document.getElementById(id)!.click()
+    ;(document.activeElement as HTMLElement | null)?.blur()
   }, `sidebar-project-${second.project.id}`)
   await expect(
     page.getByRole('heading', { level: 1, name: second.project.name }),
@@ -555,8 +568,9 @@ test('a project switch without filters says no count and keeps focus', async ({
   // Longer than the board waits before it says a count.
   await page.waitForTimeout(1500)
   expect(await announcements(page)).toEqual([])
-  expect(await page.evaluate(() => document.activeElement === document.body))
-    .toBe(true)
+  expect(
+    await page.evaluate(() => document.activeElement === document.body),
+  ).toBe(true)
 })
 
 test('text typed but not applied stays with its project', async ({ page }) => {

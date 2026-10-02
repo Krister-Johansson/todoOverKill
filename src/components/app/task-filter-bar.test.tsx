@@ -182,10 +182,18 @@ describe('TaskFilterBar', () => {
     const text = screen.getByRole('searchbox', { name: 'Text' })
     fireEvent.change(text, { target: { value: '' } })
     // Chrome's order for Enter in an emptied search field.
-    fireEvent(text, new Event('search'))
     fireEvent.submit(text.closest('form')!)
+    fireEvent(text, new Event('search'))
     expect(onChange).toHaveBeenCalledOnce()
     expect(onChange).toHaveBeenLastCalledWith({ q: undefined })
+    cleanup()
+
+    const other = renderBar({ filters: { q: 'copy' } })
+    const field = screen.getByRole('searchbox', { name: 'Text' })
+    fireEvent.change(field, { target: { value: '' } })
+    fireEvent(field, new Event('search'))
+    fireEvent.submit(field.closest('form')!)
+    expect(other.onChange).toHaveBeenCalledOnce()
   })
 
   it('does not apply text that is already applied', () => {

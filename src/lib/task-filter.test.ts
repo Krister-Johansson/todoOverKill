@@ -86,7 +86,7 @@ describe('taskFilterSearchSchema', () => {
 
   it('keeps text the router parsed as a number or a boolean', () => {
     const parsed = defaultParseSearch('?q=2026')
-    expect(parsed.q).toBe(2026)
+    expect(parsed).toEqual({ q: 2026 })
     expect(taskFilterSearchSchema.parse(parsed).q).toBe('2026')
     expect(taskFilterSearchSchema.parse({ q: true }).q).toBe('true')
     expect(taskFilterSearchSchema.parse({ q: 1.5 }).q).toBe('1.5')

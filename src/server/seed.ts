@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from '#/generated/prisma/client'
 import type { Priority } from '#/generated/prisma/enums'
 import { ACTIVITY_TYPES } from '#/server/activity'
+import { commentExcerpt } from '#/server/comments'
 import { DEFAULT_STATUSES } from '#/server/projects'
 
 /** The projects the seed owns. Every run deletes and recreates them. */
@@ -534,7 +535,13 @@ async function seedIn(tx: Prisma.TransactionClient, now: Date) {
       for (const [i, body] of (item.comments ?? []).entries()) {
         const at = commentTimes[i]
         comments.push({ taskId: task.id, body, createdAt: at, updatedAt: at })
-        activity.push(event(ACTIVITY_TYPES.commentAdded, { body }, at))
+        activity.push(
+          event(
+            ACTIVITY_TYPES.commentAdded,
+            { number, excerpt: commentExcerpt(body) },
+            at,
+          ),
+        )
       }
       if (completedAt) {
         activity.push(

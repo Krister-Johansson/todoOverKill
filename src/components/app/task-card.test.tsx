@@ -120,6 +120,28 @@ describe('TaskCardContent', () => {
     )
   })
 
+  it('leaves the project name out by default', () => {
+    renderCard()
+    expect(screen.queryByText('Website')).toBeNull()
+  })
+
+  it('shows the project name after the title with showProject', () => {
+    render(
+      <div data-testid="card">
+        <TaskCardContent
+          task={task()}
+          project={project}
+          today="2026-10-02"
+          showProject
+        />
+      </div>,
+    )
+    expect(screen.getByText('Website').tagName).toBe('SPAN')
+    expect(screen.getByTestId('card').textContent).toBe(
+      'WEB-7, Fix the footer, Website, High, Due Oct 1, 2026, Overdue, Bug, Design',
+    )
+  })
+
   it('renders no list without labels', () => {
     renderCard({ labels: [] })
     expect(screen.queryByRole('list')).toBeNull()

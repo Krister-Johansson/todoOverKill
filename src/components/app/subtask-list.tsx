@@ -120,6 +120,7 @@ type Ids = {
   checkbox: (id: string) => string
   edit: (id: string) => string
   remove: (id: string) => string
+  rename: (id: string) => string
   newTitle: string
 }
 
@@ -136,34 +137,50 @@ type SubtaskListProps = {
  *
  * Focus: after an add it is in the New subtask input; after a rename or a
  * cancelled rename it is on the row's Edit button; after a delete it is on
- * the next row's checkbox, else the previous row's, else the New subtask
- * input. A delete asks for no confirmation.
+ * the next row's checkbox (or its Title input while it is being renamed),
+ * else the previous row's, else the New subtask input. A delete asks for no
+ * confirmation.
  */
 export function SubtaskList({ taskId, headingLevel = 2 }: SubtaskListProps) {
   const Heading = `h${headingLevel}` as const
   const baseId = useId()
   const { data: subtasks } = useSuspenseQuery(subtasksQueryOptions(taskId))
   const [editingId, setEditingId] = useState<string | null>(null)
-  // The id of the element to focus once the next render has committed.
-  const pendingFocus = useRef<string | null>(null)
+  // Read by a rename that resolves after its form has gone, which still
+  // holds the editingId of the render it came from.
+  const editingRef = useRef<string | null>(null)
+  // The ids of the elements to try, in order, once the next render commits.
+  const pendingFocus = useRef<Array<string>>([])
   const [, setFocusRequest] = useState(0)
 
   useEffect(() => {
-    const id = pendingFocus.current
-    if (!id) return
-    pendingFocus.current = null
-    document.getElementById(id)?.focus()
+    const candidates = pendingFocus.current
+    if (candidates.length === 0) return
+    pendingFocus.current = []
+    for (const id of candidates) {
+      const element = document.getElementById(id)
+      if (element) {
+        element.focus()
+        return
+      }
+    }
   })
 
-  function focusAfterRender(id: string) {
-    pendingFocus.current = id
+  function focusAfterRender(...candidates: Array<string>) {
+    pendingFocus.current = candidates
     setFocusRequest((count) => count + 1)
+  }
+
+  function edit(id: string | null) {
+    editingRef.current = id
+    setEditingId(id)
   }
 
   const ids: Ids = {
     checkbox: (id) => `${baseId}-check-${id}`,
     edit: (id) => `${baseId}-edit-${id}`,
     remove: (id) => `${baseId}-delete-${id}`,
+    rename: (id) => `${baseId}-rename-${id}`,
     newTitle: `${baseId}-new`,
   }
   const doneCount = subtasks.filter((subtask) => subtask.done).length
@@ -189,8 +206,12 @@ export function SubtaskList({ taskId, headingLevel = 2 }: SubtaskListProps) {
                 <RenameForm
                   taskId={taskId}
                   subtask={subtask}
+                  inputId={ids.rename(subtask.id)}
                   onDone={() => {
-                    setEditingId(null)
+                    // A rename that lands after Cancel, or after Edit on
+                    // another row, leaves the current edit alone.
+                    if (editingRef.current !== subtask.id) return
+                    edit(null)
                     focusAfterRender(ids.edit(subtask.id))
                   }}
                 />
@@ -199,7 +220,7 @@ export function SubtaskList({ taskId, headingLevel = 2 }: SubtaskListProps) {
                   taskId={taskId}
                   subtask={subtask}
                   ids={ids}
-                  onEdit={() => setEditingId(subtask.id)}
+                  onEdit={() => edit(subtask.id)}
                   focusAfterRender={focusAfterRender}
                 />
               )}
@@ -227,7 +248,7 @@ function SubtaskRow({
   subtask: Subtask
   ids: Ids
   onEdit: () => void
-  focusAfterRender: (id: string) => void
+  focusAfterRender: (...candidates: Array<string>) => void
 }) {
   const queryClient = useQueryClient()
   const announce = useAnnounce()
@@ -251,7 +272,16 @@ function SubtaskRow({
       queryClient.setQueryData(subtasksKey, rest)
       if (hadFocus) {
         const next = index >= 0 ? (rest[index] ?? rest[index - 1]) : undefined
-        focusAfterRender(next ? ids.checkbox(next.id) : ids.newTitle)
+        // A row being renamed has no checkbox, only its Title input.
+        if (next) {
+          focusAfterRender(
+            ids.checkbox(next.id),
+            ids.rename(next.id),
+            ids.newTitle,
+          )
+        } else {
+          focusAfterRender(ids.newTitle)
+        }
       }
       announce(`Subtask ${subtask.title} deleted`)
     },
@@ -261,6 +291,8 @@ function SubtaskRow({
   })
 
   function onCheckedChange(checked: boolean) {
+    // The row is going; a toggle now would fail once it has.
+    if (remove.isPending) return
     // One toggle per row at a time, so their results arrive in order.
     if (toggle.isPending) {
       announce(
@@ -277,6 +309,7 @@ function SubtaskRow({
         <Checkbox
           id={ids.checkbox(subtask.id)}
           checked={subtask.done}
+          aria-disabled={remove.isPending || undefined}
           onCheckedChange={(checked) => onCheckedChange(checked === true)}
         />
         <Label
@@ -289,7 +322,15 @@ function SubtaskRow({
         </Label>
       </div>
       <div className="flex gap-1">
-        <Button id={ids.edit(subtask.id)} variant="ghost" onClick={onEdit}>
+        <Button
+          id={ids.edit(subtask.id)}
+          variant="ghost"
+          aria-disabled={remove.isPending || undefined}
+          onClick={() => {
+            // The form would vanish with the row, taking focus with it.
+            if (!remove.isPending) onEdit()
+          }}
+        >
           Edit <span className="sr-only">{subtask.title}</span>
         </Button>
         <Button
@@ -310,15 +351,16 @@ function SubtaskRow({
 function RenameForm({
   taskId,
   subtask,
+  inputId,
   onDone,
 }: {
   taskId: string
   subtask: Subtask
+  inputId: string
   onDone: () => void
 }) {
   const queryClient = useQueryClient()
   const announce = useAnnounce()
-  const id = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const [title, setTitle] = useState(subtask.title)
   const [error, setError] = useState<string>()
@@ -369,15 +411,15 @@ function RenameForm({
       }}
       className="flex min-w-0 flex-col gap-2 py-1"
     >
-      <Label htmlFor={`${id}-title`}>Title</Label>
+      <Label htmlFor={inputId}>Title</Label>
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <Input
           ref={inputRef}
-          id={`${id}-title`}
+          id={inputId}
           value={title}
           onChange={(event) => setTitle(event.target.value)}
           aria-invalid={error ? true : undefined}
-          aria-describedby={error ? `${id}-error` : undefined}
+          aria-describedby={error ? `${inputId}-error` : undefined}
           className="flex-[1_1_12rem]"
         />
         <div className="flex gap-1">
@@ -390,7 +432,10 @@ function RenameForm({
         </div>
       </div>
       {error && (
-        <p id={`${id}-error`} className="text-sm font-medium text-destructive">
+        <p
+          id={`${inputId}-error`}
+          className="text-sm font-medium text-destructive"
+        >
           {error}
         </p>
       )}
@@ -405,7 +450,7 @@ function AddSubtaskForm({
 }: {
   taskId: string
   inputId: string
-  focusAfterRender: (id: string) => void
+  focusAfterRender: (...candidates: Array<string>) => void
 }) {
   const queryClient = useQueryClient()
   const announce = useAnnounce()

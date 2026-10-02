@@ -297,6 +297,29 @@ describe('SubtaskList', () => {
     )
   })
 
+  it('leaves another row’s edit open when an earlier rename lands', async () => {
+    renderList([row('s1', 'Find'), row('s2', 'Fix')])
+    const request = deferred<Subtask>()
+    update.mockReturnValue(request.promise)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Find' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), {
+      target: { value: 'Find it' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(1))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Fix' }))
+    const input = screen.getByRole('textbox', { name: 'Title' })
+    fireEvent.change(input, { target: { value: 'Fix th' } })
+
+    await act(async () => request.resolve(row('s1', 'Find it')))
+    await expectAnnounced('Subtask renamed to Find it')
+    expect(checkbox('Find it')).toBeTruthy()
+    expect(screen.getByRole('textbox', { name: 'Title' })).toBe(input)
+    expect((input as HTMLInputElement).value).toBe('Fix th')
+    expect(document.activeElement).toBe(input)
+  })
+
   it('shows an empty rename as an error and keeps editing', () => {
     renderList([row('s1', 'Find')])
 
@@ -350,6 +373,43 @@ describe('SubtaskList', () => {
       expect(document.activeElement).toBe(
         screen.getByRole('textbox', { name: 'New subtask' }),
       )
+    })
+
+    it('moves focus to the next row’s Title input while it is renamed', async () => {
+      renderList([row('s1', 'Find'), row('s2', 'Fix')])
+      remove.mockResolvedValue(row('s1', 'Find'))
+
+      fireEvent.click(screen.getByRole('button', { name: 'Edit Fix' }))
+      await deleteRow('Find')
+
+      const input = screen.getByRole('textbox', { name: 'Title' })
+      expect((input as HTMLInputElement).value).toBe('Fix')
+      expect(document.activeElement).toBe(input)
+    })
+
+    it('ignores toggle and Edit on a row whose delete is in flight', async () => {
+      renderList([row('s1', 'Find')])
+      const request = deferred<Subtask>()
+      remove.mockReturnValue(request.promise)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Find' }))
+      await waitFor(() =>
+        expect(checkbox('Find').getAttribute('aria-disabled')).toBe('true'),
+      )
+      const edit = screen.getByRole('button', { name: 'Edit Find' })
+      expect(edit.getAttribute('aria-disabled')).toBe('true')
+      // aria-disabled, not disabled, so focus can stay on them.
+      expect(checkbox('Find').hasAttribute('disabled')).toBe(false)
+      expect(edit.hasAttribute('disabled')).toBe(false)
+
+      fireEvent.click(checkbox('Find'))
+      fireEvent.click(edit)
+
+      expect(update).not.toHaveBeenCalled()
+      expect(checkbox('Find').getAttribute('aria-checked')).toBe('false')
+      expect(screen.queryByRole('textbox', { name: 'Title' })).toBeNull()
+      await act(async () => request.resolve(row('s1', 'Find')))
+      await expectAnnounced('Subtask Find deleted')
     })
 
     it('keeps the row and announces a failed delete', async () => {

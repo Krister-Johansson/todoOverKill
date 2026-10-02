@@ -13,9 +13,9 @@ export const labelNameSchema = z
 
 /**
  * A colour from the project palette, stored in lower case. Only createLabel
- * checks it: labels written another way, such as the seed's until F58 (#81),
- * can hold colours outside the palette, so code that reads a label must not
- * assume its colour is in PROJECT_COLORS.
+ * checks it: labels written another way can hold colours outside the palette,
+ * so code that reads a label must not assume its colour is in PROJECT_COLORS.
+ * LabelChip falls back to the theme border for such a colour.
  */
 export const labelColorSchema = z
   .string()

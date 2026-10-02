@@ -4,7 +4,12 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 import { UI_MIN, contrastRatio, oklchToSrgb, parseOklch } from '#/lib/contrast'
-import { PROJECT_COLORS, projectColorName } from '#/lib/project-colors'
+import {
+  CHIP_FILL,
+  CHIP_SURFACES,
+  PROJECT_COLORS,
+  projectColorName,
+} from '#/lib/project-colors'
 import { readThemes } from '#/lib/theme-check'
 import { createProjectSchema } from '#/schemas/project'
 
@@ -28,8 +33,16 @@ describe('PROJECT_COLORS', () => {
     }
   })
 
+  it('names chip surfaces that exist in both themes', () => {
+    for (const theme of ['light', 'dark'] as const) {
+      for (const surface of CHIP_SURFACES) {
+        expect(themes[theme].has(surface), `${theme} --${surface}`).toBe(true)
+      }
+    }
+  })
+
   for (const theme of ['light', 'dark'] as const) {
-    for (const surface of ['background', 'sidebar']) {
+    for (const surface of CHIP_SURFACES) {
       it(`reaches 3:1 against --${surface} in the ${theme} theme`, () => {
         const token = themes[theme].get(surface)
         if (!token) throw new Error(`--${surface} is missing`)
@@ -40,6 +53,19 @@ describe('PROJECT_COLORS', () => {
         }
       })
     }
+
+    // A hovered card paints --accent, which is too light in the dark theme
+    // for some palette colours, so the chip border sits on the chip's own
+    // fill instead.
+    it(`reaches 3:1 against the chip's own --${CHIP_FILL} fill in the ${theme} theme`, () => {
+      const token = themes[theme].get(CHIP_FILL)
+      if (!token) throw new Error(`--${CHIP_FILL} is missing`)
+      const fill = oklchToSrgb(parseOklch(token))
+      for (const { name, value } of PROJECT_COLORS) {
+        const ratio = contrastRatio(hexToSrgb(value), fill)
+        expect(ratio, `${name} ${value}`).toBeGreaterThanOrEqual(UI_MIN)
+      }
+    })
   }
 })
 

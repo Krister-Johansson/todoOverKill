@@ -4,6 +4,8 @@ import { useEffect } from 'react'
 import { formatDueDate, isPastDay } from '#/lib/dates'
 import { PRIORITY_DISPLAY } from '#/lib/priority'
 
+import { LabelChip } from './label-chip'
+
 import type { ReactNode } from 'react'
 import type { listTasksFn } from '#/fns/tasks'
 
@@ -39,9 +41,8 @@ export function Pause() {
 /**
  * What a card shows, without the link, so it renders outside a router. The
  * priority and the overdue state are words, with colour and an icon as extra
- * cues, and a completed task is never overdue. A label's own colour appears
- * only in its aria-hidden dot: users pick it, so it is not checked for
- * contrast and never colours text or borders.
+ * cues, and a completed task is never overdue. Labels render as LabelChip,
+ * whose name carries the meaning and whose colour is only an extra cue.
  */
 export function TaskCardContent({
   task,
@@ -98,17 +99,9 @@ export function TaskCardContent({
       {task.labels.length > 0 ? (
         <ul className="flex flex-wrap gap-1">
           {task.labels.map((label) => (
-            <li
-              key={label.id}
-              className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full border border-border px-2 text-xs"
-            >
+            <li key={label.id} className="flex max-w-full min-w-0">
               <Pause />
-              <span
-                aria-hidden="true"
-                className="size-2 shrink-0 rounded-full"
-                style={{ backgroundColor: label.color }}
-              />
-              <span className="min-w-0 break-words">{label.name}</span>
+              <LabelChip label={label} className="text-xs" />
             </li>
           ))}
         </ul>

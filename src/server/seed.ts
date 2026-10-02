@@ -29,7 +29,11 @@ type SeedProject = {
   tasks: Array<SeedTask>
 }
 
-const PROJECTS: Array<SeedProject> = [
+/**
+ * What the seed writes. Label colours come from PROJECT_COLORS, which
+ * seed.test.ts checks, so every seeded chip paints its border.
+ */
+export const SEED_PROJECTS: ReadonlyArray<SeedProject> = [
   {
     key: 'TOK',
     name: 'todoOverKill',
@@ -37,10 +41,10 @@ const PROJECTS: Array<SeedProject> = [
       'The app itself: an accessible project tracker with a REST API, an MCP server, and a voice assistant.',
     color: '#1d4ed8',
     labels: [
-      { name: 'bug', color: '#b91c1c' },
-      { name: 'feature', color: '#1d4ed8' },
-      { name: 'docs', color: '#4d7c0f' },
-      { name: 'a11y', color: '#7e22ce' },
+      { name: 'bug', color: '#dc2626' },
+      { name: 'feature', color: '#2563eb' },
+      { name: 'docs', color: '#15803d' },
+      { name: 'a11y', color: '#8b5cf6' },
     ],
     tasks: [
       {
@@ -260,10 +264,10 @@ const PROJECTS: Array<SeedProject> = [
       'A sample marketing project to try the board, list, and assistant on.',
     color: '#0f766e',
     labels: [
-      { name: 'design', color: '#be185d' },
-      { name: 'research', color: '#0e7490' },
-      { name: 'marketing', color: '#c2410c' },
-      { name: 'ops', color: '#475569' },
+      { name: 'design', color: '#db2777' },
+      { name: 'research', color: '#0f766e' },
+      { name: 'marketing', color: '#b45309' },
+      { name: 'ops', color: '#64748b' },
     ],
     tasks: [
       {
@@ -421,7 +425,7 @@ async function seedIn(tx: Prisma.TransactionClient, now: Date) {
 
   const result = {} as SeedResult
 
-  for (const spec of PROJECTS) {
+  for (const spec of SEED_PROJECTS) {
     const createdAt = new Date(now.getTime() - 30 * DAY)
     const project = await tx.project.create({
       data: {

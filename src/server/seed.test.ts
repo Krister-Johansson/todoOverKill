@@ -5,7 +5,9 @@ import { execFileSync } from 'node:child_process'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { db } from '#/server/db'
-import { SEED_PROJECT_KEYS, seed } from '#/server/seed'
+import { projectColorName } from '#/lib/project-colors'
+import { labelColorSchema } from '#/schemas/label'
+import { SEED_PROJECT_KEYS, SEED_PROJECTS, seed } from '#/server/seed'
 
 const NOW = new Date('2026-03-15T12:00:00Z')
 const PROJECT_KEYS = [...SEED_PROJECT_KEYS, 'OTHER']
@@ -82,6 +84,19 @@ async function snapshot() {
   })
   return { projects, activity }
 }
+
+describe('SEED_PROJECTS', () => {
+  it('colours every label from the palette', () => {
+    const colors = SEED_PROJECTS.flatMap((project) =>
+      project.labels.map((label) => label.color),
+    )
+    expect(colors.length).toBeGreaterThan(0)
+    for (const color of colors) {
+      expect(projectColorName(color), color).toBeDefined()
+      expect(labelColorSchema.safeParse(color).success, color).toBe(true)
+    }
+  })
+})
 
 describe('seed', () => {
   let other: { id: string; updatedAt: Date }

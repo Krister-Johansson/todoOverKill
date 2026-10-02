@@ -20,6 +20,7 @@ import {
   addCommentTool,
   addSubtaskTool,
   archiveProjectTool,
+  assistantTools,
   completeTaskTool,
   createLabelTool,
   createProjectTool,
@@ -146,6 +147,23 @@ describe('tool definitions', () => {
     expect(
       serverTools.filter((tool) => tool.needsApproval).map((tool) => tool.name),
     ).toEqual(needingApproval)
+  })
+
+  it('offers the assistant every tool except those needing approval, until F40', () => {
+    expect(assistantTools.map((tool) => tool.name)).toEqual(
+      serverTools
+        .map((tool) => tool.name)
+        .filter(
+          (name) =>
+            ![
+              'archive_project',
+              'delete_task',
+              'delete_subtask',
+              'delete_comment',
+            ].includes(name),
+        ),
+    )
+    expect(assistantTools).toHaveLength(19)
   })
 
   it('lists the tools that only read, which MCP marks read only', () => {

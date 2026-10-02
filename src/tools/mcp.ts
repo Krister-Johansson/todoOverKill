@@ -58,9 +58,22 @@ async function callTool(
 const readToolNames = new Set<string>(readServerTools.map((tool) => tool.name))
 
 /**
- * Read tools are read only. Write tools are not, and the ones that need
- * approval are destructive. Every tool is closed world: it touches only this
- * app's database.
+ * The write tools that only add rows. Every other write tool overwrites,
+ * clears, moves or removes data, so a tool missing from this list is
+ * destructive, as the MCP default has it.
+ */
+const additiveToolNames = new Set<string>([
+  'create_project',
+  'create_task',
+  'add_subtask',
+  'create_label',
+  'add_comment',
+])
+
+/**
+ * Read tools are read only. Write tools are not, and all but the ones that
+ * only add rows are destructive. Every tool is closed world: it touches only
+ * this app's database.
  */
 function annotationsFor(tool: ServedTool) {
   if (readToolNames.has(tool.name)) {
@@ -68,7 +81,7 @@ function annotationsFor(tool: ServedTool) {
   }
   return {
     readOnlyHint: false,
-    destructiveHint: tool.needsApproval === true,
+    destructiveHint: !additiveToolNames.has(tool.name),
     openWorldHint: false,
   }
 }
@@ -80,6 +93,8 @@ function annotationsFor(tool: ServedTool) {
  * argument that the model sets once the user has agreed. confirm is optional
  * rather than literally true, so a call without it reaches the handler and
  * gets the confirmation_required refusal instead of the SDK's input error.
+ * Zod's .extend() throws on a schema with refinements, and this runs for
+ * every request, so an approval tool's input schema must have none.
  */
 function withConfirm(tool: ServedTool) {
   const inputSchema = (tool.inputSchema ?? z.strictObject({})).extend({
@@ -87,7 +102,7 @@ function withConfirm(tool: ServedTool) {
       .boolean()
       .optional()
       .describe(
-        'Must be true. Ask the user before you set it; without it the call is refused with confirmation_required.',
+        'Set to true only after the user has approved this call. Without it the call is refused with confirmation_required.',
       ),
   })
   const description = `${tool.description} Over MCP, pass confirm: true once the user has approved it; without it the call is refused with confirmation_required.`
@@ -99,7 +114,7 @@ function confirmationRequired(tool: ServedTool) {
   return errorResult(
     new ToolError(
       'confirmation_required',
-      `${tool.name} cannot be undone. Ask the user to confirm, then call it again with confirm: true.`,
+      `${tool.name} needs the user's approval. Ask the user, then call it again with confirm: true.`,
     ),
   )
 }

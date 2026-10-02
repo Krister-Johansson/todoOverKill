@@ -45,17 +45,17 @@ These tools create, change, archive or delete. The four marked with confirm need
 
 Each result comes twice: as `structuredContent`, which matches the tool's output schema, and as the same JSON in a text content item for clients that read only text. Timestamps are ISO strings and due dates are `YYYY-MM-DD`.
 
-The read tools carry the annotations `readOnlyHint: true` and `openWorldHint: false`, so a client knows they change nothing and talk to nothing outside the app. The write tools carry `readOnlyHint: false` and `openWorldHint: false`, with `destructiveHint: true` on the four that need confirmation and `destructiveHint: false` on the rest. A call may leave out `arguments`; the server reads that as `{}`.
+The read tools carry the annotations `readOnlyHint: true` and `openWorldHint: false`, so a client knows they change nothing and talk to nothing outside the app. The write tools carry `readOnlyHint: false` and `openWorldHint: false`. The ones that only add a row, `create_project`, `create_task`, `add_subtask`, `create_label` and `add_comment`, carry `destructiveHint: false`. Every other write tool overwrites, clears, moves or removes data and carries `destructiveHint: true`: the `update_*` and `move_*` tools, `complete_task`, `archive_project` and the `delete_*` tools. `destructiveHint` does not decide which tools need `confirm`; only the four below do. A call may leave out `arguments`; the server reads that as `{}`.
 
 ### Confirmation
 
-`archive_project`, `delete_task`, `delete_subtask` and `delete_comment` take an optional boolean `confirm`, and their descriptions say to pass `confirm: true` once the user has approved. The model should ask you first, then call the tool again with it. Without `confirm: true`, whether it is missing or `false`, the call changes nothing and returns an error result whose text reads:
+`archive_project`, `delete_task`, `delete_subtask` and `delete_comment` take an optional boolean `confirm`, described as "Set to true only after the user has approved this call." The model should ask you first, then call the tool again with it. Without `confirm: true`, whether it is missing or `false`, the call changes nothing and returns an error result whose text reads:
 
 ```text
-confirmation_required: delete_task cannot be undone. Ask the user to confirm, then call it again with confirm: true.
+confirmation_required: delete_task needs the user's approval. Ask the user, then call it again with confirm: true.
 ```
 
-with the tool's own name in place of `delete_task`. `confirmation_required` is a `ToolError` code from `src/tools/errors.ts`, next to `not_found`, `conflict`, `validation` and `internal`. A `confirm` that is not a boolean, such as `"yes"`, fails the SDK's input check like any other wrong type. The server drops `confirm` before it calls the tool, so the tool's own input schema stays strict. No other tool takes `confirm`.
+with the tool's own name in place of `delete_task`. The server cannot check that you approved: `confirm` is set by the client, so a careless or misled model can send `confirm: true` on its first call. The rule holds only as long as the client obeys it; a client that asks your permission before each MCP tool call, as Claude Code does, adds the check the server cannot make. `confirmation_required` is a `ToolError` code from `src/tools/errors.ts`, next to `not_found`, `conflict`, `validation` and `internal`. A `confirm` that is not a boolean, such as `"yes"`, fails the SDK's input check like any other wrong type. The server drops `confirm` before it calls the tool, so the tool's own input schema stays strict. No other tool takes `confirm`.
 
 ### Errors
 

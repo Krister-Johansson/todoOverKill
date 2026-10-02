@@ -92,6 +92,15 @@ function projectNames(result: unknown) {
 
 describe('/api/mcp', () => {
   it('lists every tool with its schemas and annotations', async () => {
+    // Only these write tools add rows without overwriting, clearing, moving or
+    // removing any; every other write tool is destructive.
+    const additive = [
+      'create_project',
+      'create_task',
+      'add_subtask',
+      'create_label',
+      'add_comment',
+    ]
     const client = await connect()
 
     const { tools } = await client.listTools()
@@ -101,7 +110,6 @@ describe('/api/mcp', () => {
     )
     expect(tools).toHaveLength(23)
     for (const tool of tools) {
-      const served = serverTools.find((each) => each.name === tool.name)
       const readOnly = readServerTools.some((each) => each.name === tool.name)
       expect(tool.description).toEqual(expect.any(String))
       expect(tool.inputSchema).toMatchObject({ type: 'object' })
@@ -111,11 +119,27 @@ describe('/api/mcp', () => {
           ? { readOnlyHint: true, openWorldHint: false }
           : {
               readOnlyHint: false,
-              destructiveHint: served?.needsApproval === true,
+              destructiveHint: !additive.includes(tool.name),
               openWorldHint: false,
             },
       )
     }
+    expect(
+      tools
+        .filter((tool) => tool.annotations?.destructiveHint === true)
+        .map((tool) => tool.name),
+    ).toEqual([
+      'archive_project',
+      'update_task',
+      'move_task',
+      'complete_task',
+      'delete_task',
+      'update_subtask',
+      'move_subtask',
+      'delete_subtask',
+      'update_comment',
+      'delete_comment',
+    ])
   })
 
   it('gives the four destructive tools, and only them, a confirm argument', async () => {
@@ -317,7 +341,7 @@ describe('/api/mcp', () => {
       expect(result.isError).toBe(true)
       expect(result.structuredContent).toBeUndefined()
       expect(textOf(result)).toBe(
-        'confirmation_required: delete_task cannot be undone. Ask the user to confirm, then call it again with confirm: true.',
+        "confirmation_required: delete_task needs the user's approval. Ask the user, then call it again with confirm: true.",
       )
     }
     await expect(getTask(task.id)).resolves.toMatchObject({ id: task.id })

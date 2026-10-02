@@ -115,7 +115,7 @@ const terms: Array<{
     id: 'command-menu',
     term: 'Command menu',
     definition:
-      'A box that opens with the Search button or Ctrl+K. Type a few letters to find a page or an action, such as New task. From two letters on it also finds projects by name or key and tasks by title or reference, such as TOK-12. Press Enter to run or open the one you picked.',
+      'A box that opens with the Search button or Ctrl+K. Type a few letters to find a page or an action, such as New task. From two characters on it also finds projects by name or key and tasks by title, description or reference, such as TOK-12. Press Enter to run or open the one you picked.',
   },
   {
     id: 'assistant',

@@ -123,7 +123,7 @@ describe('help route', () => {
     expect(definitionOf('term-command-menu')).not.toContain('Not available yet')
     // F66 added search results to the command menu.
     expect(definitionOf('term-command-menu')).toContain(
-      'tasks by title or reference',
+      'tasks by title, description or reference',
     )
     // F30 shipped the project and status endpoints.
     expect(definitionOf('term-rest-api')).not.toContain('Not available yet')

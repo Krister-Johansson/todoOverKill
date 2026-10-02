@@ -2,8 +2,10 @@ import { useSuspenseQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 
 import { ActivityLog } from '#/components/app/activity-log'
+import { SubtaskList } from '#/components/app/subtask-list'
 import { TaskDetail } from '#/components/app/task-detail'
 import { projectQueryOptions } from '#/fns/projects'
+import { subtasksQueryOptions } from '#/fns/subtasks'
 import { taskActivityQueryOptions, taskQueryOptions } from '#/fns/tasks'
 import { toCalendarDay } from '#/lib/dates'
 
@@ -17,6 +19,7 @@ export const Route = createFileRoute('/_app/tasks/$taskId')({
       context.queryClient.ensureQueryData(
         taskActivityQueryOptions(params.taskId),
       ),
+      context.queryClient.ensureQueryData(subtasksQueryOptions(params.taskId)),
     ])
     const project = await context.queryClient.ensureQueryData(
       projectQueryOptions(task.projectId),
@@ -61,6 +64,7 @@ function TaskPage() {
         today={today}
         headingLevel={2}
       />
+      <SubtaskList taskId={taskId} headingLevel={2} />
       <ActivityLog rows={activity} now={new Date(now)} headingLevel={2} />
     </div>
   )

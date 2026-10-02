@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { SEARCH_QUERY_KEY, searchQueryOptions } from '#/fns/search'
-import { searchSchema } from '#/schemas/search'
+import { MAX_SEARCH_LENGTH, searchSchema } from '#/schemas/search'
 
 describe('searchQueryOptions', () => {
   it('keys the query by the trimmed text', () => {
@@ -16,12 +16,16 @@ describe('searchQueryOptions', () => {
       searchQueryOptions('webs').queryKey,
     )
   })
+
+  it('treats a cached answer as stale at once', () => {
+    expect(searchQueryOptions('web').staleTime).toBe(0)
+  })
 })
 
 describe('searchFn input', () => {
   it.each([
     ['a blank query', '   '],
-    ['a 201 character query', 'x'.repeat(201)],
+    ['a query one character too long', 'x'.repeat(MAX_SEARCH_LENGTH + 1)],
   ])('rejects %s before any request', (_, query) => {
     expect(searchSchema.safeParse({ query }).success).toBe(false)
   })

@@ -82,9 +82,10 @@ export async function toCreateTaskResult(
     if (hasCode(error, 'conflict')) {
       return { ok: false, code: 'conflict', message: error.message }
     }
-    // By code rather than instanceof NotFoundError: the client bundle loads
+    // By name rather than instanceof NotFoundError: the client bundle loads
     // this module, and importing src/server/errors.ts would bring Prisma in.
-    if (hasCode(error, 'not_found')) {
+    // An error that only shares the code is rethrown.
+    if (hasCode(error, 'not_found') && error.name === 'NotFoundError') {
       const { entity } = error as Error & { entity?: NotFoundEntity }
       return { ok: false, code: 'not_found', entity, message: error.message }
     }

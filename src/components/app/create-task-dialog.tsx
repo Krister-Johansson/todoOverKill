@@ -95,9 +95,9 @@ function errorText(errors: Array<unknown>) {
  * worded by its cause, such as a status or the project deleted elsewhere. A
  * due date the browser cannot read, such as one with no year, has an empty
  * value, so the form checks `validity.badInput` on submit and reports it
- * like any other field error, checked again on each edit of the field. Its
- * help text follows the browser's locale,
- * which is what the native field draws (3.3.2).
+ * like any other field error, checked again on each key in the field and when
+ * it loses focus. Its help text follows the browser's locale, which is what
+ * the native field draws (3.3.2).
  * After a create the task joins the board's cache, the live region announces
  * it, and focus moves to its card, or to the button on a page without cards
  * (2.4.3). Escape and Cancel return focus to the button. While a create is in
@@ -424,46 +424,56 @@ export function CreateTaskDialog({
           </form.Field>
 
           <form.Field name="dueDate">
-            {(field) => (
-              <div className="flex flex-col gap-2">
-                <Label htmlFor={fieldId('dueDate')}>Due date</Label>
-                <p
-                  id={`${id}-dueDate-help`}
-                  className="text-sm text-muted-foreground"
-                >
-                  {dueDateHelpText}
-                </p>
-                <Input
-                  ref={dueDateRef}
-                  id={fieldId('dueDate')}
-                  name="dueDate"
-                  type="date"
-                  aria-invalid={
-                    errorText(field.state.meta.errors) ? true : undefined
-                  }
-                  aria-describedby={describedBy(
-                    'dueDate',
-                    `${id}-dueDate-help`,
-                  )}
-                  value={field.state.value}
-                  onChange={(event) => field.handleChange(event.target.value)}
-                  onInput={(event) => {
-                    // Clearing a partly typed date leaves the value '', so no
-                    // change runs. Check the field again on every edit, so
-                    // its error goes as soon as the date is whole or empty.
-                    if (!field.state.meta.errorMap.onSubmit) return
-                    const { error } = formSchema.shape.dueDate.safeParse(
-                      event.currentTarget.value,
-                    )
-                    field.setErrorMap({ onSubmit: error?.issues })
-                  }}
-                />
-                <FieldError
-                  id={errorId('dueDate')}
-                  message={errorText(field.state.meta.errors)}
-                />
-              </div>
-            )}
+            {(field) => {
+              // Once Due date has an error, checks it again, so the error goes
+              // as soon as the date is whole or empty. Chrome sends no input
+              // or change event while the value stays '', as when the
+              // half-typed segments are cleared, so this runs on each key and
+              // on leaving the field, and on input for a date picked from the
+              // calendar.
+              const recheck = (
+                event: React.SyntheticEvent<HTMLInputElement>,
+              ) => {
+                if (!field.state.meta.errorMap.onSubmit) return
+                const { error } = formSchema.shape.dueDate.safeParse(
+                  event.currentTarget.value,
+                )
+                field.setErrorMap({ onSubmit: error?.issues })
+              }
+              return (
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor={fieldId('dueDate')}>Due date</Label>
+                  <p
+                    id={`${id}-dueDate-help`}
+                    className="text-sm text-muted-foreground"
+                  >
+                    {dueDateHelpText}
+                  </p>
+                  <Input
+                    ref={dueDateRef}
+                    id={fieldId('dueDate')}
+                    name="dueDate"
+                    type="date"
+                    aria-invalid={
+                      errorText(field.state.meta.errors) ? true : undefined
+                    }
+                    aria-describedby={describedBy(
+                      'dueDate',
+                      `${id}-dueDate-help`,
+                    )}
+                    value={field.state.value}
+                    onChange={(event) => field.handleChange(event.target.value)}
+                    onInput={recheck}
+                    onKeyUp={recheck}
+                    onBlur={recheck}
+                  />
+                  <FieldError
+                    id={errorId('dueDate')}
+                    message={errorText(field.state.meta.errors)}
+                  />
+                </div>
+              )
+            }}
           </form.Field>
 
           {/* F19 adds the label picker here. */}

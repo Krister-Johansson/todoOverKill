@@ -91,6 +91,17 @@ describe('toCreateTaskResult', () => {
       toCreateTaskResult(() => Promise.reject(failure)),
     ).rejects.toBe(failure)
   })
+
+  it('rethrows an error that only shares the not_found code', async () => {
+    const failure = Object.assign(new Error('no such page'), {
+      code: 'not_found',
+      entity: 'status',
+    })
+
+    await expect(
+      toCreateTaskResult(() => Promise.reject(failure)),
+    ).rejects.toBe(failure)
+  })
 })
 
 describe('taskActivityQueryOptions', () => {

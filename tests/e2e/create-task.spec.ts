@@ -352,6 +352,43 @@ test('a partly typed due date is an error linked from the summary', async ({
   await expect(dueDateField(page)).toBeFocused()
 })
 
+test('clearing a partly typed due date removes its error', async ({ page }) => {
+  const project = await seedProject('Cleared date')
+  await openBoard(page, project.id)
+  await openDialog(page)
+
+  await titleField(page).fill('Write copy')
+  await dueDateField(page).focus()
+  await page.keyboard.type('1001')
+  await dialog(page).getByRole('button', { name: 'Create task' }).click()
+  await expect(dueDateField(page)).toHaveAttribute('aria-invalid', 'true')
+
+  // Focus lands on the month; clear it, then the day. Chrome sends no input
+  // or change event for either, as the value stays ''.
+  await dueDateField(page).focus()
+  await page.keyboard.press('Backspace')
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Backspace')
+  expect(
+    await dueDateField(page).evaluate(
+      (input: HTMLInputElement) => input.validity.badInput,
+    ),
+  ).toBe(false)
+
+  // Still in the field, so the key, not leaving it, removed the error.
+  await expect(dueDateField(page)).toBeFocused()
+  await expect(dueDateField(page)).not.toHaveAttribute('aria-invalid')
+  await expect(dueDateField(page)).toHaveAccessibleDescription(
+    'Optional. Month, day and year, such as 10/01/2026.',
+  )
+  await expect(
+    dialog(page).getByRole('heading', { name: 'Fix these fields' }),
+  ).toBeHidden()
+  await expect(
+    dialog(page).getByRole('link', { name: /^Due date:/ }),
+  ).toHaveCount(0)
+})
+
 test('a status deleted elsewhere is named in the focused summary', async ({
   page,
 }) => {

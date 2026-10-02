@@ -28,12 +28,6 @@ export function formatDueDate(day: string) {
 
 const HINT_DAY = new Date('2026-10-01T00:00:00Z')
 
-const PART_WORDS: Partial<Record<Intl.DateTimeFormatPartTypes, string>> = {
-  year: 'year',
-  month: 'month',
-  day: 'day',
-}
-
 // The order matches the example, which is the value the field holds.
 const FALLBACK_HINT = { order: 'year, month and day', example: '2026-10-01' }
 
@@ -68,7 +62,8 @@ export function dueDateInputHint(locale?: string) {
   if (!format) return FALLBACK_HINT
   const words = format
     .formatToParts(HINT_DAY)
-    .flatMap(({ type }) => PART_WORDS[type] ?? [])
+    .map(({ type }) => type)
+    .filter((type) => type === 'year' || type === 'month' || type === 'day')
   if (words.length !== 3 || new Set(words).size !== 3) return FALLBACK_HINT
   return {
     order: `${words[0]}, ${words[1]} and ${words[2]}`,

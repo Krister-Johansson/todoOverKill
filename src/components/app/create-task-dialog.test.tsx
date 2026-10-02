@@ -295,13 +295,14 @@ describe('CreateTaskDialog', () => {
     await submit()
 
     // Another digit that still leaves the year out keeps the error.
-    fireEvent.input(dueDate())
+    fireEvent.keyUp(dueDate(), { key: '1' })
     expect(dueDate().getAttribute('aria-invalid')).toBe('true')
     expect(screen.getAllByRole('link', { name: /^Due date:/ })).toHaveLength(1)
 
-    // Clearing the segments fires input but no change, as the value stays ''.
+    // Chrome sends neither input nor change while the value stays '', so
+    // clearing the segments is seen on the key.
     Reflect.deleteProperty(dueDate(), 'validity')
-    fireEvent.input(dueDate())
+    fireEvent.keyUp(dueDate(), { key: 'Backspace' })
 
     expect(dueDate().getAttribute('aria-invalid')).toBeNull()
     expect(description(dueDate())).not.toContain('Enter the whole date')

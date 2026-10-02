@@ -46,6 +46,16 @@ vi.mock('#/fns/tasks', () => ({
   }),
 }))
 
+// The command palette searches through it; the real one reaches the database.
+vi.mock('#/fns/search', () => ({
+  MIN_SEARCH_LENGTH: 2,
+  MAX_SEARCH_LENGTH: 200,
+  searchQueryOptions: (text: string) => ({
+    queryKey: ['search', text.trim()],
+    queryFn: () => Promise.resolve({ projects: [], tasks: [] }),
+  }),
+}))
+
 beforeAll(() => {
   // jsdom does not lay out, so it has no scrollIntoView, which the command
   // menu calls on its active option.

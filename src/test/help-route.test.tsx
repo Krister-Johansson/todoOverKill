@@ -121,6 +121,10 @@ describe('help route', () => {
     expect(definitionOf('term-assistant')).not.toContain('Not available yet')
     expect(definitionOf('term-backlog')).not.toContain('Not available yet')
     expect(definitionOf('term-command-menu')).not.toContain('Not available yet')
+    // F66 added search results to the command menu.
+    expect(definitionOf('term-command-menu')).toContain(
+      'tasks by title, description or reference',
+    )
     // F30 shipped the project and status endpoints.
     expect(definitionOf('term-rest-api')).not.toContain('Not available yet')
     // F35 shipped the MCP server's read tools and F36 its write tools.
@@ -209,7 +213,7 @@ describe('help route', () => {
     // Ctrl and ⌘ are read as Control and Command (3.1.4, 1.1.1).
     for (const [action, glyph, name] of [
       [
-        'Open the command menu to go to a page or run an action.',
+        'Open the command menu to go to a page, run an action, or find a project or task.',
         'Ctrl',
         'Control',
       ],

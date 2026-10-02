@@ -4,6 +4,7 @@ import {
   CircleHelp,
   FolderKanban,
   LayoutDashboard,
+  ListTodo,
   Plus,
   Search,
   Settings,
@@ -31,25 +32,57 @@ import { Input } from '#/components/ui/input'
 import { Kbd, KbdGroup } from '#/components/ui/kbd'
 import { Label } from '#/components/ui/label'
 import { projectsQueryOptions } from '#/fns/projects'
+import {
+  MAX_SEARCH_LENGTH,
+  MIN_SEARCH_LENGTH,
+  searchQueryOptions,
+} from '#/fns/search'
 import { useTheme } from '#/hooks/use-theme'
 import { isCommandPaletteShortcut } from '#/lib/keyboard'
 
 import { useAnnounce } from './live-region'
+import { Pause } from './task-card'
 
 import type { listProjectsFn } from '#/fns/projects'
+import type { searchFn } from '#/fns/search'
 import type { LucideIcon } from 'lucide-react'
+import type { ReactNode } from 'react'
 
-// What an action does. Navigation starts at once; the rest waits until the
+// What an option does. Navigation starts at once; the rest waits until the
 // palette has closed, so focus has somewhere to go (see onCloseAutoFocus).
 type Run =
   | { kind: 'navigate'; go: () => Promise<void> }
   | { kind: 'new-task' }
   | { kind: 'theme'; theme: 'light' | 'dark' }
 
-type Action = { id: string; label: string; icon: LucideIcon; run: Run }
+type Group = 'actions' | 'projects' | 'tasks'
 
-// Long enough that typing a word announces the count once, at the end.
+/**
+ * An action, or a search result. `label` is what the actions filter matches;
+ * `content`, when set, is shown instead of it.
+ */
+type Option = {
+  id: string
+  group: Group
+  label: string
+  content?: ReactNode
+  icon: LucideIcon
+  run: Run
+}
+
+type SearchResults = Awaited<ReturnType<typeof searchFn>>
+
+const groups = [
+  { group: 'actions', caption: 'Actions' },
+  { group: 'projects', caption: 'Projects' },
+  { group: 'tasks', caption: 'Tasks' },
+] as const satisfies Array<{ group: Group; caption: string }>
+
+// Long enough that typing a word announces the count once, at the end. The
+// search waits as long after the last key press.
 const ANNOUNCE_DELAY = 250
+
+const SEARCH_FAILED = 'Search failed. Try again.'
 
 const themeNames = { light: 'Light', dark: 'Dark' } as const
 
@@ -57,7 +90,7 @@ const themeNames = { light: 'Light', dark: 'Dark' } as const
 // every render while the query has no data.
 const NO_PROJECTS: Awaited<ReturnType<typeof listProjectsFn>> = []
 
-function matching(actions: Array<Action>, text: string) {
+function matching(actions: Array<Option>, text: string) {
   const query = text.trim().toLowerCase()
   if (!query) return actions
   return actions.filter((action) => action.label.toLowerCase().includes(query))
@@ -69,9 +102,81 @@ function countMessage(count: number) {
 }
 
 /**
+ * The search results as options, projects before tasks, each in the order
+ * the service ranks them. A row that comes back twice is listed once, so no
+ * two options share an id.
+ */
+function resultOptions(
+  results: SearchResults,
+  navigate: ReturnType<typeof useNavigate>,
+) {
+  const seen = new Set<string>()
+  const options: Array<Option> = []
+  const add = (option: Option) => {
+    if (seen.has(option.id)) return
+    seen.add(option.id)
+    options.push(option)
+  }
+  for (const project of results.projects) {
+    add({
+      id: `result-project-${project.id}`,
+      group: 'projects',
+      label: `${project.name} ${project.key}`,
+      content: (
+        <>
+          <span className="min-w-0 break-words">{project.name}</span>
+          <Pause />
+          <span className="text-muted-foreground group-aria-selected:text-primary-foreground">
+            {project.key}
+          </span>
+        </>
+      ),
+      icon: FolderKanban,
+      run: {
+        kind: 'navigate',
+        go: () =>
+          navigate({
+            to: '/projects/$projectId/board',
+            params: { projectId: project.id },
+          }),
+      },
+    })
+  }
+  for (const task of results.tasks) {
+    const reference = `${task.project.key}-${task.number}`
+    add({
+      id: `result-task-${task.id}`,
+      group: 'tasks',
+      label: `${reference} ${task.title} ${task.project.name}`,
+      content: (
+        <>
+          <span className="text-muted-foreground group-aria-selected:text-primary-foreground">
+            {reference}
+          </span>
+          <Pause />
+          <span className="min-w-0 break-words">{task.title}</span>
+          <Pause />
+          <span className="min-w-0 break-words text-muted-foreground group-aria-selected:text-primary-foreground">
+            {task.project.name}
+          </span>
+        </>
+      ),
+      icon: ListTodo,
+      run: {
+        kind: 'navigate',
+        go: () =>
+          navigate({ to: '/tasks/$taskId', params: { taskId: task.id } }),
+      },
+    })
+  }
+  return options
+}
+
+/**
  * The command palette: the top bar's Search button, and Ctrl+K or ⌘+K from
  * anywhere (isCommandPaletteShortcut), open a dialog with a combobox that
- * filters a listbox of actions. New task is listed only when the top bar
+ * filters a listbox of actions and, from two characters on, lists matching
+ * projects and tasks below them. New task is listed only when the top bar
  * passes `openCreateTask`, on a project route. Escape returns focus to the
  * element that opened the palette, or to the Search button when that element
  * is gone. A navigation sends focus to the main landmark, New task to the
@@ -196,21 +301,56 @@ function PaletteBody({
   const id = useId()
   const inputId = `${id}-input`
   const listboxId = `${id}-listbox`
-  const optionId = (action: Action) => `${id}-option-${action.id}`
+  const optionId = (option: Option) => `${id}-option-${option.id}`
+  const captionId = (group: Group) => `${id}-group-${group}`
   const navigate = useNavigate()
   const { resolved } = useTheme()
   const { data: projects = NO_PROJECTS } = useQuery(projectsQueryOptions())
   const [text, setText] = useState('')
-  const [active, setActive] = useState(0)
+  // The text the search runs on, ANNOUNCE_DELAY after the last change.
+  const [searched, setSearched] = useState('')
+  // By id rather than position, so results that arrive or change under the
+  // active option leave it where it was. Null, or an id that is gone, means
+  // the first option.
+  const [activeKey, setActiveKey] = useState<string | null>(null)
   const [typed, setTyped] = useState(false)
   const [message, setMessage] = useState('')
 
+  const trimmed = text.trim()
+  const wantsSearch =
+    trimmed.length >= MIN_SEARCH_LENGTH && trimmed.length <= MAX_SEARCH_LENGTH
+
+  useEffect(() => {
+    const timer = setTimeout(() => setSearched(trimmed), ANNOUNCE_DELAY)
+    return () => clearTimeout(timer)
+  }, [trimmed])
+
+  // Each text has its own cache entry, so a slow response for older text
+  // lands under that text and never shows as the newer text's results.
+  const search = useQuery({
+    ...searchQueryOptions(searched),
+    enabled:
+      wantsSearch &&
+      searched.length >= MIN_SEARCH_LENGTH &&
+      searched.length <= MAX_SEARCH_LENGTH,
+    retry: false,
+  })
+  // While the debounced text lags the input, search.data answers older text.
+  // A fetch counts too, so a retry after an error is not shown as a failure.
+  const searching =
+    wantsSearch &&
+    (searched !== trimmed || search.isPending || search.isFetching)
+  // A failed refetch keeps the last good answer rather than failing.
+  const failed =
+    wantsSearch && !searching && search.isError && search.data === undefined
+
   const actions = useMemo(() => {
     const opposite = resolved === 'dark' ? 'light' : 'dark'
-    const list: Array<Action> = []
+    const list: Array<Option> = []
     if (hasNewTask) {
       list.push({
         id: 'new-task',
+        group: 'actions',
         label: 'New task',
         icon: Plus,
         run: { kind: 'new-task' },
@@ -219,24 +359,28 @@ function PaletteBody({
     list.push(
       {
         id: 'dashboard',
+        group: 'actions',
         label: 'Go to Dashboard',
         icon: LayoutDashboard,
         run: { kind: 'navigate', go: () => navigate({ to: '/' }) },
       },
       {
         id: 'settings',
+        group: 'actions',
         label: 'Go to Settings',
         icon: Settings,
         run: { kind: 'navigate', go: () => navigate({ to: '/settings' }) },
       },
       {
         id: 'help',
+        group: 'actions',
         label: 'Go to Help',
         icon: CircleHelp,
         run: { kind: 'navigate', go: () => navigate({ to: '/help' }) },
       },
       {
         id: 'theme',
+        group: 'actions',
         label: `Switch to ${opposite} theme`,
         icon: SunMoon,
         run: { kind: 'theme', theme: opposite },
@@ -244,6 +388,7 @@ function PaletteBody({
       // The list holds unarchived projects only, sorted by name.
       ...projects.map((project) => ({
         id: `project-${project.id}`,
+        group: 'actions' as const,
         label: `Go to ${project.name}`,
         icon: FolderKanban,
         run: {
@@ -259,13 +404,31 @@ function PaletteBody({
     return list
   }, [hasNewTask, navigate, projects, resolved])
 
-  const matches = matching(actions, text)
-  // A refetch can shorten the list under the active option.
-  const activeIndex = Math.min(active, matches.length - 1)
-  const activeAction = matches.at(activeIndex)
-  const activeId = activeAction ? optionId(activeAction) : undefined
+  const results = useMemo(
+    () => (search.data ? resultOptions(search.data, navigate) : []),
+    [search.data, navigate],
+  )
+
+  // One flat list in screen order drives the active option and the keys;
+  // the groups are only how it is drawn. Results for older text are left out
+  // while the search for the current text is out, so Enter never runs one.
+  const matches = [
+    ...matching(actions, text),
+    ...(wantsSearch && !searching && !failed ? results : []),
+  ]
+  const found = matches.findIndex((option) => option.id === activeKey)
+  const activeIndex = found === -1 ? 0 : found
+  const activeOption = matches.at(activeIndex)
+  const activeId = activeOption ? optionId(activeOption) : undefined
 
   const count = matches.length
+  // Nothing while a search is on its way, so the count read is the total of
+  // actions and results, not the actions alone.
+  const announcement = searching
+    ? null
+    : failed
+      ? SEARCH_FAILED
+      : countMessage(count)
 
   useEffect(() => {
     if (activeId) {
@@ -274,20 +437,17 @@ function PaletteBody({
   }, [activeId])
 
   // Nothing is announced on open, only once the text has changed. A change to
-  // the text or the count restarts the delay, so what is read matches the
+  // the text or the message restarts the delay, so what is read matches the
   // list on screen even if the projects were refetched while typing.
   useEffect(() => {
-    if (!typed) return
-    const timer = setTimeout(
-      () => setMessage(countMessage(count)),
-      ANNOUNCE_DELAY,
-    )
+    if (!typed || announcement === null) return
+    const timer = setTimeout(() => setMessage(announcement), ANNOUNCE_DELAY)
     return () => clearTimeout(timer)
-  }, [typed, text, count])
+  }, [typed, text, announcement])
 
   function handleTextChange(next: string) {
     setText(next)
-    setActive(0)
+    setActiveKey(null)
     setTyped(true)
     // Cleared first, so the same count twice in a row is read again.
     setMessage('')
@@ -299,7 +459,7 @@ function PaletteBody({
     if (event.nativeEvent.isComposing) return
     if (event.key === 'Enter') {
       event.preventDefault()
-      if (activeAction) onRun(activeAction.run)
+      if (activeOption) onRun(activeOption.run)
       return
     }
     if (count === 0) return
@@ -312,16 +472,22 @@ function PaletteBody({
     const next = moves[event.key]
     if (next === undefined) return
     event.preventDefault()
-    setActive(next)
+    setActiveKey(matches[next].id)
   }
+
+  let status: string | null = null
+  if (failed) status = SEARCH_FAILED
+  else if (searching) status = 'Searching…'
+  else if (count === 0) status = 'No results'
 
   return (
     <>
       <DialogHeader>
         <DialogTitle>Command menu</DialogTitle>
         <DialogDescription>
-          Type to filter the actions. Up and down arrows pick one, Enter runs
-          it, and Escape closes the menu.
+          Type to filter the actions; from two characters on, matching projects
+          and tasks are listed too. Up and down arrows pick an option, Enter
+          runs it, and Escape closes the menu.
         </DialogDescription>
       </DialogHeader>
       <div className="flex min-w-0 flex-col gap-2">
@@ -332,7 +498,7 @@ function PaletteBody({
           autoComplete="off"
           spellCheck={false}
           aria-autocomplete="list"
-          aria-expanded={matches.length > 0}
+          aria-expanded={count > 0}
           aria-controls={listboxId}
           aria-activedescendant={activeId}
           value={text}
@@ -342,41 +508,68 @@ function PaletteBody({
       </div>
       {/* Hidden rather than removed when nothing matches, so aria-controls
           always points at an element. The list scrolls inside the dialog;
-          axe does not ask a combobox popup to be focusable. */}
-      <ul
+          axe does not ask a combobox popup to be focusable. Each kind of
+          option is a group named by its visible caption, as in the APG
+          listbox with grouped options. */}
+      <div
         id={listboxId}
         role="listbox"
-        aria-label="Actions"
-        hidden={matches.length === 0}
-        className="flex max-h-[min(20rem,40dvh)] min-w-0 flex-col gap-1 overflow-y-auto"
+        aria-label="Options"
+        hidden={count === 0}
+        className="flex max-h-[min(20rem,40dvh)] min-w-0 flex-col gap-2 overflow-y-auto"
       >
-        {matches.map((action, index) => {
-          const Icon = action.icon
+        {groups.map(({ group, caption }) => {
+          const members = matches.flatMap((option, index) =>
+            option.group === group ? [{ option, index }] : [],
+          )
+          if (members.length === 0) return null
           return (
-            <li
-              key={action.id}
-              id={optionId(action)}
-              role="option"
-              aria-selected={index === activeIndex}
-              className="flex min-h-11 min-w-0 cursor-pointer items-center gap-3 rounded-md px-3 text-sm font-medium break-words aria-selected:bg-primary aria-selected:text-primary-foreground"
-              // The pointer moves the active option, as in the APG examples,
-              // so the highlighted option is always the one Enter runs. A
-              // move, not an enter, so scrolling under a still pointer does
-              // not take the active option from the keyboard.
-              onPointerMove={() => {
-                if (index !== activeIndex) setActive(index)
-              }}
-              // Keeps focus in the input, where the keyboard works.
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => onRun(action.run)}
+            <div
+              key={group}
+              role="group"
+              aria-labelledby={captionId(group)}
+              className="flex min-w-0 flex-col gap-1"
             >
-              <Icon aria-hidden="true" className="size-4 shrink-0" />
-              <span className="min-w-0">{action.label}</span>
-            </li>
+              <div
+                id={captionId(group)}
+                role="presentation"
+                className="px-3 text-xs font-medium text-muted-foreground"
+              >
+                {caption}
+              </div>
+              {members.map(({ option, index }) => {
+                const Icon = option.icon
+                return (
+                  <div
+                    key={option.id}
+                    id={optionId(option)}
+                    role="option"
+                    aria-selected={index === activeIndex}
+                    className="group flex min-h-11 min-w-0 cursor-pointer items-center gap-3 rounded-md px-3 text-sm font-medium break-words aria-selected:bg-primary aria-selected:text-primary-foreground"
+                    // The pointer moves the active option, as in the APG
+                    // examples, so the highlighted option is always the one
+                    // Enter runs. A move, not an enter, so scrolling under a
+                    // still pointer does not take the active option from the
+                    // keyboard.
+                    onPointerMove={() => {
+                      if (index !== activeIndex) setActiveKey(option.id)
+                    }}
+                    // Keeps focus in the input, where the keyboard works.
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => onRun(option.run)}
+                  >
+                    <Icon aria-hidden="true" className="size-4 shrink-0" />
+                    <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+                      {option.content ?? option.label}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
           )
         })}
-      </ul>
-      {matches.length === 0 ? <p className="text-sm">No results</p> : null}
+      </div>
+      {status ? <p className="text-sm">{status}</p> : null}
       {/* The dialog is modal, so Radix hides the rest of the page, the shell's
           live region included, with aria-hidden while it is open. The count
           is announced here instead (docs/architecture.md). */}

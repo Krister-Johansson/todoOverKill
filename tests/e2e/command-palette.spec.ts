@@ -26,7 +26,26 @@ async function seedProject(label: string) {
       color: '#2563eb',
       statuses: { create: [{ name: 'Backlog', order: 1, category: 'todo' }] },
     },
+    include: { statuses: true },
   })
+}
+
+/**
+ * A project with one task, number 1, and the task's reference. The title ends
+ * with the project name, so typing the name finds the project and the task.
+ */
+async function seedTask(title: string) {
+  const project = await seedProject('Search')
+  const task = await db.task.create({
+    data: {
+      projectId: project.id,
+      statusId: project.statuses[0].id,
+      number: 1,
+      title: `${title} ${project.name}`,
+      order: 1,
+    },
+  })
+  return { project, task, reference: `${project.key}-1` }
 }
 
 test.afterAll(async () => {
@@ -44,6 +63,39 @@ function palette(page: Page) {
 
 function combobox(page: Page) {
   return palette(page).getByRole('combobox', { name: 'Search' })
+}
+
+/** The options of one group, such as Actions or Tasks, in the palette. */
+function groupOptions(page: Page, name: string) {
+  return palette(page).getByRole('group', { name }).getByRole('option')
+}
+
+/**
+ * The visible line under the list, such as No results. The live region can
+ * hold the same words, so getByText alone would match two elements.
+ */
+function statusLine(page: Page, text: string) {
+  return palette(page)
+    .locator('p')
+    .filter({ hasText: new RegExp(`^${text}$`) })
+}
+
+function liveRegion(page: Page) {
+  return palette(page).locator('[aria-live="polite"]')
+}
+
+/**
+ * Once the count is announced, it is the number of options on screen, actions
+ * and results together. Other specs seed tasks in parallel, so the total is
+ * read from the list rather than fixed.
+ */
+async function expectAnnouncedTotal(page: Page) {
+  await expect(liveRegion(page)).toHaveText(/^\d+ options?$/)
+  const total = await palette(page).getByRole('option').count()
+  await expect(liveRegion(page)).toHaveText(
+    total === 1 ? '1 option' : `${total} options`,
+  )
+  return total
 }
 
 function main(page: Page) {
@@ -101,10 +153,11 @@ test('the keyboard alone opens the palette, filters and goes to a page', async (
   await expect(combobox(page)).toBeFocused()
 
   await page.keyboard.type('help')
-  await expect(palette(page).getByRole('option')).toHaveText(['Go to Help'])
-  await expect(palette(page).locator('[aria-live="polite"]')).toHaveText(
-    '1 option',
-  )
+  await expect(groupOptions(page, 'Actions')).toHaveText(['Go to Help'])
+  await expectAnnouncedTotal(page)
+  await expect(
+    palette(page).getByRole('option', { selected: true }),
+  ).toHaveText('Go to Help')
   await page.keyboard.press('Enter')
 
   await expect(page).toHaveURL(/\/help$/)
@@ -120,7 +173,7 @@ test('the combobox points at its listbox and the active option', async ({
 
   const input = combobox(page)
   await expect(input).toHaveAttribute('aria-expanded', 'true')
-  const listbox = palette(page).getByRole('listbox', { name: 'Actions' })
+  const listbox = palette(page).getByRole('listbox', { name: 'Options' })
   await expect(input).toHaveAttribute(
     'aria-controls',
     (await listbox.getAttribute('id'))!,
@@ -134,7 +187,7 @@ test('the combobox points at its listbox and the active option', async ({
   )
 
   await page.keyboard.type('no such action')
-  await expect(palette(page).getByText('No results')).toBeVisible()
+  await expect(statusLine(page, 'No results')).toBeVisible()
   await expect(palette(page).locator('[aria-live="polite"]')).toHaveText(
     'No results',
   )
@@ -196,9 +249,12 @@ test('Go to a project reaches its board', async ({ page }) => {
 
   await page.keyboard.press('Control+k')
   await page.keyboard.type(project.name)
-  await expect(palette(page).getByRole('option')).toHaveText([
+  await expect(groupOptions(page, 'Actions')).toHaveText([
     `Go to ${project.name}`,
   ])
+  await expect(
+    palette(page).getByRole('option', { selected: true }),
+  ).toHaveText(`Go to ${project.name}`)
   await page.keyboard.press('Enter')
 
   await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/board$`))
@@ -231,7 +287,7 @@ test('Switch theme flips the theme and announces it', async ({ page }) => {
 
   await searchButton(page).click()
   await page.keyboard.type('theme')
-  await expect(palette(page).getByRole('option')).toHaveText([
+  await expect(groupOptions(page, 'Actions')).toHaveText([
     'Switch to dark theme',
   ])
   await page.keyboard.press('Enter')
@@ -403,7 +459,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expectAccessible(page)
 
     await page.keyboard.type('no such action')
-    await expect(palette(page).getByText('No results')).toBeVisible()
+    await expect(statusLine(page, 'No results')).toBeVisible()
     await expectAccessible(page)
   })
 }
@@ -430,7 +486,7 @@ for (const height of [640, 480]) {
     )
     expect(dialogOverflow).toBeLessThanOrEqual(0)
 
-    const listbox = palette(page).getByRole('listbox', { name: 'Actions' })
+    const listbox = palette(page).getByRole('listbox', { name: 'Options' })
     const list = await listbox.evaluate((element) => ({
       horizontal: element.scrollWidth - element.clientWidth,
       vertical: element.scrollHeight - element.clientHeight,
@@ -445,3 +501,136 @@ for (const height of [640, 480]) {
     ).toBeInViewport()
   })
 }
+
+test('typing a task title lists the task, and Enter opens its page', async ({
+  page,
+}) => {
+  const { project, task, reference } = await seedTask(`Calibrate ${run} lens`)
+  await page.goto('/settings', { waitUntil: 'networkidle' })
+
+  await page.keyboard.press('Control+k')
+  await page.keyboard.type(task.title)
+  await expect(groupOptions(page, 'Tasks')).toHaveText([
+    `${reference}, ${task.title}, ${project.name}`,
+  ])
+  // No action matches, so the task is the first option and the active one.
+  await expect(
+    palette(page).getByRole('option', { selected: true }),
+  ).toHaveText(`${reference}, ${task.title}, ${project.name}`)
+  expect(await expectAnnouncedTotal(page)).toBe(1)
+  await page.keyboard.press('Enter')
+
+  await expect(page).toHaveURL(new RegExp(`/tasks/${task.id}$`))
+  await expect(main(page)).toBeFocused()
+})
+
+test('typing a task reference lists the task', async ({ page }) => {
+  const { task, reference } = await seedTask(`Polish ${run} mirror`)
+  await page.goto('/', { waitUntil: 'networkidle' })
+
+  await page.keyboard.press('Control+k')
+  await page.keyboard.type(reference.toLowerCase())
+  await expect(groupOptions(page, 'Tasks')).toHaveText([
+    new RegExp(`^${reference}, ${task.title}, `),
+  ])
+  await page.keyboard.press('Enter')
+
+  await expect(page).toHaveURL(new RegExp(`/tasks/${task.id}$`))
+})
+
+test('a project result, picked with the arrows, reaches its board', async ({
+  page,
+}) => {
+  const { project } = await seedTask(`Align ${run} beam`)
+  await page.goto('/settings', { waitUntil: 'networkidle' })
+
+  await page.keyboard.press('Control+k')
+  await page.keyboard.type(project.name)
+  const result = groupOptions(page, 'Projects').filter({
+    hasText: `${project.name}, ${project.key}`,
+  })
+  await expect(result).toHaveCount(1)
+  // The Go to action is listed first; arrow down to the result itself.
+  await expect(palette(page).getByRole('option').first()).toHaveText(
+    `Go to ${project.name}`,
+  )
+  const total = await expectAnnouncedTotal(page)
+  expect(total).toBeGreaterThanOrEqual(3)
+  for (let i = 0; i < total; i += 1) {
+    if ((await result.getAttribute('aria-selected')) === 'true') break
+    await page.keyboard.press('ArrowDown')
+  }
+  await expect(result).toHaveAttribute('aria-selected', 'true')
+  await expect(combobox(page)).toHaveAttribute(
+    'aria-activedescendant',
+    (await result.getAttribute('id'))!,
+  )
+  await page.keyboard.press('Enter')
+
+  await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/board$`))
+  await expect(main(page)).toBeFocused()
+})
+
+test('the results are groups named by their captions', async ({ page }) => {
+  const { project } = await seedTask(`Group ${run} check`)
+  await page.goto('/', { waitUntil: 'networkidle' })
+
+  await page.keyboard.press('Control+k')
+  await page.keyboard.type(project.name)
+  const listbox = palette(page).getByRole('listbox', { name: 'Options' })
+  for (const name of ['Actions', 'Projects', 'Tasks']) {
+    await expect(listbox.getByRole('group', { name })).toBeVisible()
+  }
+  await expect(listbox.getByRole('group')).toHaveText([
+    /^Actions/,
+    /^Projects/,
+    /^Tasks/,
+  ])
+})
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`the palette with results has no axe violations in the ${theme} theme`, async ({
+    page,
+  }) => {
+    const { project } = await seedTask(`Inspect ${run} ${theme} rig`)
+    await setTheme(page, theme)
+    await page.goto('/', { waitUntil: 'networkidle' })
+
+    await searchButton(page).click()
+    await page.keyboard.type(project.name)
+    await expect(groupOptions(page, 'Tasks')).toHaveCount(1)
+    await expectAnnouncedTotal(page)
+    // A result is the active option, so its selected colours are checked too.
+    await page.keyboard.press('End')
+    await settle(page)
+    await expectAccessible(page)
+  })
+}
+
+test('results reflow at 320 px, even with a long unbroken title', async ({
+  page,
+}) => {
+  const { project } = await seedTask(`Reflow${run}${'x'.repeat(120)}`)
+  await page.setViewportSize({ width: 320, height: 640 })
+  await page.goto('/', { waitUntil: 'networkidle' })
+
+  await searchButton(page).click()
+  await page.keyboard.type(project.name)
+  await expect(groupOptions(page, 'Tasks')).toHaveCount(1)
+  await settle(page)
+
+  const overflow = await page.evaluate(
+    () =>
+      document.documentElement.scrollWidth -
+      document.documentElement.clientWidth,
+  )
+  expect(overflow).toBeLessThanOrEqual(0)
+  const dialogOverflow = await palette(page).evaluate(
+    (element) => element.scrollWidth - element.clientWidth,
+  )
+  expect(dialogOverflow).toBeLessThanOrEqual(0)
+  const listOverflow = await palette(page)
+    .getByRole('listbox', { name: 'Options' })
+    .evaluate((element) => element.scrollWidth - element.clientWidth)
+  expect(listOverflow).toBeLessThanOrEqual(0)
+})

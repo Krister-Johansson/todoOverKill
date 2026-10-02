@@ -32,7 +32,7 @@ type CardProps = {
  * A comma only screen readers get. The card is one link, so its parts make one
  * accessible name, and flex layout puts no text between them.
  */
-function Pause() {
+export function Pause() {
   return <span className="sr-only">, </span>
 }
 

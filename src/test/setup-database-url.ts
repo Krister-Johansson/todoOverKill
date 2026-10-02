@@ -1,6 +1,6 @@
 import { inject } from 'vitest'
 
-// Runs before every test file in both projects, ahead of any import of
+// Runs before every server test file, ahead of any import of
 // src/env.ts, which reads process.env once when it loads. Both variables point
 // at the run's container: src/server/db.ts reads DATABASE_URL_TEST under
 // NODE_ENV=test, and DATABASE_URL is required by the schema and must never

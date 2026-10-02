@@ -83,6 +83,11 @@ describe('env', () => {
         'DATABASE_URL_TEST is not set and NODE_ENV is test.',
       )
     } finally {
+      // If the import ever stops throwing, it leaves a new client here. Close
+      // its pool, so the failed assertion is the only thing left behind.
+      const created = cache.__todoOverKillDb as
+        { $disconnect: () => Promise<void> } | undefined
+      if (created && created !== cached) await created.$disconnect()
       cache.__todoOverKillDb = cached
     }
   })

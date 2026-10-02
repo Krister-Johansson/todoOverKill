@@ -11,6 +11,12 @@ const serverTests = [
   'src/routes/api/**/*.test.ts',
 ]
 
+// The client project has no database. Files there that import server code load
+// src/env.ts, which requires a URL, and src/server/db.ts, which builds a client
+// without connecting. Port 1 refuses connections, so a client test that does
+// query fails at once instead of reaching the dev database from .env.
+const noDatabase = 'postgresql://client-tests@127.0.0.1:1/no_database'
+
 export default defineConfig(({ mode }) => {
   // Runs in the main process before the global setup and before any worker
   // starts, and workers inherit process.env, so optional variables such as
@@ -23,9 +29,6 @@ export default defineConfig(({ mode }) => {
     resolve: { tsconfigPaths: true },
     plugins: [viteReact()],
     test: {
-      // Starts and migrates a PostgreSQL container for this run. Projects do
-      // not inherit it, so it runs once per run rather than once per project.
-      globalSetup: ['./src/test/global-setup.ts'],
       // Each project inherits resolve, plugins, and the root test options.
       // Arrays such as include are concatenated with the project's, so include
       // and setupFiles live only in the projects.
@@ -35,6 +38,11 @@ export default defineConfig(({ mode }) => {
             name: 'server',
             environment: 'node',
             include: serverTests,
+            // Starts and migrates a PostgreSQL container for this run. Vitest
+            // runs a project's global setup only when the run includes files
+            // from it, so `vitest --project client` or a single component
+            // test needs no Docker.
+            globalSetup: ['./src/test/global-setup.ts'],
             // The files share one database and each empties it first.
             fileParallelism: false,
             // In this order: setup-server.ts imports src/env.ts, which needs
@@ -53,9 +61,7 @@ export default defineConfig(({ mode }) => {
             // A project exclude replaces Vitest's defaults instead of adding
             // to them, so they are listed again.
             exclude: [...configDefaults.exclude, ...serverTests],
-            // Files here that import server code load src/env.ts, which
-            // requires DATABASE_URL.
-            setupFiles: ['./src/test/setup-database-url.ts'],
+            env: { DATABASE_URL: noDatabase, DATABASE_URL_TEST: noDatabase },
           },
         },
       ],

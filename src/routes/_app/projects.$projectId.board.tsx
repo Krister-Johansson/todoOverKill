@@ -76,15 +76,21 @@ function BoardPage() {
   // filter hides, can take a card out of view. Its Move button leaves with
   // it, so focus that fell to the page goes to the results line (2.4.3), and
   // the new count is said once nothing is in flight. A failed move puts the
-  // card back, and then the count is not said.
+  // card back, and then the count is not said. Only a filter hides cards, and
+  // the page stays mounted across projects, so a drop with no filter or after
+  // a project switch is neither.
   const resultsRef = useRef<HTMLParagraphElement>(null)
-  const last = useRef({ filters, shown })
+  const last = useRef({ projectId, filters, shown })
   const shownBefore = useRef<number | null>(null)
   const mutating = useIsMutating()
   useEffect(() => {
     const previous = last.current
-    last.current = { filters, shown }
-    if (!sameFilters(previous.filters, filters)) {
+    last.current = { projectId, filters, shown }
+    if (
+      previous.projectId !== projectId ||
+      !sameFilters(previous.filters, filters) ||
+      !hasActiveFilters(filters)
+    ) {
       shownBefore.current = null
       return
     }
@@ -94,7 +100,7 @@ function BoardPage() {
     if (active === null || active === document.body) {
       resultsRef.current?.focus()
     }
-  }, [filters, shown])
+  }, [projectId, filters, shown])
   useEffect(() => {
     if (shownBefore.current === null || mutating > 0) return
     const timer = window.setTimeout(() => {
@@ -150,7 +156,9 @@ function BoardPage() {
   // 2 px offset) on every side.
   return (
     <div className="flex min-w-0 flex-col gap-4">
+      {/* Keyed, so text typed but not applied stays with its project. */}
       <TaskFilterBar
+        key={projectId}
         filters={filters}
         active={hasActiveFilters(pickFilters(search))}
         statuses={project.statuses}

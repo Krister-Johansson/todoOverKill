@@ -212,6 +212,45 @@ function countServerRequests(page: Page) {
   return urls
 }
 
+/** Records every message the live region shows from now on, in order. */
+async function recordAnnouncements(page: Page) {
+  await page.evaluate(() => {
+    const region = document.querySelector('[aria-live="polite"]')!
+    const said: Array<string> = []
+    Object.assign(window, { said })
+    new MutationObserver(() => {
+      const text = region.textContent
+      if (text) said.push(text)
+    }).observe(region, { childList: true, characterData: true, subtree: true })
+  })
+}
+
+function announcements(page: Page) {
+  return page.evaluate(() => (window as unknown as { said: Array<string> }).said)
+}
+
+/** Counts the history entries the router pushes or replaces from now on. */
+async function recordNavigations(page: Page) {
+  await page.evaluate(() => {
+    const navigations = { count: 0 }
+    Object.assign(window, { navigations })
+    for (const method of ['pushState', 'replaceState'] as const) {
+      const original = history[method].bind(history)
+      history[method] = (...args) => {
+        navigations.count += 1
+        original(...args)
+      }
+    }
+  })
+}
+
+function navigations(page: Page) {
+  return page.evaluate(
+    () => (window as unknown as { navigations: { count: number } }).navigations
+      .count,
+  )
+}
+
 /** Waits for the open animation, so key presses and axe see the final frame. */
 async function settle(page: Page) {
   await page.evaluate(() =>
@@ -469,16 +508,7 @@ test('a card moved out of the filter leaves focus on the results line', async ({
   const { project, key, status } = await seedProject('Move out')
   await open(page, project.id, 'board', `?status=${status('Backlog').id}`)
   await expect.poll(() => references(boardCards(page))).toHaveLength(3)
-  // Records every message the live region shows, in order.
-  await page.evaluate(() => {
-    const region = document.querySelector('[aria-live="polite"]')!
-    const said: Array<string> = []
-    Object.assign(window, { said })
-    new MutationObserver(() => {
-      const text = region.textContent
-      if (text) said.push(text)
-    }).observe(region, { childList: true, characterData: true, subtree: true })
-  })
+  await recordAnnouncements(page)
 
   await openMenu(page, `${key}-1`)
   await page.keyboard.press('ArrowDown')
@@ -493,11 +523,130 @@ test('a card moved out of the filter leaves focus on the results line', async ({
     .poll(() => references(boardCards(page)))
     .toEqual([`${key}-2`, `${key}-3`])
   await expect
-    .poll(() =>
-      page.evaluate(() => (window as unknown as { said: Array<string> }).said),
-    )
+    .poll(() => announcements(page))
     .toEqual([`Moved ${key}-1 to In progress`, 'Showing 2 of 5 tasks'])
   await expect(results).toBeFocused()
+})
+
+test('a project switch without filters says no count and keeps focus', async ({
+  page,
+}) => {
+  const first = await seedProject('Switch from')
+  const second = await seedProject('Switch to')
+  await db.task.deleteMany({
+    where: { projectId: second.project.id, number: { in: [4, 5] } },
+  })
+  await open(page, first.project.id, 'board')
+  await expect.poll(() => references(boardCards(page))).toHaveLength(5)
+  await recordAnnouncements(page)
+
+  // Leaves focus on the page, as an unmounted Move button would, so a wrong
+  // focus move to the results line would show.
+  await page.evaluate((id) => {
+    const link = document.getElementById(id)!
+    link.click()
+    link.blur()
+  }, `sidebar-project-${second.project.id}`)
+  await expect(
+    page.getByRole('heading', { level: 1, name: second.project.name }),
+  ).toBeVisible()
+  await expect.poll(() => references(boardCards(page))).toHaveLength(3)
+  await expect(bar(page)).toContainText('Showing all 3 tasks')
+  // Longer than the board waits before it says a count.
+  await page.waitForTimeout(1500)
+  expect(await announcements(page)).toEqual([])
+  expect(await page.evaluate(() => document.activeElement === document.body))
+    .toBe(true)
+})
+
+test('text typed but not applied stays with its project', async ({ page }) => {
+  const first = await seedProject('Draft from')
+  const second = await seedProject('Draft to')
+  await open(page, first.project.id, 'board')
+  await textField(page).fill('login')
+  await expect(clearButton(page)).toHaveAttribute('aria-disabled', 'false')
+
+  await page
+    .getByRole('navigation', { name: 'Main' })
+    .getByRole('link', { name: second.project.name })
+    .click()
+  await expect(
+    page.getByRole('heading', { level: 1, name: second.project.name }),
+  ).toBeVisible()
+  await expect(textField(page)).toHaveValue('')
+  await expect(clearButton(page)).toHaveAttribute('aria-disabled', 'true')
+
+  // Going two steps back moves the list from one project to the other
+  // without leaving it.
+  await open(page, first.project.id, 'list')
+  await page
+    .getByRole('navigation', { name: 'Main' })
+    .getByRole('link', { name: second.project.name })
+    .click()
+  await page
+    .getByRole('navigation', { name: 'Project views' })
+    .getByRole('link', { name: 'List' })
+    .click()
+  await expect(page).toHaveURL(new RegExp(`${second.project.id}/list`))
+  await textField(page).fill('login')
+  await page.evaluate(() => history.go(-2))
+  await expect(page).toHaveURL(new RegExp(`${first.project.id}/list`))
+  await expect(
+    page.getByRole('heading', { level: 1, name: first.project.name }),
+  ).toBeVisible()
+  await expect(textField(page)).toHaveValue('')
+  await expect(clearButton(page)).toHaveAttribute('aria-disabled', 'true')
+})
+
+test('text that looks like a number still filters', async ({ page }) => {
+  const { project, key, status } = await seedProject('Number')
+  await db.task.create({
+    data: {
+      projectId: project.id,
+      statusId: status('Backlog').id,
+      number: 6,
+      title: 'Plan the 2026 roadmap',
+      order: 6,
+    },
+  })
+  await open(page, project.id, 'board', '?q=2026')
+  await expect.poll(() => references(boardCards(page))).toEqual([`${key}-6`])
+  await expect(textField(page)).toHaveValue('2026')
+  await expect(bar(page)).toContainText('Showing 1 of 6 tasks')
+
+  await open(page, project.id, 'list')
+  await tabTo(page, textField(page))
+  await page.keyboard.type('2026')
+  await page.keyboard.press('Enter')
+  await expect(liveRegion(page)).toHaveText('Showing 1 of 6 tasks')
+  await expect(page.getByRole('table').getByRole('link')).toHaveText([
+    'Plan the 2026 roadmap',
+  ])
+  await page.reload({ waitUntil: 'networkidle' })
+  await expect(textField(page)).toHaveValue('2026')
+  await expect(page.getByRole('table').getByRole('link')).toHaveText([
+    'Plan the 2026 roadmap',
+  ])
+})
+
+test('Enter in an emptied text field applies the change once', async ({
+  page,
+}) => {
+  const { project } = await seedProject('Enter once')
+  await open(page, project.id, 'list', '?q=login')
+  await expect(page.getByRole('table').getByRole('link')).toHaveCount(1)
+  await tabTo(page, textField(page))
+  await recordAnnouncements(page)
+  await recordNavigations(page)
+
+  await page.keyboard.press('ControlOrMeta+A')
+  await page.keyboard.press('Backspace')
+  await page.keyboard.press('Enter')
+  await expect.poll(() => urlSearch(page)).toEqual({})
+  await expect(page.getByRole('table').getByRole('link')).toHaveCount(5)
+  await expect.poll(() => announcements(page)).toEqual(['Showing all 5 tasks'])
+  expect(await navigations(page)).toBe(1)
+  await expect(textField(page)).toBeFocused()
 })
 
 for (const theme of ['light', 'dark'] as const) {

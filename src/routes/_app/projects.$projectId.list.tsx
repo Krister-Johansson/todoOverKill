@@ -111,7 +111,9 @@ function ListPage() {
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
+      {/* Keyed, so text typed but not applied stays with its project. */}
       <TaskFilterBar
+        key={projectId}
         filters={filters}
         active={hasActiveFilters(pickFilters(search))}
         statuses={project.statuses}

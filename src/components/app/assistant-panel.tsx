@@ -1,7 +1,7 @@
 import { fetchServerSentEvents, useChat } from '@tanstack/ai-react'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { Send, Square } from 'lucide-react'
-import { useEffect, useId, useImperativeHandle, useRef } from 'react'
+import { Eraser, Send, Square } from 'lucide-react'
+import { useEffect, useId, useImperativeHandle, useRef, useState } from 'react'
 
 import { Button } from '#/components/ui/button'
 import { Label } from '#/components/ui/label'
@@ -14,16 +14,52 @@ import {
 } from '#/components/ui/sheet'
 import { Textarea } from '#/components/ui/textarea'
 import { assistantStatusQueryOptions } from '#/fns/assistant'
+import {
+  MAX_CHAT_MESSAGES,
+  MAX_CHAT_MESSAGE_LENGTH,
+  MESSAGE_TOO_LONG_ERROR,
+} from '#/lib/assistant'
 
 import { useAnnounce } from './live-region'
 import { Markdown } from './markdown'
 
-import type { UIMessage } from '@tanstack/ai-react'
+import type { ConnectConnectionAdapter, UIMessage } from '@tanstack/ai-react'
 
 /** Lets the shell move focus into the open panel, as `a` does. */
 export type AssistantPanelHandle = { focus: () => void }
 
-const REPLY_ERROR = 'Could not get a reply. Try again.'
+/**
+ * What the panel says about a failed reply. /api/chat refuses a conversation
+ * that is too large with 413, or 400 when a message in it is too long; only
+ * clearing it helps then. fetchServerSentEvents throws "HTTP error! status:
+ * 413 ..." for those.
+ */
+function replyErrorText(error: Error) {
+  if (/\bstatus: (400|413)\b/.test(error.message)) {
+    return 'The conversation is too long to send. Clear the conversation and try again.'
+  }
+  return 'Could not get a reply. Try again.'
+}
+
+/**
+ * Sends only the newest MAX_CHAT_MESSAGES of the conversation. The server
+ * keeps no more than that, and a long conversation sent whole would pass the
+ * body limit before the server could trim it.
+ */
+function newestMessagesOnly<T extends ConnectConnectionAdapter>(
+  connection: T,
+): T {
+  return {
+    ...connection,
+    connect: (messages, data, abortSignal, runContext) =>
+      connection.connect(
+        messages.slice(-MAX_CHAT_MESSAGES),
+        data,
+        abortSignal,
+        runContext,
+      ),
+  }
+}
 
 const ROLE_NAMES: Partial<Record<UIMessage['role'], string>> = {
   user: 'You',
@@ -52,7 +88,8 @@ type Chat = ReturnType<typeof useChat>
  * that is still streaming when the panel closes runs on and is announced
  * when it ends. The reply is announced once it has finished, not while it
  * streams, so a screen reader reads it once. A stop announces "Reply
- * stopped", and an error is shown under the list and announced too.
+ * stopped", and an error is shown under the list and announced too; a
+ * request the server refuses as too large says to clear the conversation.
  *
  * Focus: opening moves it to the Message field (or the Close button when the
  * assistant is off). Closing returns it to `returnFocusTo`, the top bar's
@@ -87,7 +124,9 @@ export function AssistantPanel({
   const stopHadFocus = useRef(false)
   // Set while Radix handles an Escape pressed with focus outside the panel.
   const ignoreClose = useRef(false)
-  const chat = useChat({ connection: fetchServerSentEvents('/api/chat') })
+  const chat = useChat({
+    connection: newestMessagesOnly(fetchServerSentEvents('/api/chat')),
+  })
   const { messages, isLoading, error } = chat
 
   const lastMessage = messages.at(-1)
@@ -139,7 +178,7 @@ export function AssistantPanel({
       if (stopped.current) {
         announce('Reply stopped')
       } else if (error) {
-        announce(REPLY_ERROR)
+        announce(replyErrorText(error))
       } else if (lastMessage?.role === 'assistant' && lastText) {
         announce(`Assistant: ${lastText}`)
       }
@@ -223,9 +262,13 @@ export function AssistantPanel({
  * messages scroll into view; while a reply streams, the list follows it only
  * if it was already scrolled to the end, so rereading earlier messages is
  * not interrupted.
+ *
+ * A message over MAX_CHAT_MESSAGE_LENGTH is not sent: it stays in the field,
+ * and the error under it is shown and announced until the next edit. Clear
+ * conversation empties the list and keeps focus on itself.
  */
 function Conversation({
-  chat: { messages, sendMessage, isLoading, error },
+  chat: { messages, sendMessage, isLoading, error, clear },
   composerRef,
   stopRef,
   onStop,
@@ -236,6 +279,8 @@ function Conversation({
   onStop: () => void
 }) {
   const id = useId()
+  const announce = useAnnounce()
+  const [composerError, setComposerError] = useState<string | null>(null)
   const listEnd = useRef<HTMLDivElement>(null)
   const atEnd = useRef(true)
   const shownCount = useRef(0)
@@ -256,8 +301,22 @@ function Conversation({
     if (!composer || isLoading) return
     const text = composer.value.trim()
     if (!text) return
+    if (text.length > MAX_CHAT_MESSAGE_LENGTH) {
+      setComposerError(MESSAGE_TOO_LONG_ERROR)
+      announce(MESSAGE_TOO_LONG_ERROR)
+      return
+    }
+    setComposerError(null)
     composer.value = ''
     void sendMessage(text)
+  }
+
+  function clearConversation() {
+    if (messages.length === 0) return
+    // clear() also cancels a streaming reply, and ignores its late chunks
+    // only if stop() has not run first.
+    clear()
+    announce('Conversation cleared')
   }
 
   return (
@@ -293,7 +352,9 @@ function Conversation({
             </li>
           ))}
         </ol>
-        {error && !isLoading ? <p className="mt-4">{REPLY_ERROR}</p> : null}
+        {error && !isLoading ? (
+          <p className="mt-4">{replyErrorText(error)}</p>
+        ) : null}
         <div ref={listEnd} />
       </div>
       <form
@@ -308,7 +369,16 @@ function Conversation({
           ref={composerRef}
           id={`${id}-message`}
           name="message"
-          aria-describedby={`${id}-message-help`}
+          aria-describedby={
+            composerError
+              ? `${id}-message-help ${id}-message-error`
+              : `${id}-message-help`
+          }
+          aria-invalid={composerError ? true : undefined}
+          // A long message scrolls inside the field rather than pushing the
+          // conversation out of the panel.
+          className="max-h-48"
+          onChange={() => setComposerError(null)}
           onKeyDown={(event) => {
             if (
               event.key === 'Enter' &&
@@ -323,6 +393,14 @@ function Conversation({
         <p id={`${id}-message-help`} className="text-sm text-muted-foreground">
           Enter sends. Shift+Enter starts a new line.
         </p>
+        {composerError ? (
+          <p
+            id={`${id}-message-error`}
+            className="text-sm font-medium text-destructive"
+          >
+            {composerError}
+          </p>
+        ) : null}
         <div className="flex flex-wrap gap-2">
           {/* aria-disabled rather than disabled, which would drop focus from
               a Send button pressed with the keyboard. send() ignores it. */}
@@ -341,6 +419,17 @@ function Conversation({
               Stop
             </Button>
           ) : null}
+          {/* aria-disabled, not hidden or disabled, so focus stays on it
+              once the list is empty. */}
+          <Button
+            type="button"
+            variant="outline"
+            aria-disabled={messages.length === 0}
+            onClick={clearConversation}
+          >
+            <Eraser aria-hidden="true" />
+            Clear conversation
+          </Button>
         </div>
       </form>
     </div>

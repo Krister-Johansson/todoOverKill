@@ -273,6 +273,16 @@ Acceptance: resource reads are tested; the prompt returns text under 2,000 chara
 Depends on: F34, F26.
 Acceptance: axe clean; streaming can be stopped; e2e uses a mocked SSE response.
 
+### F69 Assistant panel hardening: history limits, request checks (#107)
+`useChat` resends the whole history on every turn, so the old caps on the conversation refused every message after the 100th or after one long reply. `/api/chat` now answers 413 `payload_too_large` for a body over 1 MiB before parsing it, drops every message that is not from the user or the assistant, keeps the newest 100, and refuses a request with no user message left, all before `chat()`. On that kept history it caps each text part at 100,000 characters and only the newest user message at 20,000. The panel sends at most the newest 100 messages, so a long conversation stays under the body limit. The composer refuses a message over 20,000 characters, keeps it in the field and shows and announces "Messages can be up to 20,000 characters.". A "Clear conversation" button empties the list and announces it, and a request the server refuses says to clear the conversation. Items 4 to 7 of #107 moved to F70 (#110).
+Depends on: F38.
+Acceptance: a conversation of more than 100 messages, or with a reply over 20,000 characters, still accepts new messages; an over-long message shows and announces a specific error; a system message, an oversized part and an oversized body are dropped or refused, with tests.
+
+### F70 Assistant panel behaviour: narrow-width focus, Stop focus, plain-text announcements, draft kept (#110)
+Below `md` with the panel open, `c`, Ctrl+K and the command menu's actions never leave focus on the body. Stop focus is tracked on the Stop button itself, so a click on plain text does not pull focus to the composer when a reply ends. The live region carries plain text or a short status, never raw Markdown, and a reply that finished behind a modal is announced once it closes. An unsent draft survives closing the panel, and only the streaming message is re-parsed.
+Depends on: F69.
+Acceptance: at 320 px, e2e asserts where focus lands after `c`, Ctrl+K and a command menu action; unit tests cover the Stop focus rule; axe clean in both themes.
+
 ### F39 Assistant data tools (#39)
 Pass `serverTools` from `src/tools/server.ts` (the F34 read tools and whatever F67 and F68 have added) to `chat()`. Render tool calls in the message list with name, status, and result summary.
 Depends on: F38.

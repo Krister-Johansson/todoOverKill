@@ -8,6 +8,7 @@ import {
   createRouter,
 } from '@tanstack/react-router'
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -24,6 +25,8 @@ vi.mock('#/fns/projects', () => ({
   projectsQueryOptions: () => ({
     queryKey: ['projects'],
     queryFn: () => Promise.resolve([]),
+    // The tests set the data; a refetch on mount would empty it.
+    staleTime: Infinity,
   }),
 }))
 
@@ -49,9 +52,11 @@ const projects = [
  */
 async function renderAt(
   path: string,
-  { openCreateTask }: { openCreateTask?: () => void } = {},
+  {
+    openCreateTask,
+    queryClient = new QueryClient(),
+  }: { openCreateTask?: () => void; queryClient?: QueryClient } = {},
 ) {
-  const queryClient = new QueryClient()
   // What the _app loader puts in the cache.
   queryClient.setQueryData(['projects'], projects)
   const rootRoute = createRootRoute({
@@ -330,15 +335,70 @@ describe('CommandPalette', () => {
     expect(document.activeElement).toBe(combobox())
   })
 
-  it('does not open while another dialog is open', async () => {
+  it('does not open while another dialog is open, nor let the browser act', async () => {
     await renderAt('/')
     const other = document.createElement('div')
     other.setAttribute('role', 'dialog')
     document.body.append(other)
 
-    fireEvent.keyDown(document.body, { key: 'k', ctrlKey: true })
+    // false: the default was prevented, so focus stays in the dialog.
+    expect(fireEvent.keyDown(document.body, { key: 'k', ctrlKey: true })).toBe(
+      false,
+    )
     expect(screen.queryByRole('dialog', { name: 'Command menu' })).toBeNull()
     other.remove()
+  })
+
+  it('opens on the K key of a layout without Latin letters', async () => {
+    await renderAt('/')
+    fireEvent.keyDown(document.body, { key: 'л', code: 'KeyK', ctrlKey: true })
+    expect(screen.getByRole('dialog', { name: 'Command menu' })).toBeTruthy()
+  })
+
+  it('runs only the first of two activations', async () => {
+    const router = await renderAt('/settings')
+    openFromButton()
+    type('go to')
+    // Both land before React re-renders, as a fast Enter and click could.
+    act(() => {
+      press('Enter')
+      fireEvent.click(screen.getByRole('option', { name: 'Go to Help' }))
+    })
+
+    await screen.findByRole('heading', { name: 'Dashboard' })
+    await waitFor(() => expect(document.activeElement?.id).toBe('main'))
+    expect(router.state.location.pathname).toBe('/')
+  })
+
+  it('leaves Enter to the input method while composing', async () => {
+    const router = await renderAt('/settings')
+    openFromButton()
+    type('dashboard')
+    fireEvent.keyDown(combobox(), { key: 'Enter', isComposing: true })
+    fireEvent.keyDown(combobox(), { key: 'ArrowDown', isComposing: true })
+
+    expect(screen.getByRole('dialog', { name: 'Command menu' })).toBeTruthy()
+    expect(activeOption()?.textContent).toBe('Go to Dashboard')
+    expect(router.state.location.pathname).toBe('/settings')
+  })
+
+  it('announces the count on screen when the delay ends', async () => {
+    const queryClient = new QueryClient()
+    await renderAt('/', { queryClient })
+    openFromButton()
+    type('go to')
+    // A refetch while the delay runs adds a project.
+    act(() => {
+      queryClient.setQueryData(
+        ['projects'],
+        [...projects, { id: 'p3', name: 'Mercury' }],
+      )
+    })
+
+    // Query notifies subscribers on the next tick, inside the delay.
+    await waitFor(() => expect(optionNames()).toHaveLength(6))
+    expect(paletteRegion().textContent).toBe('')
+    await waitFor(() => expect(paletteRegion().textContent).toBe('6 options'))
   })
 
   it('still opens with single-key shortcuts turned off', async () => {

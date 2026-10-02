@@ -32,7 +32,7 @@ import { Kbd, KbdGroup } from '#/components/ui/kbd'
 import { Label } from '#/components/ui/label'
 import { projectsQueryOptions } from '#/fns/projects'
 import { useTheme } from '#/hooks/use-theme'
-import { isCommandPaletteShortcut } from '#/lib/keyboard'
+import { isCommandPaletteKey, isCommandPaletteShortcut } from '#/lib/keyboard'
 
 import { useAnnounce } from './live-region'
 
@@ -98,10 +98,14 @@ export function CommandPalette({
   }
 
   const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
-    if (!isCommandPaletteShortcut(event)) return
-    // Chrome and Firefox would otherwise focus the address bar.
+    if (event.defaultPrevented || event.isComposing) return
+    if (!isCommandPaletteKey(event)) return
+    const opens = isCommandPaletteShortcut(event)
+    // Chrome and Firefox would otherwise focus the address bar and take focus
+    // out of the page, even when another dialog keeps the palette shut or the
+    // palette is already open.
     event.preventDefault()
-    handleOpenChange(true)
+    if (opens) handleOpenChange(true)
   })
 
   useEffect(() => {
@@ -119,8 +123,13 @@ export function CommandPalette({
   }
 
   function run(next: Run) {
+    // The first activation wins. A second Enter or click must not run the
+    // same action again or replace it with another.
+    if (!open || chosen.current) return
     chosen.current = next
-    if (next.kind === 'navigate') void next.go()
+    if (next.kind === 'navigate') {
+      next.go().catch(() => announce('That page could not be opened'))
+    }
     if (next.kind === 'theme') setTheme(next.theme)
     setOpen(false)
   }
@@ -143,9 +152,12 @@ export function CommandPalette({
           </KbdGroup>
         </Button>
       </DialogTrigger>
+      {/* No exit animation, so the palette unmounts as soon as it closes and
+          the chosen action never waits on animationend. */}
       <DialogContent
+        className="data-[state=closed]:animate-none"
         onCloseAutoFocus={(event) => {
-          // Runs once the palette has gone, so its aria-hidden no longer
+          // Runs once the palette has unmounted, so its aria-hidden no longer
           // hides the shell's live region and a second dialog does not fight
           // it for focus. Focus never drops to the page.
           event.preventDefault()
@@ -185,15 +197,8 @@ function PaletteBody({
   const { data: projects = [] } = useQuery(projectsQueryOptions())
   const [text, setText] = useState('')
   const [active, setActive] = useState(0)
+  const [typed, setTyped] = useState(false)
   const [message, setMessage] = useState('')
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(
-    () => () => {
-      if (timer.current !== null) clearTimeout(timer.current)
-    },
-    [],
-  )
 
   const actions = useMemo(() => {
     const opposite = resolved === 'dark' ? 'light' : 'dark'
@@ -255,33 +260,38 @@ function PaletteBody({
   const activeAction = matches.at(activeIndex)
   const activeId = activeAction ? optionId(activeAction) : undefined
 
+  const count = matches.length
+
   useEffect(() => {
     if (activeId) {
       document.getElementById(activeId)?.scrollIntoView({ block: 'nearest' })
     }
   }, [activeId])
 
+  // Nothing is announced on open, only once the text has changed. A change to
+  // the text or the count restarts the delay, so what is read matches the
+  // list on screen even if the projects were refetched while typing.
+  useEffect(() => {
+    if (!typed) return
+    const timer = setTimeout(
+      () => setMessage(countMessage(count)),
+      ANNOUNCE_DELAY,
+    )
+    return () => clearTimeout(timer)
+  }, [typed, text, count])
+
   function handleTextChange(next: string) {
     setText(next)
     setActive(0)
-    // Nothing is announced on open, only after the text changes. Clearing
-    // first means the same count twice in a row is read again.
-    if (timer.current !== null) clearTimeout(timer.current)
+    setTyped(true)
+    // Cleared first, so the same count twice in a row is read again.
     setMessage('')
-    const count = matching(actions, next).length
-    timer.current = setTimeout(() => {
-      timer.current = null
-      setMessage(countMessage(count))
-    }, ANNOUNCE_DELAY)
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
-    const count = matches.length
-    // Ctrl+K inside the palette does nothing, not even the browser's own.
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
-      event.preventDefault()
-      return
-    }
+    // Enter and the arrows belong to the input method while composing.
+    // Ctrl+K needs nothing here: the window listener swallows it.
+    if (event.nativeEvent.isComposing) return
     if (event.key === 'Enter') {
       event.preventDefault()
       if (activeAction) onRun(activeAction.run)

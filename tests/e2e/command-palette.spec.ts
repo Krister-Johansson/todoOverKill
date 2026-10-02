@@ -240,6 +240,52 @@ test('Switch theme flips the theme and announces it', async ({ page }) => {
   await expect(region).toHaveText('Theme set to Dark')
 })
 
+test('a double-click on Switch theme switches it once', async ({ page }) => {
+  await setTheme(page, 'light')
+  await page.goto('/', { waitUntil: 'networkidle' })
+
+  await searchButton(page).click()
+  await palette(page)
+    .getByRole('option', { name: 'Switch to dark theme' })
+    .dblclick()
+
+  await expect(palette(page)).toHaveCount(0)
+  await expect(page.locator('[aria-live="polite"]')).toHaveText(
+    'Theme set to Dark',
+  )
+  await expect(page.locator('html')).toHaveClass(/\bdark\b/)
+  await expect(searchButton(page)).toBeFocused()
+})
+
+test('Control+k in the New task dialog keeps focus in it', async ({ page }) => {
+  const project = await seedProject('Inside a dialog')
+  await page.goto(`/projects/${project.id}/board`, { waitUntil: 'networkidle' })
+  await page
+    .getByRole('banner')
+    .getByRole('button', { name: 'New task' })
+    .click()
+  const title = page
+    .getByRole('dialog', { name: 'New task' })
+    .getByRole('textbox', { name: 'Title (required)' })
+  await expect(title).toBeFocused()
+
+  const prevented = await title.evaluate((field) => {
+    const event = new KeyboardEvent('keydown', {
+      key: 'k',
+      code: 'KeyK',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    })
+    field.dispatchEvent(event)
+    return event.defaultPrevented
+  })
+  expect(prevented).toBe(true)
+  await page.keyboard.press('Control+k')
+  await expect(palette(page)).toHaveCount(0)
+  await expect(title).toBeFocused()
+})
+
 test('Escape returns focus to the element that opened the palette', async ({
   page,
 }) => {

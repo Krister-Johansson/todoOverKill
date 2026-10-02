@@ -60,7 +60,8 @@ describe('describeActivity', () => {
       'subtask.updated': 'Changed the title of the subtask “Draft the intro”.',
       'subtask.completed': 'Completed the subtask “Draft the intro”.',
       'subtask.reopened': 'Reopened the subtask “Draft the intro”.',
-      'subtask.moved': 'Reordered the subtask “Draft the intro”.',
+      'subtask.moved':
+        'Moved the subtask “Draft the intro” from position 3 to 1.',
       'subtask.deleted': 'Deleted the subtask “Draft the intro”.',
     })
   })
@@ -76,12 +77,29 @@ describe('describeActivity', () => {
 
   it('has a word for every field a subtask.updated row can name', () => {
     expect(Object.keys(SUBTASK_FIELD_WORDS).sort()).toEqual(['done', 'title'])
+    // An older row, without the new done value.
     expect(
       describeActivity({
         type: 'subtask.updated',
         payload: { number: 1, title: 'Ship', fields: ['title', 'done'] },
       }),
     ).toBe('Changed the title and the done state of the subtask “Ship”.')
+  })
+
+  it('says whether a rename with a toggle completed or reopened the subtask', () => {
+    const fields = ['title', 'done']
+    expect(
+      describeActivity({
+        type: 'subtask.updated',
+        payload: { number: 1, title: 'Ship', fields, done: true },
+      }),
+    ).toBe('Renamed and completed the subtask “Ship”.')
+    expect(
+      describeActivity({
+        type: 'subtask.updated',
+        payload: { number: 1, title: 'Ship', fields, done: false },
+      }),
+    ).toBe('Renamed and reopened the subtask “Ship”.')
   })
 
   it('has a word for every field a task.updated row can name', () => {

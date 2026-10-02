@@ -55,10 +55,12 @@ export const activityPayloadSchemas = {
     number: taskNumberSchema,
     title: z.string(),
   }),
+  // `done` is the new value, written only when `fields` names it.
   'subtask.updated': z.looseObject({
     number: taskNumberSchema,
     title: z.string(),
     fields: z.array(z.string()).min(1),
+    done: z.boolean().optional(),
   }),
   'subtask.completed': z.looseObject({
     number: taskNumberSchema,

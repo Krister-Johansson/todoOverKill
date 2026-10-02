@@ -13,18 +13,13 @@ import type {
 import { taskIdSchema } from '#/schemas/task'
 import { ACTIVITY_TYPES } from '#/server/activity'
 import { db } from '#/server/db'
-import { NotFoundError, isPrismaError } from '#/server/errors'
+import { NotFoundError } from '#/server/errors'
 
 /** Top to bottom. The id only makes ties stable; the service never writes them. */
 const subtaskOrder = [
   { order: 'asc' },
   { id: 'asc' },
 ] as const satisfies Array<Prisma.SubtaskOrderByWithRelationInput>
-
-/** The task fields an activity row needs. */
-const withTask = {
-  task: { select: { projectId: true, number: true } },
-} as const satisfies Prisma.SubtaskInclude
 
 function taskNotFound(id: string) {
   return new NotFoundError(`No task with id ${id}.`)
@@ -34,19 +29,42 @@ function subtaskNotFound(id: string) {
   return new NotFoundError(`No subtask with id ${id}.`)
 }
 
+// Every mutation locks its task's row first, so writes to one task's subtasks
+// run one after another: two adds get distinct orders, two moves each start
+// from the order the other committed, and a write that waited on deleteTask
+// finds the task gone and throws NotFoundError instead of deadlocking on the
+// cascade. Writers queue on the row while holding a pooled connection, so the
+// transactions get createTask's longer limits.
+const lockedTransaction = {
+  maxWait: 10_000,
+  timeout: 10_000,
+} as const
+
 /**
- * Runs `work` and turns Prisma's P2025, which a write raises when the subtask
- * (or its task) was deleted after the transaction read it, into the subtask's
- * NotFoundError.
+ * Locks the task's row until the transaction ends and returns the fields an
+ * activity row needs, or undefined when the task does not exist.
  */
-async function orSubtaskNotFound<T>(id: string, work: () => Promise<T>) {
-  try {
-    return await work()
-  } catch (error) {
-    // The failed write aborts the transaction, so the catch sits outside it.
-    if (isPrismaError(error, 'P2025')) throw subtaskNotFound(id)
-    throw error
-  }
+async function lockTask(tx: Prisma.TransactionClient, taskId: string) {
+  const rows = await tx.$queryRaw<
+    Array<{ projectId: string; number: number }>
+  >`SELECT "projectId", "number" FROM "Task" WHERE "id" = ${taskId} FOR UPDATE`
+  return rows.at(0)
+}
+
+/**
+ * Locks the subtask's task and reads the subtask again under the lock, so it
+ * is the committed row the previous writer left. Throws NotFoundError when the
+ * subtask, or its task, is gone.
+ */
+async function lockSubtask(tx: Prisma.TransactionClient, id: string) {
+  const found = await tx.subtask.findUnique({
+    where: { id },
+    select: { taskId: true },
+  })
+  const task = found && (await lockTask(tx, found.taskId))
+  const subtask = task && (await tx.subtask.findUnique({ where: { id } }))
+  if (!task || !subtask) throw subtaskNotFound(id)
+  return { task, subtask }
 }
 
 // Every mutation writes one activity row on the task, with its project, in the
@@ -70,91 +88,79 @@ export async function listSubtasks(taskId: string) {
 export async function addSubtask(taskId: string, input: CreateSubtaskInput) {
   const id = taskIdSchema.parse(taskId)
   const { title } = createSubtaskSchema.parse(input)
-  try {
-    return await db.$transaction(async (tx) => {
-      const task = await tx.task.findUnique({
-        where: { id },
-        select: { projectId: true, number: true },
-      })
-      if (!task) throw taskNotFound(id)
-      const { _max } = await tx.subtask.aggregate({
-        where: { taskId: id },
-        _max: { order: true },
-      })
-      const subtask = await tx.subtask.create({
-        data: { taskId: id, title, order: (_max.order ?? 0) + 1 },
-      })
-      await tx.activity.create({
-        data: {
-          projectId: task.projectId,
-          taskId: id,
-          type: ACTIVITY_TYPES.subtaskAdded,
-          payload: { number: task.number, title },
-        },
-      })
-      return subtask
+  return db.$transaction(async (tx) => {
+    const task = await lockTask(tx, id)
+    if (!task) throw taskNotFound(id)
+    const { _max } = await tx.subtask.aggregate({
+      where: { taskId: id },
+      _max: { order: true },
     })
-  } catch (error) {
-    // A task deleted after the read trips the subtask's foreign key.
-    if (isPrismaError(error, 'P2003')) throw taskNotFound(id)
-    throw error
-  }
+    const subtask = await tx.subtask.create({
+      data: { taskId: id, title, order: (_max.order ?? 0) + 1 },
+    })
+    await tx.activity.create({
+      data: {
+        projectId: task.projectId,
+        taskId: id,
+        type: ACTIVITY_TYPES.subtaskAdded,
+        payload: { number: task.number, title },
+      },
+    })
+    return subtask
+  }, lockedTransaction)
 }
 
 /**
  * Changes the title, the done state, or both, and writes one row: a change of
  * `done` alone is `subtask.completed` or `subtask.reopened`, anything else is
- * `subtask.updated` naming the fields that changed. The title is compared
- * after trimming, so an update with the current values, `{}` among them,
- * writes nothing. Throws NotFoundError.
+ * `subtask.updated` naming the fields that changed, with the new `done` when
+ * it is one of them. The title is compared after trimming, so an update with
+ * the current values, `{}` among them, writes nothing. Throws NotFoundError.
  */
 export async function updateSubtask(id: string, patch: UpdateSubtaskInput) {
   const subtaskId = subtaskIdSchema.parse(id)
   const data = updateSubtaskSchema.parse(patch)
-  return orSubtaskNotFound(subtaskId, () =>
-    db.$transaction(async (tx) => {
-      const found = await tx.subtask.findUnique({
-        where: { id: subtaskId },
-        include: withTask,
-      })
-      if (!found) throw subtaskNotFound(subtaskId)
-      const { task, ...subtask } = found
-      const changes: Prisma.SubtaskUpdateInput = {}
-      const fields: Array<'title' | 'done'> = []
-      if (data.title !== undefined && data.title !== subtask.title) {
-        changes.title = data.title
-        fields.push('title')
-      }
-      if (data.done !== undefined && data.done !== subtask.done) {
-        changes.done = data.done
-        fields.push('done')
-      }
-      if (fields.length === 0) return subtask
-      const updated = await tx.subtask.update({
-        where: { id: subtaskId },
-        data: changes,
-      })
-      const payload = { number: task.number, title: updated.title }
-      await tx.activity.create({
-        data: {
-          projectId: task.projectId,
-          taskId: subtask.taskId,
-          ...(fields.length === 1 && fields[0] === 'done'
-            ? {
-                type: updated.done
-                  ? ACTIVITY_TYPES.subtaskCompleted
-                  : ACTIVITY_TYPES.subtaskReopened,
-                payload,
-              }
-            : {
-                type: ACTIVITY_TYPES.subtaskUpdated,
-                payload: { ...payload, fields },
-              }),
-        },
-      })
-      return updated
-    }),
-  )
+  return db.$transaction(async (tx) => {
+    const { task, subtask } = await lockSubtask(tx, subtaskId)
+    const changes: Prisma.SubtaskUpdateInput = {}
+    const fields: Array<'title' | 'done'> = []
+    if (data.title !== undefined && data.title !== subtask.title) {
+      changes.title = data.title
+      fields.push('title')
+    }
+    if (data.done !== undefined && data.done !== subtask.done) {
+      changes.done = data.done
+      fields.push('done')
+    }
+    if (fields.length === 0) return subtask
+    const updated = await tx.subtask.update({
+      where: { id: subtaskId },
+      data: changes,
+    })
+    const payload = { number: task.number, title: updated.title }
+    await tx.activity.create({
+      data: {
+        projectId: task.projectId,
+        taskId: subtask.taskId,
+        ...(fields.length === 1 && fields[0] === 'done'
+          ? {
+              type: updated.done
+                ? ACTIVITY_TYPES.subtaskCompleted
+                : ACTIVITY_TYPES.subtaskReopened,
+              payload,
+            }
+          : {
+              type: ACTIVITY_TYPES.subtaskUpdated,
+              payload: {
+                ...payload,
+                fields,
+                ...(fields.includes('done') && { done: updated.done }),
+              },
+            }),
+      },
+    })
+    return updated
+  }, lockedTransaction)
 }
 
 /**
@@ -167,53 +173,35 @@ export async function updateSubtask(id: string, patch: UpdateSubtaskInput) {
 export async function moveSubtask(id: string, input: MoveSubtaskInput) {
   const subtaskId = subtaskIdSchema.parse(id)
   const { index } = moveSubtaskSchema.parse(input)
-  return orSubtaskNotFound(subtaskId, () =>
-    db.$transaction(async (tx) => {
-      const found = await tx.subtask.findUnique({
-        where: { id: subtaskId },
-        include: withTask,
+  return db.$transaction(async (tx) => {
+    const { task, subtask } = await lockSubtask(tx, subtaskId)
+    const all = await tx.subtask.findMany({
+      where: { taskId: subtask.taskId },
+      orderBy: subtaskOrder,
+      select: { id: true, order: true },
+    })
+    const from = all.findIndex((row) => row.id === subtaskId)
+    const others = all.filter((row) => row.id !== subtaskId)
+    const to = Math.min(index, others.length)
+    if (to === from) return subtask
+    others.splice(to, 0, { id: subtaskId, order: subtask.order })
+    for (const [position, row] of others.entries()) {
+      if (row.order === position + 1) continue
+      await tx.subtask.update({
+        where: { id: row.id },
+        data: { order: position + 1 },
       })
-      if (!found) throw subtaskNotFound(subtaskId)
-      const { task, ...subtask } = found
-      const all = await tx.subtask.findMany({
-        where: { taskId: subtask.taskId },
-        orderBy: subtaskOrder,
-        select: { id: true, order: true },
-      })
-      const from = all.findIndex((row) => row.id === subtaskId)
-      const others = all.filter((row) => row.id !== subtaskId)
-      const to = Math.min(index, others.length)
-      if (to === from) return subtask
-      others.splice(to, 0, { id: subtaskId, order: subtask.order })
-      let moved = subtask
-      for (const [position, row] of others.entries()) {
-        if (row.id === subtaskId) {
-          // update rather than updateMany, so a subtask deleted meanwhile
-          // raises P2025 instead of writing a row for a move that did not
-          // happen.
-          moved = await tx.subtask.update({
-            where: { id: subtaskId },
-            data: { order: position + 1 },
-          })
-        } else if (row.order !== position + 1) {
-          // updateMany skips a sibling deleted in the meantime.
-          await tx.subtask.updateMany({
-            where: { id: row.id },
-            data: { order: position + 1 },
-          })
-        }
-      }
-      await tx.activity.create({
-        data: {
-          projectId: task.projectId,
-          taskId: subtask.taskId,
-          type: ACTIVITY_TYPES.subtaskMoved,
-          payload: { number: task.number, title: subtask.title, from, to },
-        },
-      })
-      return moved
-    }),
-  )
+    }
+    await tx.activity.create({
+      data: {
+        projectId: task.projectId,
+        taskId: subtask.taskId,
+        type: ACTIVITY_TYPES.subtaskMoved,
+        payload: { number: task.number, title: subtask.title, from, to },
+      },
+    })
+    return { ...subtask, order: to + 1 }
+  }, lockedTransaction)
 }
 
 /**
@@ -222,26 +210,17 @@ export async function moveSubtask(id: string, input: MoveSubtaskInput) {
  */
 export async function deleteSubtask(id: string) {
   const subtaskId = subtaskIdSchema.parse(id)
-  return orSubtaskNotFound(subtaskId, () =>
-    db.$transaction(async (tx) => {
-      const found = await tx.subtask.findUnique({
-        where: { id: subtaskId },
-        include: withTask,
-      })
-      if (!found) throw subtaskNotFound(subtaskId)
-      const { task, ...subtask } = found
-      // The delete goes first, so a subtask or task deleted meanwhile is a
-      // P2025 here rather than a foreign key error on the activity row.
-      await tx.subtask.delete({ where: { id: subtaskId } })
-      await tx.activity.create({
-        data: {
-          projectId: task.projectId,
-          taskId: subtask.taskId,
-          type: ACTIVITY_TYPES.subtaskDeleted,
-          payload: { number: task.number, title: subtask.title },
-        },
-      })
-      return subtask
-    }),
-  )
+  return db.$transaction(async (tx) => {
+    const { task, subtask } = await lockSubtask(tx, subtaskId)
+    await tx.subtask.delete({ where: { id: subtaskId } })
+    await tx.activity.create({
+      data: {
+        projectId: task.projectId,
+        taskId: subtask.taskId,
+        type: ACTIVITY_TYPES.subtaskDeleted,
+        payload: { number: task.number, title: subtask.title },
+      },
+    })
+    return subtask
+  }, lockedTransaction)
 }

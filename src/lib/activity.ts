@@ -51,13 +51,21 @@ const SENTENCES: { [T in ActivityTypeName]: (payload: Payload<T>) => string } =
     'task.deleted': ({ title }) => `Deleted the task ${quote(title)}.`,
     'comment.added': () => 'Added a comment.',
     'subtask.added': ({ title }) => `Added the subtask ${quote(title)}.`,
-    // The title is the one the subtask has after the change.
-    'subtask.updated': ({ title, fields }) =>
-      `Changed ${fieldList.format(fields.map((field) => SUBTASK_FIELD_WORDS[field] ?? field))} of the subtask ${quote(title)}.`,
+    // The title is the one the subtask has after the change. A row without
+    // `done` names the fields only.
+    'subtask.updated': ({ title, fields, done }) =>
+      done !== undefined &&
+      fields.length === 2 &&
+      fields.includes('title') &&
+      fields.includes('done')
+        ? `Renamed and ${done ? 'completed' : 'reopened'} the subtask ${quote(title)}.`
+        : `Changed ${fieldList.format(fields.map((field) => SUBTASK_FIELD_WORDS[field] ?? field))} of the subtask ${quote(title)}.`,
     'subtask.completed': ({ title }) =>
       `Completed the subtask ${quote(title)}.`,
     'subtask.reopened': ({ title }) => `Reopened the subtask ${quote(title)}.`,
-    'subtask.moved': ({ title }) => `Reordered the subtask ${quote(title)}.`,
+    // The payload holds indexes from 0; the sentence counts from 1.
+    'subtask.moved': ({ title, from, to }) =>
+      `Moved the subtask ${quote(title)} from position ${from + 1} to ${to + 1}.`,
     'subtask.deleted': ({ title }) => `Deleted the subtask ${quote(title)}.`,
   }
 

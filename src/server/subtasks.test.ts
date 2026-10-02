@@ -54,6 +54,35 @@ async function newActivity(projectId: string, action: () => Promise<unknown>) {
   return after.filter((row) => !seen.has(row.id)).map(({ id, ...row }) => row)
 }
 
+/**
+ * Runs `action` while another transaction deletes the task. The action waits
+ * on the task's row lock, and finds the task gone once the delete commits.
+ */
+async function deleteTaskDuring(
+  taskId: string,
+  action: () => Promise<unknown>,
+) {
+  let attempt: Promise<unknown> = Promise.resolve()
+  let settled = false
+  await db.$transaction(async (tx) => {
+    await tx.task.delete({ where: { id: taskId } })
+    attempt = action().finally(() => {
+      settled = true
+    })
+    // Handled by the caller; this only stops an unhandled rejection meanwhile.
+    attempt.catch(() => {})
+    for (;;) {
+      const [{ waiting }] = await db.$queryRaw<[{ waiting: bigint }]>`
+        SELECT count(*) AS waiting FROM pg_stat_activity
+        WHERE datname = current_database() AND wait_event_type = 'Lock'
+      `
+      if (waiting > 0 || settled) break
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+  })
+  return attempt
+}
+
 async function titlesOf(taskId: string) {
   return (await listSubtasks(taskId)).map((subtask) => subtask.title)
 }
@@ -108,6 +137,18 @@ describe('addSubtask', () => {
     expect((await listTaskActivity(task.id)).map((row) => row.type)).toEqual([
       'task.created',
       'subtask.added',
+    ])
+  })
+
+  it('gives concurrent adds on one task distinct orders', async () => {
+    const { task } = await createWebsiteTask()
+    const added = await Promise.all(
+      Array.from({ length: 5 }, (_, i) =>
+        addSubtask(task.id, { title: `Step ${i + 1}` }),
+      ),
+    )
+    expect(added.map((subtask) => subtask.order).sort()).toEqual([
+      1, 2, 3, 4, 5,
     ])
   })
 
@@ -181,15 +222,34 @@ describe('updateSubtask', () => {
     expect(await titlesOf(task.id)).toEqual(['A', 'Beta', 'C', 'D'])
   })
 
-  it('writes one subtask.updated row for a rename and a toggle together', async () => {
+  it('writes one subtask.updated row with the new done for a rename and a toggle', async () => {
     const { project, subtasks } = await createTaskWithSubtasks()
-    const rows = await newActivity(project.id, () =>
+    const completed = await newActivity(project.id, () =>
       updateSubtask(subtasks[0].id, { title: 'Alpha', done: true }),
     )
-    expect(rows).toEqual([
+    const reopened = await newActivity(project.id, () =>
+      updateSubtask(subtasks[0].id, { title: 'A', done: false }),
+    )
+    expect(completed).toEqual([
       expect.objectContaining({
         type: 'subtask.updated',
-        payload: { number: 1, title: 'Alpha', fields: ['title', 'done'] },
+        payload: {
+          number: 1,
+          title: 'Alpha',
+          fields: ['title', 'done'],
+          done: true,
+        },
+      }),
+    ])
+    expect(reopened).toEqual([
+      expect.objectContaining({
+        type: 'subtask.updated',
+        payload: {
+          number: 1,
+          title: 'A',
+          fields: ['title', 'done'],
+          done: false,
+        },
       }),
     ])
   })
@@ -269,6 +329,19 @@ describe('moveSubtask', () => {
     ])
   })
 
+  it('runs concurrent moves on one task one after the other', async () => {
+    const { task, subtasks } = await createTaskWithSubtasks()
+    const [a, , , d] = subtasks
+    await Promise.all([
+      moveSubtask(d.id, { index: 0 }),
+      moveSubtask(a.id, { index: 3 }),
+    ])
+    // Either order of the two moves ends here.
+    const left = await listSubtasks(task.id)
+    expect(left.map((subtask) => subtask.title)).toEqual(['D', 'B', 'C', 'A'])
+    expect(left.map((subtask) => subtask.order)).toEqual([1, 2, 3, 4])
+  })
+
   it('writes nothing for a move to its own place', async () => {
     const { project, task, subtasks } = await createTaskWithSubtasks()
     const rows = await newActivity(project.id, async () => {
@@ -341,6 +414,26 @@ describe('with the tasks service', () => {
     await addSubtask(task.id, { title: 'Draft' })
     expect(await getTask(task.id)).toEqual(before.one)
     expect(await listTasks(project.id)).toEqual(before.all)
+  })
+
+  it('throws NotFoundError for a write that waits on a task delete', async () => {
+    const { project } = await createWebsiteTask()
+    const writes: Array<
+      (taskId: string, subtaskId: string) => Promise<unknown>
+    > = [
+      (taskId) => addSubtask(taskId, { title: 'C' }),
+      (_, subtaskId) => updateSubtask(subtaskId, { done: true }),
+      (_, subtaskId) => moveSubtask(subtaskId, { index: 1 }),
+      (_, subtaskId) => deleteSubtask(subtaskId),
+    ]
+    for (const write of writes) {
+      const task = await createTask(project.id, { title: 'Doomed' })
+      const subtask = await addSubtask(task.id, { title: 'A' })
+      await addSubtask(task.id, { title: 'B' })
+      await expect(
+        deleteTaskDuring(task.id, () => write(task.id, subtask.id)),
+      ).rejects.toThrow(NotFoundError)
+    }
   })
 
   it('deletes the subtasks with their task', async () => {

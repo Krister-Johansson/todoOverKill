@@ -2,6 +2,7 @@ import { useForm, useStore } from '@tanstack/react-form'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
 import { useEffect, useId, useImperativeHandle, useRef, useState } from 'react'
+import * as z from 'zod'
 
 import { Button } from '#/components/ui/button'
 import {
@@ -21,6 +22,7 @@ import { Textarea } from '#/components/ui/textarea'
 import { projectQueryOptions } from '#/fns/projects'
 import { createTaskFn, tasksQueryOptions } from '#/fns/tasks'
 import { useHotkeys } from '#/hooks/use-hotkeys'
+import { INCOMPLETE_DUE_DATE_MESSAGE, dueDateInputHint } from '#/lib/dates'
 import { PRIORITY_DISPLAY } from '#/lib/priority'
 import { createTaskFormSchema, toCreateTaskInput } from '#/schemas/task'
 
@@ -30,6 +32,7 @@ import { focusTaskCard } from './task-card'
 import type { Priority } from '#/generated/prisma/enums'
 import type { CreateTaskResult } from '#/fns/tasks'
 import type { CreateTaskFormValues, CreateTaskInput } from '#/schemas/task'
+import type { NotFoundEntity } from '#/server/errors'
 
 type TaskProject = {
   id: string
@@ -53,6 +56,26 @@ export type CreateTaskDialogHandle = { open: () => void }
 
 const GENERIC_ERROR = 'Could not create the task. Try again.'
 
+/** What a not_found result means for the user, by the record that is gone. */
+const NOT_FOUND_ERRORS: Partial<Record<NotFoundEntity, string>> = {
+  status: 'That status no longer exists; choose another.',
+  project:
+    'This project no longer exists, so the task cannot be added to it. Close this dialog.',
+}
+
+function createErrorText(result: Extract<CreateTaskResult, { ok: false }>) {
+  if (result.code === 'conflict') return result.message
+  return (result.entity && NOT_FOUND_ERRORS[result.entity]) ?? GENERIC_ERROR
+}
+
+/** The due date help text in the order and format the browser's field shows. */
+function dueDateHelp() {
+  const locale =
+    typeof navigator === 'undefined' ? undefined : navigator.language
+  const { order, example } = dueDateInputHint(locale)
+  return `Optional. ${order[0].toUpperCase()}${order.slice(1)}, such as ${example}.`
+}
+
 /** Field errors are strings or Standard Schema issues, depending on the source. */
 function errorText(errors: Array<unknown>) {
   for (const error of errors) {
@@ -68,7 +91,12 @@ function errorText(errors: Array<unknown>) {
  * The "New task" button and its dialog, for the project of the current route,
  * which the form never asks for (3.3.7). `c` opens it too, through
  * useHotkeys. Errors show under each field and in a summary at the top that
- * takes focus (3.3.1, 3.3.3); a server problem shows in the same summary.
+ * takes focus (3.3.1, 3.3.3); a server problem shows in the same summary,
+ * worded by its cause, such as a status or the project deleted elsewhere. A
+ * due date the browser cannot read, such as one with no year, has an empty
+ * value, so the form checks `validity.badInput` on submit and reports it
+ * like any other field error. Its help text follows the browser's locale,
+ * which is what the native field draws (3.3.2).
  * After a create the task joins the board's cache, the live region announces
  * it, and focus moves to its card, or to the button on a page without cards
  * (2.4.3). Escape and Cancel return focus to the button. While a create is in
@@ -89,6 +117,7 @@ export function CreateTaskDialog({
   const errorId = (name: string) => `${id}-${name}-error`
   const triggerRef = useRef<HTMLButtonElement>(null)
   const summaryRef = useRef<HTMLDivElement>(null)
+  const dueDateRef = useRef<HTMLInputElement>(null)
   const createdId = useRef<string | null>(null)
   const [open, setOpen] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -99,12 +128,19 @@ export function CreateTaskDialog({
     if (summaryFocus > 0) summaryRef.current?.focus()
   }, [summaryFocus])
 
-  /** A failed create may mean the cached project, and its statuses, is stale. */
+  /**
+   * A failed create may mean the cached project, and its statuses, is stale.
+   * Exact, so the board's task list, which sits under the project's key, is
+   * left alone. For a deleted project the refetch fails, and the route's
+   * useSuspenseQuery keeps the cached project rather than throwing, so the
+   * dialog and its summary stay.
+   */
   function showFormError(message: string) {
     setFormError(message)
     setSummaryFocus((count) => count + 1)
     void queryClient.invalidateQueries({
       queryKey: projectQueryOptions(project.id).queryKey,
+      exact: true,
     })
   }
 
@@ -120,9 +156,25 @@ export function CreateTaskDialog({
     priority: 'none',
     dueDate: '',
   }
+  // A partly typed date reaches the schema as '', which it accepts, so the
+  // input's own validity is checked first. Part of the form's schema rather
+  // than a field validator, which would stop TanStack Form from running the
+  // schema and listing the other fields' errors. Aborting there means Due date
+  // gets one message, never two.
+  const [formSchema] = useState(() =>
+    createTaskFormSchema.extend({
+      dueDate: z
+        .string()
+        .refine(() => !dueDateRef.current?.validity.badInput, {
+          error: INCOMPLETE_DUE_DATE_MESSAGE,
+          abort: true,
+        })
+        .pipe(createTaskFormSchema.shape.dueDate),
+    }),
+  )
   const form = useForm({
     defaultValues,
-    validators: { onSubmit: createTaskFormSchema },
+    validators: { onSubmit: formSchema },
     onSubmitInvalid: () => setSummaryFocus((count) => count + 1),
     onSubmit: async ({ value }) => {
       setFormError(null)
@@ -134,7 +186,7 @@ export function CreateTaskDialog({
         return
       }
       if (!result.ok) {
-        showFormError(result.message)
+        showFormError(createErrorText(result))
         return
       }
       const { task } = result
@@ -376,9 +428,10 @@ export function CreateTaskDialog({
                   id={`${id}-dueDate-help`}
                   className="text-sm text-muted-foreground"
                 >
-                  Optional. A calendar day, such as 2026-10-01.
+                  {dueDateHelp()}
                 </p>
                 <Input
+                  ref={dueDateRef}
                   id={fieldId('dueDate')}
                   name="dueDate"
                   type="date"

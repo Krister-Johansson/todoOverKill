@@ -50,10 +50,46 @@ describe('toCreateTaskResult', () => {
     })
   })
 
-  it('rethrows a missing project', async () => {
+  it('returns a status deleted before the create as a not_found result', async () => {
+    const project = await createProject({ name: 'Website', key: 'WEB' })
+    const status = project.statuses[1]
+    await db.status.delete({ where: { id: status.id } })
+
+    const result = await toCreateTaskResult(() =>
+      createTask(project.id, { title: 'Write copy', statusId: status.id }),
+    )
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'not_found',
+      entity: 'status',
+      message: `No status with id ${status.id} in this project.`,
+    })
+    await expect(db.task.count()).resolves.toBe(0)
+  })
+
+  it('returns a project deleted before the create as a not_found result', async () => {
+    const project = await createProject({ name: 'Website', key: 'WEB' })
+    await db.project.delete({ where: { id: project.id } })
+
+    const result = await toCreateTaskResult(() =>
+      createTask(project.id, { title: 'Write copy' }),
+    )
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'not_found',
+      entity: 'project',
+      message: `No project with id ${project.id}.`,
+    })
+  })
+
+  it('rethrows any other error', async () => {
+    const failure = new Error('connection lost')
+
     await expect(
-      toCreateTaskResult(() => createTask('missing', { title: 'Write copy' })),
-    ).rejects.toMatchObject({ code: 'not_found' })
+      toCreateTaskResult(() => Promise.reject(failure)),
+    ).rejects.toBe(failure)
   })
 })
 

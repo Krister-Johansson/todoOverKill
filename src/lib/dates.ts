@@ -26,6 +26,41 @@ export function formatDueDate(day: string) {
   return dueDateFormat.format(new Date(`${day}T00:00:00Z`))
 }
 
+const HINT_DAY = new Date('2026-10-01T00:00:00Z')
+
+const PART_WORDS: Partial<Record<Intl.DateTimeFormatPartTypes, string>> = {
+  year: 'year',
+  month: 'month',
+  day: 'day',
+}
+
+/**
+ * How a native date input shows a day in `locale`: its parts in order, such
+ * as `month, day and year`, and 2026-10-01 written that way, such as
+ * `10/01/2026` in en-US. Chrome draws the field from the locale, so help text
+ * built from this matches what the user sees (3.3.2).
+ */
+export function dueDateInputHint(locale?: string) {
+  const format = new Intl.DateTimeFormat(locale, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: 'UTC',
+  })
+  const words = format
+    .formatToParts(HINT_DAY)
+    .flatMap(({ type }) => PART_WORDS[type] ?? [])
+  const order = `${words.slice(0, -1).join(', ')} and ${words.at(-1)}`
+  return { order, example: format.format(HINT_DAY) }
+}
+
+/**
+ * The error for a date input the browser cannot read, such as a month and day
+ * with no year. Its value is then empty, so only `validity.badInput` shows it.
+ */
+export const INCOMPLETE_DUE_DATE_MESSAGE =
+  'Enter the whole date, with day, month and year, or clear the field.'
+
 // A moment, unlike a day, is shown in the local zone. The app is local, so
 // the server render and the browser share that zone.
 const dateTimeFormat = new Intl.DateTimeFormat('en', {

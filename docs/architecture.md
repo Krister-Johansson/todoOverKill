@@ -63,8 +63,9 @@ src/
     subtasks.ts             listSubtasksFn, addSubtaskFn, updateSubtaskFn, deleteSubtaskFn; subtasksQueryOptions (key ['tasks', id, 'subtasks'])
     tasks.ts                listTasksFn, getTaskFn, createTaskFn, moveTaskFn, listTaskActivityFn; tasksQueryOptions (key ['projects', id, 'tasks']), taskQueryOptions (key ['tasks', id]), taskActivityQueryOptions (key ['tasks', id, 'activity'])
   tools/
-    definitions.ts          toolDefinition() for every domain tool (name, description, Zod in/out)
-    server.ts               .server() implementations calling src/server
+    definitions.ts          toolDefinition() for each domain tool (name, description, Zod in/out) and the toolDefinitions list
+    server.ts               .server() implementations calling src/server, and the serverTools list
+    errors.ts               ToolError and toToolError, which map service errors to readable tool errors
     client.ts               .client() implementations for UI-only tools (navigate, open task, filter, theme)
     webmcp.ts               Registers tools on document.modelContext
     mcp.ts                  Maps definitions onto @modelcontextprotocol/sdk McpServer
@@ -139,7 +140,7 @@ Each comment mutation writes one activity row in its transaction, with the task'
 
 The dashboard service has one read. `listDashboardTasks(today)` takes today as a `YYYY-MM-DD` string, which the caller picks so the server render and the browser agree on the day, and returns `{ dueToday, overdue }` across unarchived projects. It is one query, not one per project: tasks with no `completedAt`, a due date on or before today, and a project whose `archivedAt` is null. Today goes through the tasks service's exported `toCalendarDate`, so it is compared as the same UTC midnight the `date` column stores. Due today means due on that day; overdue means due before it and not completed, the rule the board's Overdue word, the overdue filter and REST use, so a completed task is in neither list. Tasks come back ordered by due date, then project name, then project key, then number (project names repeat and every project numbers from 1, so the key keeps the order stable), each with its `status`, flat `labels` and `project` (`id`, `name`, `key`). Recent activity and per-project progress are F64 (#92).
 
-The search service has one read. `search(query, options?)` parses `{ query, ...options }` with the strict `searchSchema` from `src/schemas/search.ts`: the query is trimmed and must be 1 to 200 characters, and `limit`, the most results of each kind, is 1 to 50 and defaults to 10. It returns `{ projects, tasks }` from unarchived projects only: projects whose name or key contains the query, as `{ id, name, key, color }`, and tasks whose title or description contains it, as `{ id, number, title, project: { key, name }, status: { name } }`. Completed tasks are included. Matching ignores case through Prisma's `contains` and `startsWith` with `mode: 'insensitive'`, which become an unescaped ILIKE, so the service puts a backslash before each `\`, `%` and `_` in the query; the backslash is PostgreSQL's default LIKE escape, so those characters match only themselves and a trailing backslash does not fail the query. A task reference is matched exactly, never as text: a query shaped like `KEY-N` (a letter, 1 to 9 more letters or digits, a dash, digits, in any case) also finds the task with that project key, upper-cased, and that number, so `tok-1` finds TOK-1 and not TOK-10, and `TOK` or `OK-1` match no reference. A number too big for the column is not a reference. Within each kind, names or titles that start with the query, and the referenced task, come first, then the other matches, each group most recently updated first (then by id). Each kind is two reads: the first takes that starts-with group up to the limit; when it comes back short, the second takes the other matches with `NOT` the same group-1 condition for the room left, so a task that matches by reference and by description, or a project that matches by name and key, comes back once. The two kinds are read at the same time. There is no UI, server function, REST route or tool yet: the palette results are F66 (#97), REST search is F32 and the search tool F34.
+The search service has one read. `search(query, options?)` parses `{ query, ...options }` with the strict `searchSchema` from `src/schemas/search.ts`: the query is trimmed and must be 1 to 200 characters, and `limit`, the most results of each kind, is 1 to 50 and defaults to 10. It returns `{ projects, tasks }` from unarchived projects only: projects whose name or key contains the query, as `{ id, name, key, color }`, and tasks whose title or description contains it, as `{ id, number, title, project: { key, name }, status: { name } }`. Completed tasks are included. Matching ignores case through Prisma's `contains` and `startsWith` with `mode: 'insensitive'`, which become an unescaped ILIKE, so the service puts a backslash before each `\`, `%` and `_` in the query; the backslash is PostgreSQL's default LIKE escape, so those characters match only themselves and a trailing backslash does not fail the query. A task reference is matched exactly, never as text: a query shaped like `KEY-N` (a letter, 1 to 9 more letters or digits, a dash, digits, in any case) also finds the task with that project key, upper-cased, and that number, so `tok-1` finds TOK-1 and not TOK-10, and `TOK` or `OK-1` match no reference. A number too big for the column is not a reference. Within each kind, names or titles that start with the query, and the referenced task, come first, then the other matches, each group most recently updated first (then by id). Each kind is two reads: the first takes that starts-with group up to the limit; when it comes back short, the second takes the other matches with `NOT` the same group-1 condition for the room left, so a task that matches by reference and by description, or a project that matches by name and key, comes back once. The two kinds are read at the same time. The `search` tool (F34) calls it; there is no UI, server function or REST route yet: the palette results are F66 (#97) and REST search is F32.
 
 `createTask` and `updateTask` take `labelIds`. On create the labels are attached in the task's transaction. On update `labelIds` is the whole new set, in any order, and `[]` clears it: the service compares it with the current labels, writes only the difference as a `deleteMany` and a `create` on the task's one update statement, and names `labels` in the `task.updated` fields. A set equal to the current one writes nothing. Both throw `NotFoundError` for a label outside the task's project and write nothing. A label deleted between that check and the write trips the TaskLabel foreign key (P2003), which becomes the same `NotFoundError`; on create, a status deleted the same way trips the Task foreign key and becomes the status's `NotFoundError`. The service tells the two apart by the constraint name in the error. A repeated id, or more than 50 ids, is a Zod error.
 
@@ -233,18 +234,23 @@ The OpenAPI document is generated from the Zod schemas and served at `/api/v1/op
 
 ## Tools: one definition, four consumers
 
-`src/tools/definitions.ts` declares every tool with TanStack AI's `toolDefinition({ name, description, inputSchema, outputSchema, needsApproval })`. The Zod schemas come from `src/schemas/`.
+`src/tools/definitions.ts` declares each tool with TanStack AI's `toolDefinition({ name, description, inputSchema, outputSchema })`, and the write tools that delete or archive add `needsApproval`. `src/tools/server.ts` turns each definition into a server tool with `.server(execute)` and exports them all as `serverTools`, the list the MCP server and the assistant take.
+
+- The description is written for a model: what the tool returns, when to use it rather than another tool, and what each filter means.
+- Input schemas come from `src/schemas/`. They must have no transforms: TanStack AI, MCP and WebMCP all turn the input schema into JSON Schema, and `z.toJSONSchema` throws on a transform. Where a service schema has one, a tool schema sits beside it with the transform's input side, such as `listTasksToolSchema` with `q` as a plain trimmed string; the service still parses with its own schema. A test converts every definition's input and output schema.
+- Output schemas describe the JSON a tool returns: ISO strings for timestamps and `YYYY-MM-DD` for due dates. They live in `src/schemas/` beside the input schemas (`projectOutputSchema`, `taskOutputSchema`, `searchResultsOutputSchema`, and so on). The chat engine parses every result with the output schema.
+- Every `execute` is built by `serve(definition, call)` in `src/tools/server.ts`, and `call` only calls the service. `serve` parses the arguments with the definition's input schema, as the chat engine does before it calls a tool, so a direct call (MCP, a test) gets the same defaults and trimming. It sends the service result through JSON, so Dates become ISO strings, and maps errors with `toToolError` from `src/tools/errors.ts`, as `handle()` and `errorResponse` do for REST: a `NotFoundError` or `ConflictError` becomes a `ToolError` with the same code (`not_found`, `conflict`) and message, and a `ZodError` becomes a `ToolError` with code `validation` and a message from `z.prettifyError`, one line per issue followed by its path (`✖ Search text is required.` then `→ at query`), never the issues array. Any other error is thrown unchanged; F35 and F39 decide what the caller sees for it. The chat engine puts a thrown error's message in the tool result, so the model reads it and can correct its call.
+
+Which issue adds which tools:
 
 ```
-list_projects, get_project, create_project, archive_project
-list_tasks (filters), get_task, create_task, update_task, move_task, complete_task, delete_task
-add_subtask, toggle_subtask
-add_comment
-search
-navigate, open_task, set_filter, set_theme        (client only)
+F34 (#34)   list_projects, get_project, list_tasks (filters), get_task, search
+F67 (#100)  create_project, archive_project, create_task, update_task, move_task, complete_task, delete_task
+F68 (#101)  list_subtasks, add_subtask, update_subtask, move_subtask, delete_subtask,
+            list_labels, create_label,
+            list_comments, add_comment, update_comment, delete_comment
+F40 (#40)   navigate, open_task, set_filter, set_theme        (client only)
 ```
-
-Tools to edit and delete a comment, beside `add_comment`, come with the tool issues: F34 (#34) defines them, F36 (#36) serves them over MCP, and F39 (#39) gives them to the assistant.
 
 Consumers:
 
@@ -253,7 +259,7 @@ Consumers:
 3. WebMCP. `src/tools/webmcp.ts` runs on the client, feature-detects `modelContext`, and calls `registerTool` for every tool with a JSON Schema derived from the Zod input schema. Data tools execute by calling the server functions; UI tools call the same client implementations as the assistant. Registration uses an `AbortSignal` tied to the shell's lifetime.
 4. REST. Not tool-based, but the handlers use the same Zod schemas.
 
-Tools marked `needsApproval` (delete, archive) surface a confirmation in the assistant panel before executing. The MCP and WebMCP paths return an error asking for `confirm: true` on those tools, and the UI shows the same confirmation dialog when WebMCP triggers them.
+`needsApproval` arrives with F67 (`archive_project`, `delete_task`) and F68 (`delete_subtask`, `delete_comment`). Those tools surface a confirmation in the assistant panel before executing. Over MCP, F36 requires `confirm: true` on them and returns an error otherwise; WebMCP does the same, and the UI shows the same confirmation dialog when WebMCP triggers them.
 
 ## Assistant, voice, and speech
 

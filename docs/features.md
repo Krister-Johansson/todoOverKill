@@ -173,7 +173,7 @@ Depends on: F24.
 Acceptance: each section has a heading and a text empty state; activity shows relative and absolute time; the query count does not grow with the number of projects; axe clean in light and dark themes and no horizontal scroll at 320 px.
 
 ### F25 Search service (#25)
-The backend for search, with no UI. `src/schemas/search.ts` (the query trimmed to 1 to 200 characters; an optional `limit` per kind, 1 to 50, default 10; strict) and `search(query, options?)` in `src/server/search.ts`, which returns matching projects by name or key and tasks by title, description or reference. Matching ignores case and takes `%`, `_` and `\` as plain text. A query shaped like a reference (`KEY-N`, such as `tok-12`) finds that task by exact key and number, never by part of one. Archived projects and their tasks are left out; completed tasks are included. Within each kind, names or titles that start with the query (and the referenced task) come first, then the rest, each most recently updated first. A task result has id, number, title, project key and name, and status name; a project result has id, name, key and colour. Scope was reduced on 2026-10-02 to keep it to one PR: the command palette moved to F65 (#96) and search results in the palette to F66 (#97). REST search and the search tool come with F32 and F34.
+The backend for search, with no UI. `src/schemas/search.ts` (the query trimmed to 1 to 200 characters; an optional `limit` per kind, 1 to 50, default 10; strict) and `search(query, options?)` in `src/server/search.ts`, which returns matching projects by name or key and tasks by title, description or reference. Matching ignores case and takes `%`, `_` and `\` as plain text. A query shaped like a reference (`KEY-N`, such as `tok-12`) finds that task by exact key and number, never by part of one. Archived projects and their tasks are left out; completed tasks are included. Within each kind, names or titles that start with the query (and the referenced task) come first, then the rest, each most recently updated first. A task result has id, number, title, project key and name, and status name; a project result has id, name, key and colour. Scope was reduced on 2026-10-02 to keep it to one PR: the command palette moved to F65 (#96) and search results in the palette to F66 (#97). REST search comes with F32; the `search` tool came with F34.
 Depends on: F12.
 Acceptance: unit tests against the test database cover project by name and by key, task by title, description and reference, case-insensitivity, wildcard characters taken literally, archived projects left out, the limit, the order, and invalid input (ZodError); `docs/architecture.md` describes the service.
 
@@ -231,10 +231,20 @@ Acceptance: the document validates; the page is axe clean.
 
 ## Milestone 3: tool definitions and MCP server
 
-### F34 Tool definitions (#34)
-`src/tools/definitions.ts` with `toolDefinition()` for every domain tool and UI tool listed in `architecture.md`, and `src/tools/server.ts` with `.server()` implementations for the data tools.
-Depends on: F18, F20, F25.
-Acceptance: unit tests call each server tool against the test database.
+### F34 Tool definitions: pattern and read tools (#34)
+`src/tools/definitions.ts` with TanStack AI's `toolDefinition({ name, description, inputSchema, outputSchema })` and `src/tools/server.ts` with `.server()` implementations for the read tools: `list_projects`, `get_project`, `list_tasks` (with the filters `listTasks` takes), `get_task` and `search`. Input schemas come from `src/schemas/` and have no transforms, so every transport can turn them into JSON Schema; output schemas describe the JSON the tools return (ISO timestamps, `YYYY-MM-DD` due dates). Each description says what the tool returns and when to use it. Each `.server()` implementation calls the service in `src/server/` and adds no logic of its own; a shared helper parses the arguments with the input schema and maps a `NotFoundError`, `ConflictError` or `ZodError` to a `ToolError` (`src/tools/errors.ts`) with a code and a readable message. The server tools are exported as one list, `serverTools`, for F35 and F39. Scope was reduced on 2026-10-02 to keep it to one PR: the write tools for projects and tasks moved to F67 (#100), the subtask, label and comment tools to F68 (#101), and the UI tools (`navigate`, `open_task`, `set_filter`, `set_theme`) come with their client implementations in F40.
+Depends on: F12, F25.
+Acceptance: unit tests call each server tool against the test database, including a not-found case and an invalid-input case; `docs/architecture.md`'s tool section describes the pattern and lists which issue adds which tools.
+
+### F67 Tools: write tools for projects and tasks (#100)
+Adds `create_project`, `archive_project`, `create_task`, `update_task`, `move_task`, `complete_task` and `delete_task` to `src/tools/definitions.ts` and `src/tools/server.ts`, following the F34 pattern. Input schemas come from `src/schemas/` (including `labelIds` on `create_task` and `update_task`). `archive_project` and `delete_task` are marked `needsApproval`.
+Depends on: F34.
+Acceptance: unit tests call each server tool against the test database, including a not-found case and an invalid-input case; a test asserts which tools carry `needsApproval`; `docs/architecture.md`'s tool list matches the definitions.
+
+### F68 Tools: subtasks, labels and comments (#101)
+Adds the subtask tools (`list_subtasks`, `add_subtask`, `update_subtask` for title and done, `move_subtask`, `delete_subtask`), the label tools (`list_labels`, `create_label`) and the comment tools (`list_comments`, `add_comment`, `update_comment`, `delete_comment`), following the F34 pattern. `delete_subtask` and `delete_comment` are marked `needsApproval`.
+Depends on: F34.
+Acceptance: unit tests call each server tool against the test database; a test asserts which tools carry `needsApproval`; `docs/architecture.md`'s tool list matches the definitions.
 
 ### F35 MCP server: read tools (#35)
 `/api/mcp` server route with `@modelcontextprotocol/sdk` Streamable HTTP; registers `list_projects`, `get_project`, `list_tasks`, `get_task`, `search`.
@@ -242,8 +252,8 @@ Depends on: F34.
 Acceptance: a Vitest test uses the SDK client to list tools and call `list_projects`; `docs/mcp.md` shows how to add the server to Claude Code.
 
 ### F36 MCP server: write tools with confirmation (#36)
-Adds the mutating tools. `delete_task` and `archive_project` require `confirm: true` and return a structured error otherwise.
-Depends on: F35.
+Serves the write tools from F67 and F68 over MCP. `delete_task` and `archive_project` require `confirm: true` and return a structured error otherwise, as do `delete_subtask` and `delete_comment`.
+Depends on: F35, F67, F68.
 Acceptance: tests for a successful move and a refused delete.
 
 ### F37 MCP resources and prompt (#37)
@@ -259,7 +269,7 @@ Depends on: F34, F26.
 Acceptance: axe clean; streaming can be stopped; e2e uses a mocked SSE response.
 
 ### F39 Assistant data tools (#39)
-Pass the server tools from F34 to `chat()`. Render tool calls in the message list with name, status, and result summary.
+Pass `serverTools` from `src/tools/server.ts` (the F34 read tools and whatever F67 and F68 have added) to `chat()`. Render tool calls in the message list with name, status, and result summary.
 Depends on: F38.
 Acceptance: e2e with a mocked model response that calls `list_tasks` renders the tool card.
 

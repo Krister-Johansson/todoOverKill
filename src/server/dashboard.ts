@@ -56,3 +56,61 @@ export async function listDashboardTasks(today: string) {
   }
   return { dueToday, overdue }
 }
+
+/** How many activity rows the dashboard shows. */
+export const RECENT_ACTIVITY_LIMIT = 20
+
+/**
+ * The latest `limit` activity rows of unarchived projects, newest first, each
+ * with its project (`id`, `name`, `key`) and its task (`id`, `number`), or
+ * `task: null` once the task is deleted. One `findMany` whatever the number of
+ * projects: Prisma loads the project and task of every row in one statement
+ * per table, never one per row. Rows written in the same millisecond come in
+ * id order, so the order is the same on every read.
+ */
+export async function listRecentActivity(limit = RECENT_ACTIVITY_LIMIT) {
+  return db.activity.findMany({
+    where: { project: { is: { archivedAt: null } } },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: limit,
+    select: {
+      id: true,
+      type: true,
+      payload: true,
+      createdAt: true,
+      project: { select: { id: true, name: true, key: true } },
+      task: { select: { id: true, number: true } },
+    },
+  })
+}
+
+/**
+ * Every unarchived project with its number of tasks (`total`) and of completed
+ * ones (`done`), ordered by name, then key. Done means `completedAt` is set,
+ * the rule the Overdue word uses, so a task created in a Done status counts.
+ * Two operations whatever the number of projects: the projects, then their
+ * tasks grouped by project. Both counts come from that one grouping, so
+ * `done` is never more than `total`.
+ */
+export async function listProjectProgress() {
+  const projects = await db.project.findMany({
+    where: { archivedAt: null },
+    orderBy: [{ name: 'asc' }, { key: 'asc' }],
+    select: { id: true, name: true, key: true },
+  })
+  const groups = await db.task.groupBy({
+    by: ['projectId'],
+    where: { projectId: { in: projects.map((project) => project.id) } },
+    // `completedAt` counts the rows where it is set.
+    _count: { _all: true, completedAt: true },
+  })
+  const counts = new Map(groups.map((group) => [group.projectId, group._count]))
+  return projects.map((project) => {
+    const count = counts.get(project.id)
+    return {
+      ...project,
+      total: count?._all ?? 0,
+      done: count?.completedAt ?? 0,
+    }
+  })
+}

@@ -173,7 +173,7 @@ Depends on: F21, F23.
 Acceptance: each section has a heading and a text empty state, not just an icon; completed tasks and tasks of archived projects are left out; every item is a link at least 44 px tall; unit tests for the read against the test database; axe clean in light and dark themes and no horizontal scroll at 320 px.
 
 ### F64 Dashboard: recent activity and project progress (#92)
-The rest of the dashboard, split out of F24: a "Recent activity" section with the latest activity rows across unarchived projects as sentences linking to their task, and a "Projects" section with one row per unarchived project linking to its board and showing progress as text ("7 of 21 tasks done"). One query per read, not one per project.
+The rest of the dashboard, split out of F24: a "Recent activity" section with the latest activity rows across unarchived projects as sentences linking to their task, and a "Projects" section with one row per unarchived project linking to its board and showing progress as text ("7 of 21 tasks done"). One query per read, not one per project. Ships the two sections, reusing the activity sentences, relative times and loader `now` of the task page's Activity section; the activity library follow-ups from the F24 review moved to F71 (#115).
 Depends on: F24.
 Acceptance: each section has a heading and a text empty state; activity shows relative and absolute time; the query count does not grow with the number of projects; axe clean in light and dark themes and no horizontal scroll at 320 px.
 
@@ -282,6 +282,11 @@ Acceptance: a conversation of more than 100 messages, or with a reply over 20,00
 Below `md` with the panel open, `c`, Ctrl+K and the command menu's actions never leave focus on the body. Stop focus is tracked on the Stop button itself, so a click on plain text does not pull focus to the composer when a reply ends. The live region carries plain text or a short status, never raw Markdown, and a reply that finished behind a modal is announced once it closes. An unsent draft survives closing the panel, and only the streaming message is re-parsed.
 Depends on: F69.
 Acceptance: at 320 px, e2e asserts where focus lands after `c`, Ctrl+K and a command menu action; unit tests cover the Stop focus rule; axe clean in both themes.
+
+### F71 Activity sentences: safe field lookup, rounded relative times, one type list, live now (#115)
+Follow-ups to the activity library from the F21 and F24 reviews, split out of F64, for both the task page's Activity section and the dashboard's Recent activity. The field-word lookup in `src/lib/activity.ts` uses a `Map` or `Object.hasOwn`, so a field named like an `Object.prototype` key falls back to its own name. Relative times round to the nearest unit, so a row 13 days old reads "2 weeks ago". The activity type list lives once in `src/schemas/activity.ts`, re-exported by `src/server/activity.ts`. A `useNow` hook takes the loader's `now` and refreshes it after hydration and once a minute. Paging of a long task history stays out.
+Depends on: F64.
+Acceptance: a field named like an `Object.prototype` key renders as its own name; a row 13 days old reads "2 weeks ago"; relative times refresh once a minute without a hydration mismatch; the type list exists in one place and the schema test checks it against the payload schemas.
 
 ### F39 Assistant data tools (#39)
 Pass the server tools from `src/tools/server.ts` (the F34 read tools and whatever F67 and F68 have added) to `chat()`. Render tool calls in the message list with name, status, and result summary. The four `needsApproval` tools (`archive_project`, `delete_task`, `delete_subtask`, `delete_comment`) are left out (`assistantTools`) until F40 adds the Approve and Deny prompt, since without it such a call would pause the run with nothing to answer it.

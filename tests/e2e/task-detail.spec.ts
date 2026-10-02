@@ -74,7 +74,7 @@ async function seedTasks(label: string) {
       labels: {
         create: [
           { name: 'Bug', color: '#dc2626' },
-          { name: 'Design', color: '#7c3aed' },
+          { name: 'Design', color: '#8b5cf6' },
         ],
       },
     },
@@ -213,6 +213,10 @@ test('direct navigation shows every field of the task', async ({ page }) => {
     'Bug',
     'Design',
   ])
+  // The chip border is the label's palette colour.
+  await expect(
+    field(page, 'Labels').getByText('Bug', { exact: true }).locator('..'),
+  ).toHaveCSS('border-color', 'rgb(220, 38, 38)')
   for (const term of ['Created', 'Updated']) {
     await expect(field(page, term).locator('time')).toHaveAttribute(
       'datetime',

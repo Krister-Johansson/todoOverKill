@@ -1,6 +1,6 @@
 /**
- * The colours a project can have. Each reaches 3:1 against the page and the
- * sidebar in both themes (docs/accessibility.md 1.4.11), which
+ * The colours a project or label can have. Each reaches 3:1 against every
+ * CHIP_SURFACES token in both themes (docs/accessibility.md 1.4.11), which
  * project-colors.test.ts checks against src/styles.css. The colour is never
  * the only cue: the name is shown wherever the swatch is chosen.
  */
@@ -14,6 +14,25 @@ export const PROJECT_COLORS = [
   { name: 'Teal', value: '#0f766e' },
   { name: 'Slate', value: '#64748b' },
 ] as const
+
+/**
+ * The only theme tokens a project or label colour may be painted on: the page,
+ * card, popover and sidebar surfaces.
+ */
+export const CHIP_SURFACES = [
+  'background',
+  'card',
+  'popover',
+  'sidebar',
+] as const
+
+/**
+ * The surface a label chip paints under its border, from CHIP_SURFACES. A
+ * hovered board or dashboard card paints --accent, which is too light in the
+ * dark theme for some palette colours, so the chip carries this fill and its
+ * border always sits on a checked surface.
+ */
+export const CHIP_FILL = 'background' satisfies (typeof CHIP_SURFACES)[number]
 
 /** The palette name for a hex value, or undefined for a colour not in it. */
 export function projectColorName(value: string | null | undefined) {

@@ -50,6 +50,10 @@ describe('activityPayloadSchemas', () => {
     ] as const) {
       const schema = activityPayloadSchemas[type]
       expect(
+        schema.safeParse({ number: 1, commentId: 'c1' }).success,
+        type,
+      ).toBe(true)
+      expect(
         schema.safeParse({ number: 1, excerpt: 'Looks good' }).success,
         type,
       ).toBe(true)

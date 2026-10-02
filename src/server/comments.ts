@@ -16,24 +16,6 @@ const commentOrder = [
   { id: 'asc' },
 ] as const satisfies Array<Prisma.CommentOrderByWithRelationInput>
 
-/** The most characters of a comment an activity row keeps. */
-export const COMMENT_EXCERPT_LENGTH = 80
-
-/**
- * The start of a comment for an activity row, so the log names the comment
- * without holding a second copy of it: whitespace, newlines included, collapses
- * to single spaces, and a longer body is cut to COMMENT_EXCERPT_LENGTH
- * characters ending in "…". Counts code points, so a cut never splits one.
- */
-export function commentExcerpt(body: string) {
-  const text = Array.from(body.trim().replace(/\s+/g, ' '))
-  if (text.length <= COMMENT_EXCERPT_LENGTH) return text.join('')
-  return `${text
-    .slice(0, COMMENT_EXCERPT_LENGTH - 1)
-    .join('')
-    .trimEnd()}…`
-}
-
 function taskNotFound(id: string) {
   return new NotFoundError(`No task with id ${id}.`)
 }
@@ -80,8 +62,9 @@ async function lockComment(tx: Prisma.TransactionClient, id: string) {
 }
 
 // Every mutation writes one activity row on the task, with its project, in the
-// same transaction. The payload holds the task number and an excerpt of the
-// comment, never the whole body. A call that changes nothing writes no row.
+// same transaction. The payload holds the task number and the comment's id,
+// never its text, so editing or deleting a comment leaves no copy of the old
+// text in the log. A call that changes nothing writes no row.
 
 /** A task's comments, oldest first. Throws NotFoundError for an unknown task. */
 export async function listComments(taskId: string) {
@@ -110,7 +93,7 @@ export async function addComment(taskId: string, input: CreateCommentInput) {
         projectId: task.projectId,
         taskId: id,
         type: ACTIVITY_TYPES.commentAdded,
-        payload: { number: task.number, excerpt: commentExcerpt(body) },
+        payload: { number: task.number, commentId: comment.id },
       },
     })
     return comment
@@ -118,9 +101,9 @@ export async function addComment(taskId: string, input: CreateCommentInput) {
 }
 
 /**
- * Replaces the body and writes a `comment.updated` row with the new excerpt.
- * The body is compared after trimming, so an update with the current body
- * returns the comment unchanged and writes nothing. Throws NotFoundError.
+ * Replaces the body and writes a `comment.updated` row. The body is compared
+ * after trimming, so an update with the current body returns the comment
+ * unchanged and writes nothing. Throws NotFoundError.
  */
 export async function updateComment(id: string, input: UpdateCommentInput) {
   const commentId = commentIdSchema.parse(id)
@@ -137,7 +120,7 @@ export async function updateComment(id: string, input: UpdateCommentInput) {
         projectId: task.projectId,
         taskId: comment.taskId,
         type: ACTIVITY_TYPES.commentUpdated,
-        payload: { number: task.number, excerpt: commentExcerpt(body) },
+        payload: { number: task.number, commentId },
       },
     })
     return updated
@@ -145,8 +128,8 @@ export async function updateComment(id: string, input: UpdateCommentInput) {
 }
 
 /**
- * Deletes the comment, writes a `comment.deleted` row with the excerpt of the
- * body it had, and returns the deleted comment. Throws NotFoundError.
+ * Deletes the comment, writes a `comment.deleted` row, and returns the deleted
+ * comment. Throws NotFoundError.
  */
 export async function deleteComment(id: string) {
   const commentId = commentIdSchema.parse(id)
@@ -158,7 +141,7 @@ export async function deleteComment(id: string) {
         projectId: task.projectId,
         taskId: comment.taskId,
         type: ACTIVITY_TYPES.commentDeleted,
-        payload: { number: task.number, excerpt: commentExcerpt(comment.body) },
+        payload: { number: task.number, commentId },
       },
     })
     return comment

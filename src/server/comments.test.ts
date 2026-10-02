@@ -7,9 +7,7 @@ import { ZodError } from 'zod'
 import { describeActivity, fallbackSentence } from '#/lib/activity'
 import { listTaskActivity } from '#/server/activity'
 import {
-  COMMENT_EXCERPT_LENGTH,
   addComment,
-  commentExcerpt,
   deleteComment,
   listComments,
   updateComment,
@@ -89,28 +87,6 @@ async function bodiesOf(taskId: string) {
   return (await listComments(taskId)).map((comment) => comment.body)
 }
 
-describe('commentExcerpt', () => {
-  it('keeps a short body, with its whitespace collapsed', () => {
-    expect(commentExcerpt('  Looks\n\n good\t to me ')).toBe('Looks good to me')
-  })
-
-  it(`cuts a long body to ${COMMENT_EXCERPT_LENGTH} characters ending in …`, () => {
-    const excerpt = commentExcerpt('x'.repeat(200))
-    expect(excerpt).toHaveLength(COMMENT_EXCERPT_LENGTH)
-    expect(excerpt).toBe(`${'x'.repeat(COMMENT_EXCERPT_LENGTH - 1)}…`)
-    expect(commentExcerpt('x'.repeat(COMMENT_EXCERPT_LENGTH))).toBe(
-      'x'.repeat(COMMENT_EXCERPT_LENGTH),
-    )
-  })
-
-  it('does not split a character or end on a space', () => {
-    expect(commentExcerpt('😀'.repeat(100))).toBe(`${'😀'.repeat(79)}…`)
-    expect(commentExcerpt(`${'x'.repeat(78)} yz${'x'.repeat(10)}`)).toBe(
-      `${'x'.repeat(78)}…`,
-    )
-  })
-})
-
 describe('listComments', () => {
   it('returns an empty list for a task without comments', async () => {
     const { task } = await createWebsiteTask()
@@ -165,14 +141,15 @@ describe('addComment', () => {
 
   it('writes one comment.added row on the task', async () => {
     const { project, task } = await createWebsiteTask()
-    const rows = await newActivity(project.id, () =>
-      addComment(task.id, { body: 'Looks good' }),
-    )
+    let comment: Awaited<ReturnType<typeof addComment>> | undefined
+    const rows = await newActivity(project.id, async () => {
+      comment = await addComment(task.id, { body: 'Looks good' })
+    })
     expect(rows).toEqual([
       {
         type: 'comment.added',
         taskId: task.id,
-        payload: { number: 1, excerpt: 'Looks good' },
+        payload: { number: 1, commentId: comment!.id },
       },
     ])
     expect((await listTaskActivity(task.id)).map((row) => row.type)).toEqual([
@@ -181,19 +158,22 @@ describe('addComment', () => {
     ])
   })
 
-  it('stores an excerpt of a long comment, not the body', async () => {
+  it('copies no comment text into the log', async () => {
     const { project, task } = await createWebsiteTask()
-    const body = `First line\n\n${'word '.repeat(500)}`.trim()
-    const rows = await newActivity(project.id, () =>
-      addComment(task.id, { body }),
-    )
-    expect(rows).toEqual([
-      expect.objectContaining({
-        payload: { number: 1, excerpt: commentExcerpt(body) },
-      }),
-    ])
-    expect(commentExcerpt(body)).toMatch(/^First line word .*…$/)
-    expect(JSON.stringify(rows[0].payload)).not.toContain(body)
+    const body = 'Short and private'
+    const rows = await newActivity(project.id, async () => {
+      const comment = await addComment(task.id, { body })
+      await updateComment(comment.id, { body: 'Shorter' })
+      await deleteComment(comment.id)
+    })
+    expect(rows).toHaveLength(3)
+    for (const row of rows) {
+      expect(Object.keys(row.payload as object).sort()).toEqual([
+        'commentId',
+        'number',
+      ])
+      expect(JSON.stringify(row.payload)).not.toMatch(/Short/)
+    }
   })
 
   it('throws NotFoundError for an unknown task', async () => {
@@ -233,7 +213,7 @@ describe('updateComment', () => {
       {
         type: 'comment.updated',
         taskId: task.id,
-        payload: { number: 1, excerpt: 'Beta' },
+        payload: { number: 1, commentId: comments[1].id },
       },
     ])
     expect(await bodiesOf(task.id)).toEqual(['A', 'Beta', 'C'])
@@ -286,7 +266,7 @@ describe('deleteComment', () => {
       {
         type: 'comment.deleted',
         taskId: task.id,
-        payload: { number: 1, excerpt: 'B' },
+        payload: { number: 1, commentId: comments[1].id },
       },
     ])
     expect(await bodiesOf(task.id)).toEqual(['A', 'C'])
@@ -301,7 +281,7 @@ describe('deleteComment', () => {
 })
 
 describe('activity sentences', () => {
-  it('reads every row the service writes as a sentence with the excerpt', async () => {
+  it('reads every row the service writes as a sentence without its text', async () => {
     const { task } = await createWebsiteTask()
     const comment = await addComment(task.id, { body: 'Looks good' })
     await updateComment(comment.id, { body: 'Looks great' })
@@ -313,9 +293,9 @@ describe('activity sentences', () => {
       expect(describeActivity(row)).not.toBe(fallbackSentence(row.type))
     }
     expect(rows.map(describeActivity)).toEqual([
-      'Added the comment “Looks good”.',
-      'Edited the comment “Looks great”.',
-      'Deleted the comment “Looks great”.',
+      'Added a comment.',
+      'Edited a comment.',
+      'Deleted a comment.',
     ])
   })
 })

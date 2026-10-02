@@ -21,9 +21,9 @@ const SAMPLES: Record<string, unknown> = {
   'task.moved': { number: 1, from: 'Backlog', to: 'In progress' },
   'task.completed': { number: 1 },
   'task.deleted': { number: 1, title: 'Write copy' },
-  'comment.added': { number: 1, excerpt: 'Looks good' },
-  'comment.updated': { number: 1, excerpt: 'Looks good' },
-  'comment.deleted': { number: 1, excerpt: 'Looks good' },
+  'comment.added': { number: 1, commentId: 'c1' },
+  'comment.updated': { number: 1, commentId: 'c1' },
+  'comment.deleted': { number: 1, commentId: 'c1' },
   'subtask.added': { number: 1, title: 'Draft the intro' },
   'subtask.updated': { number: 1, title: 'Draft the intro', fields: ['title'] },
   'subtask.completed': { number: 1, title: 'Draft the intro' },
@@ -57,9 +57,9 @@ describe('describeActivity', () => {
       'task.moved': 'Moved from Backlog to In progress.',
       'task.completed': 'Completed the task.',
       'task.deleted': 'Deleted the task “Write copy”.',
-      'comment.added': 'Added the comment “Looks good”.',
-      'comment.updated': 'Edited the comment “Looks good”.',
-      'comment.deleted': 'Deleted the comment “Looks good”.',
+      'comment.added': 'Added a comment.',
+      'comment.updated': 'Edited a comment.',
+      'comment.deleted': 'Deleted a comment.',
       'subtask.added': 'Added the subtask “Draft the intro”.',
       'subtask.updated': 'Changed the title of the subtask “Draft the intro”.',
       'subtask.completed': 'Completed the subtask “Draft the intro”.',
@@ -79,11 +79,20 @@ describe('describeActivity', () => {
     ).toBe('Added the subtask “Draft the intro”.')
   })
 
-  it('reads an older comment.added row, which has only body', () => {
-    for (const payload of [{ body: 'Looks good' }, {}]) {
-      const sentence = describeActivity({ type: 'comment.added', payload })
-      expect(sentence).toBe('Added a comment.')
-      expect(sentence).not.toBe(fallbackSentence('comment.added'))
+  it('never quotes the text an older comment row holds', () => {
+    const sentences = {
+      'comment.added': 'Added a comment.',
+      'comment.updated': 'Edited a comment.',
+      'comment.deleted': 'Deleted a comment.',
+    }
+    for (const [type, expected] of Object.entries(sentences)) {
+      for (const payload of [
+        { body: 'Looks good' },
+        { number: 1, excerpt: 'Looks good' },
+        {},
+      ]) {
+        expect(describeActivity({ type, payload }), type).toBe(expected)
+      }
     }
   })
 

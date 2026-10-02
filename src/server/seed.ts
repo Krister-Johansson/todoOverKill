@@ -1,7 +1,6 @@
 import type { Prisma, PrismaClient } from '#/generated/prisma/client'
 import type { Priority } from '#/generated/prisma/enums'
 import { ACTIVITY_TYPES } from '#/server/activity'
-import { commentExcerpt } from '#/server/comments'
 import { DEFAULT_STATUSES } from '#/server/projects'
 
 /** The projects the seed owns. Every run deletes and recreates them. */
@@ -448,7 +447,6 @@ async function seedIn(tx: Prisma.TransactionClient, now: Date) {
 
     const subtasks: Array<Prisma.SubtaskCreateManyInput> = []
     const taskLabels: Array<Prisma.TaskLabelCreateManyInput> = []
-    const comments: Array<Prisma.CommentCreateManyInput> = []
     const activity: Array<Prisma.ActivityCreateManyInput> = [
       {
         projectId: project.id,
@@ -534,11 +532,15 @@ async function seedIn(tx: Prisma.TransactionClient, now: Date) {
       }
       for (const [i, body] of (item.comments ?? []).entries()) {
         const at = commentTimes[i]
-        comments.push({ taskId: task.id, body, createdAt: at, updatedAt: at })
+        // One at a time, as the tasks are, because the row needs the id.
+        const comment = await tx.comment.create({
+          data: { taskId: task.id, body, createdAt: at, updatedAt: at },
+          select: { id: true },
+        })
         activity.push(
           event(
             ACTIVITY_TYPES.commentAdded,
-            { number, excerpt: commentExcerpt(body) },
+            { number, commentId: comment.id },
             at,
           ),
         )
@@ -555,7 +557,6 @@ async function seedIn(tx: Prisma.TransactionClient, now: Date) {
 
     await tx.subtask.createMany({ data: subtasks })
     await tx.taskLabel.createMany({ data: taskLabels })
-    await tx.comment.createMany({ data: comments })
     await tx.activity.createMany({ data: activity })
     result[spec.key] = { tasks: spec.tasks.length }
   }

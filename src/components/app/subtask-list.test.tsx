@@ -161,6 +161,17 @@ describe('SubtaskList', () => {
     expect(document.activeElement).toBe(input)
   })
 
+  it('announces an empty title, since focus is already in the input', async () => {
+    renderList([])
+    const input = screen.getByRole('textbox', { name: 'New subtask' })
+
+    input.focus()
+    fireEvent.submit(input.closest('form')!)
+
+    await expectAnnounced('Title is required.')
+    expect(document.activeElement).toBe(input)
+  })
+
   it('keeps the text and announces a failed add', async () => {
     renderList([])
     add.mockRejectedValue(new Error('down'))
@@ -334,6 +345,19 @@ describe('SubtaskList', () => {
     expect(document.activeElement).toBe(input)
   })
 
+  it('announces an empty rename submitted with Enter', async () => {
+    renderList([row('s1', 'Find')])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Find' }))
+    const input = screen.getByRole('textbox', { name: 'Title' })
+    fireEvent.change(input, { target: { value: '  ' } })
+    fireEvent.submit(input.closest('form')!)
+
+    await expectAnnounced('Title is required.')
+    expect(update).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(input)
+  })
+
   describe('delete', () => {
     async function deleteRow(title: string) {
       const button = screen.getByRole('button', { name: `Delete ${title}` })
@@ -384,6 +408,36 @@ describe('SubtaskList', () => {
 
       const input = screen.getByRole('textbox', { name: 'Title' })
       expect((input as HTMLInputElement).value).toBe('Fix')
+      expect(document.activeElement).toBe(input)
+    })
+
+    it('moves focus to the next row from another control of the deleted row', async () => {
+      renderList([row('s1', 'Find'), row('s2', 'Fix')])
+      const request = deferred<Subtask>()
+      remove.mockReturnValue(request.promise)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Find' }))
+      await waitFor(() => expect(remove).toHaveBeenCalledTimes(1))
+      // As if the user Shift+Tabbed back while the delete was pending.
+      screen.getByRole('button', { name: 'Edit Find' }).focus()
+      await act(async () => request.resolve(row('s1', 'Find')))
+
+      await expectAnnounced('Subtask Find deleted')
+      expect(document.activeElement).toBe(checkbox('Fix'))
+    })
+
+    it('leaves focus alone when it is outside the deleted row', async () => {
+      renderList([row('s1', 'Find'), row('s2', 'Fix')])
+      const request = deferred<Subtask>()
+      remove.mockReturnValue(request.promise)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Delete Find' }))
+      await waitFor(() => expect(remove).toHaveBeenCalledTimes(1))
+      const input = screen.getByRole('textbox', { name: 'New subtask' })
+      input.focus()
+      await act(async () => request.resolve(row('s1', 'Find')))
+
+      await expectAnnounced('Subtask Find deleted')
       expect(document.activeElement).toBe(input)
     })
 

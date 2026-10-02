@@ -253,6 +253,7 @@ function SubtaskRow({
   const queryClient = useQueryClient()
   const announce = useAnnounce()
   const subtasksKey = subtasksQueryOptions(taskId).queryKey
+  const rowRef = useRef<HTMLDivElement>(null)
   const toggle = useMutation(
     toggleSubtaskMutationOptions({ queryClient, taskId, subtask, announce }),
   )
@@ -263,12 +264,12 @@ function SubtaskRow({
       const rows = queryClient.getQueryData(subtasksKey) ?? []
       const index = rows.findIndex((row) => row.id === subtask.id)
       const rest = rows.filter((row) => row.id !== subtask.id)
-      // Taken before the row goes, while its Delete button still has focus.
+      // Taken before the row goes, while any of its controls still has focus.
       const active = document.activeElement
       const hadFocus =
         !active ||
         active === document.body ||
-        active.id === ids.remove(subtask.id)
+        rowRef.current?.contains(active) === true
       queryClient.setQueryData(subtasksKey, rest)
       if (hadFocus) {
         const next = index >= 0 ? (rest[index] ?? rest[index - 1]) : undefined
@@ -304,7 +305,10 @@ function SubtaskRow({
   }
 
   return (
-    <div className="flex min-h-11 min-w-0 flex-wrap items-center gap-x-2">
+    <div
+      ref={rowRef}
+      className="flex min-h-11 min-w-0 flex-wrap items-center gap-x-2"
+    >
       <div className="flex min-w-0 flex-[1_1_12rem] items-center">
         <Checkbox
           id={ids.checkbox(subtask.id)}
@@ -390,7 +394,10 @@ function RenameForm({
     const problem = titleError(title)
     setError(problem)
     if (problem) {
+      // Focus is usually in the input already, so the new description is
+      // not read; the live region says it instead.
       inputRef.current?.focus()
+      announce(problem)
       return
     }
     if (title.trim() === subtask.title) {
@@ -481,7 +488,9 @@ function AddSubtaskForm({
     const problem = titleError(title)
     setError(problem)
     if (problem) {
+      // As in RenameForm, the live region reads the error.
       inputRef.current?.focus()
+      announce(problem)
       return
     }
     add.mutate(title)

@@ -288,6 +288,11 @@ Follow-ups to the activity library from the F21 and F24 reviews, split out of F6
 Depends on: F64.
 Acceptance: a field named like an `Object.prototype` key renders as its own name; a row 13 days old reads "2 weeks ago"; relative times refresh once a minute without a hydration mismatch; the type list exists in one place and the schema test checks it against the payload schemas.
 
+### F73 Test database in a Testcontainers PostgreSQL container per test run (#154)
+`pnpm test` and `pnpm test:e2e` each start their own PostgreSQL container with `@testcontainers/postgresql`, on the PostgreSQL major version in `docker-compose.yml`, migrate it, and stop it when the run ends. They no longer use the shared `todo_over_kill_test` database on port 5434, so handoff runs and a developer can run the suites at once in different worktrees, and a worktree needs no `.env` and no database created by hand. `DATABASE_URL_TEST` stays the variable the app and Prisma read in tests; only its source changes. CI drops its PostgreSQL service and uses the runner's Docker. The dev database on 5434 stays.
+Depends on: F06.
+Acceptance: `pnpm test` and `pnpm test:e2e` pass in a fresh worktree with no `.env` while Docker runs; two `pnpm test` runs in two worktrees at once both pass; `src/server/db.test.ts` checks it is connected to the container's database rather than a fixed name; CI runs both suites against Testcontainers; `.env.example`, README and `docs/architecture.md` describe the setup.
+
 ### F39 Assistant data tools (#39)
 Pass the server tools from `src/tools/server.ts` (the F34 read tools and whatever F67 and F68 have added) to `chat()`. Render tool calls in the message list with name, status, and result summary. The four `needsApproval` tools (`archive_project`, `delete_task`, `delete_subtask`, `delete_comment`) are left out (`assistantTools`) until F40 adds the Approve and Deny prompt, since without it such a call would pause the run with nothing to answer it.
 Depends on: F38.

@@ -1,5 +1,7 @@
 services:
   db:
+    # The tests start their own containers from this image, so they run on the
+    # same major version. See src/test/prepare-test-database.ts.
     image: postgres:17
     restart: unless-stopped
     ports:
@@ -11,10 +13,8 @@ services:
       POSTGRES_DB: todo_over_kill
     volumes:
       - db-data:/var/lib/postgresql/data
-      # Runs once, on an empty volume. Creates the database for DATABASE_URL_TEST.
-      - ./docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
     healthcheck:
-      # Check over TCP. The socket is up while the init scripts still run.
+      # Check over TCP. The socket is up while the entrypoint still initialises.
       test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U todo -d todo_over_kill']
       interval: 5s
       timeout: 5s

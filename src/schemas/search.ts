@@ -19,3 +19,26 @@ export const searchSchema = z.strictObject({
 
 export type SearchInput = z.input<typeof searchSchema>
 export type SearchOptions = Pick<SearchInput, 'limit'>
+
+/** search's result as a tool returns it. */
+export const searchResultsOutputSchema = z.object({
+  projects: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      key: z.string(),
+      color: z.string().nullable(),
+    }),
+  ),
+  tasks: z.array(
+    z.object({
+      id: z.string(),
+      number: z.int(),
+      title: z.string(),
+      project: z.object({ key: z.string(), name: z.string() }),
+      status: z.object({ name: z.string() }),
+    }),
+  ),
+})
+
+export type SearchResultsOutput = z.infer<typeof searchResultsOutputSchema>

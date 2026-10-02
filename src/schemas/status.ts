@@ -36,3 +36,14 @@ export const reorderStatusesSchema = z.object({
 export type CreateStatusInput = z.input<typeof createStatusSchema>
 export type RenameStatusInput = z.input<typeof renameStatusSchema>
 export type ReorderStatusesInput = z.input<typeof reorderStatusesSchema>
+
+/** A status as a tool returns it. `order` sorts the board's columns. */
+export const statusOutputSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  name: z.string(),
+  order: z.number(),
+  category: statusCategorySchema,
+})
+
+export type StatusOutput = z.infer<typeof statusOutputSchema>

@@ -15,7 +15,7 @@ import { listTaskActivity } from '#/server/activity'
 import { createTask, getTask, listTasks, moveTask } from '#/server/tasks'
 
 /** Turns the service's NotFoundError into the route's 404. */
-async function orNotFound<T>(load: () => Promise<T>): Promise<T> {
+export async function orNotFound<T>(load: () => Promise<T>): Promise<T> {
   try {
     return await load()
   } catch (error) {

@@ -26,27 +26,44 @@ type CallOptions = {
   contentType?: string
 }
 
+/**
+ * A fetch that sends every request to the route's handler for its method,
+ * whatever the URL, such as the MCP SDK client's fetch option.
+ */
+export function fetchRoute(
+  route: RouteWithHandlers,
+  params: Record<string, string> = {},
+) {
+  return async (input: string | URL | Request, init?: RequestInit) => {
+    const request = new Request(input, init)
+    // The routes use the object form of handlers, not createHandlers.
+    const handlers = route.options.server?.handlers as
+      Partial<Record<string, Handler>> | undefined
+    const handler = handlers?.[request.method]
+    if (!handler) {
+      throw new Error(`The route has no ${request.method} handler.`)
+    }
+    return handler({ request, params, context: {} })
+  }
+}
+
 /** The response status and its parsed JSON body. */
 export async function callRoute(
   route: RouteWithHandlers,
   method: Method,
   { url, params = {}, body, contentType = 'application/json' }: CallOptions,
 ) {
-  // The routes use the object form of handlers, not createHandlers.
-  const handlers = route.options.server?.handlers as
-    Partial<Record<Method, Handler>> | undefined
-  const handler = handlers?.[method]
-  if (!handler) throw new Error(`The route has no ${method} handler.`)
-
-  const request = new Request(new URL(url, 'http://localhost'), {
-    method,
-    ...(body === undefined
-      ? {}
-      : {
-          headers: { 'content-type': contentType },
-          body: typeof body === 'string' ? body : JSON.stringify(body),
-        }),
-  })
-  const response = await handler({ request, params, context: {} })
+  const response = await fetchRoute(route, params)(
+    new URL(url, 'http://localhost'),
+    {
+      method,
+      ...(body === undefined
+        ? {}
+        : {
+            headers: { 'content-type': contentType },
+            body: typeof body === 'string' ? body : JSON.stringify(body),
+          }),
+    },
+  )
   return { status: response.status, json: await response.json() }
 }

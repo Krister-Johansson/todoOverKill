@@ -13,6 +13,7 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppHelpRouteImport } from './routes/_app/help'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as ApiMcpRouteImport } from './routes/api/mcp'
 import { Route as AppProjectsProjectIdRouteImport } from './routes/_app/projects.$projectId'
 import { Route as AppTasksTaskIdRouteImport } from './routes/_app/tasks.$taskId'
 import { Route as ApiV1ProjectsRouteImport } from './routes/api/v1/projects'
@@ -42,6 +43,11 @@ const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
   getParentRoute: () => AppRoute,
+} as any)
+const ApiMcpRoute = ApiMcpRouteImport.update({
+  id: '/api/mcp',
+  path: '/api/mcp',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppProjectsProjectIdRoute = AppProjectsProjectIdRouteImport.update({
   id: '/projects/$projectId',
@@ -103,6 +109,7 @@ export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/help': typeof AppHelpRoute
   '/settings': typeof AppSettingsRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/projects/$projectId': typeof AppProjectsProjectIdRouteWithChildren
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/api/v1/projects': typeof ApiV1ProjectsRouteWithChildren
@@ -117,6 +124,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/help': typeof AppHelpRoute
   '/settings': typeof AppSettingsRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/': typeof AppIndexRoute
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
   '/api/v1/projects': typeof ApiV1ProjectsRouteWithChildren
@@ -133,6 +141,7 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/_app/help': typeof AppHelpRoute
   '/_app/settings': typeof AppSettingsRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/_app/': typeof AppIndexRoute
   '/_app/projects/$projectId': typeof AppProjectsProjectIdRouteWithChildren
   '/_app/tasks/$taskId': typeof AppTasksTaskIdRoute
@@ -151,6 +160,7 @@ export interface FileRouteTypes {
     | '/'
     | '/help'
     | '/settings'
+    | '/api/mcp'
     | '/projects/$projectId'
     | '/tasks/$taskId'
     | '/api/v1/projects'
@@ -165,6 +175,7 @@ export interface FileRouteTypes {
   to:
     | '/help'
     | '/settings'
+    | '/api/mcp'
     | '/'
     | '/tasks/$taskId'
     | '/api/v1/projects'
@@ -180,6 +191,7 @@ export interface FileRouteTypes {
     | '/_app'
     | '/_app/help'
     | '/_app/settings'
+    | '/api/mcp'
     | '/_app/'
     | '/_app/projects/$projectId'
     | '/_app/tasks/$taskId'
@@ -195,6 +207,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
+  ApiMcpRoute: typeof ApiMcpRoute
   ApiV1ProjectsRoute: typeof ApiV1ProjectsRouteWithChildren
   ApiV1TasksTaskIdRoute: typeof ApiV1TasksTaskIdRoute
 }
@@ -228,6 +241,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings'
       preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/api/mcp': {
+      id: '/api/mcp'
+      path: '/api/mcp'
+      fullPath: '/api/mcp'
+      preLoaderRoute: typeof ApiMcpRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/_app/projects/$projectId': {
       id: '/_app/projects/$projectId'
@@ -365,6 +385,7 @@ const ApiV1ProjectsRouteWithChildren = ApiV1ProjectsRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
+  ApiMcpRoute: ApiMcpRoute,
   ApiV1ProjectsRoute: ApiV1ProjectsRouteWithChildren,
   ApiV1TasksTaskIdRoute: ApiV1TasksTaskIdRoute,
 }

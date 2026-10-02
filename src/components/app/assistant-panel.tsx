@@ -15,6 +15,7 @@ import {
 import { Textarea } from '#/components/ui/textarea'
 import { assistantStatusQueryOptions } from '#/fns/assistant'
 import {
+  MAX_CHAT_MESSAGES,
   MAX_CHAT_MESSAGE_LENGTH,
   MESSAGE_TOO_LONG_ERROR,
 } from '#/lib/assistant'
@@ -22,7 +23,7 @@ import {
 import { useAnnounce } from './live-region'
 import { Markdown } from './markdown'
 
-import type { UIMessage } from '@tanstack/ai-react'
+import type { ConnectConnectionAdapter, UIMessage } from '@tanstack/ai-react'
 
 /** Lets the shell move focus into the open panel, as `a` does. */
 export type AssistantPanelHandle = { focus: () => void }
@@ -38,6 +39,26 @@ function replyErrorText(error: Error) {
     return 'The conversation is too long to send. Clear the conversation and try again.'
   }
   return 'Could not get a reply. Try again.'
+}
+
+/**
+ * Sends only the newest MAX_CHAT_MESSAGES of the conversation. The server
+ * keeps no more than that, and a long conversation sent whole would pass the
+ * body limit before the server could trim it.
+ */
+function newestMessagesOnly<T extends ConnectConnectionAdapter>(
+  connection: T,
+): T {
+  return {
+    ...connection,
+    connect: (messages, data, abortSignal, runContext) =>
+      connection.connect(
+        messages.slice(-MAX_CHAT_MESSAGES),
+        data,
+        abortSignal,
+        runContext,
+      ),
+  }
 }
 
 const ROLE_NAMES: Partial<Record<UIMessage['role'], string>> = {
@@ -103,7 +124,9 @@ export function AssistantPanel({
   const stopHadFocus = useRef(false)
   // Set while Radix handles an Escape pressed with focus outside the panel.
   const ignoreClose = useRef(false)
-  const chat = useChat({ connection: fetchServerSentEvents('/api/chat') })
+  const chat = useChat({
+    connection: newestMessagesOnly(fetchServerSentEvents('/api/chat')),
+  })
   const { messages, isLoading, error } = chat
 
   const lastMessage = messages.at(-1)
@@ -245,7 +268,7 @@ export function AssistantPanel({
  * conversation empties the list and keeps focus on itself.
  */
 function Conversation({
-  chat: { messages, sendMessage, isLoading, error, stop, clear },
+  chat: { messages, sendMessage, isLoading, error, clear },
   composerRef,
   stopRef,
   onStop,
@@ -290,7 +313,8 @@ function Conversation({
 
   function clearConversation() {
     if (messages.length === 0) return
-    if (isLoading) stop()
+    // clear() also cancels a streaming reply, and ignores its late chunks
+    // only if stop() has not run first.
     clear()
     announce('Conversation cleared')
   }

@@ -44,7 +44,18 @@ type ChatState = {
 
 const chat = vi.hoisted(() => {
   const state: ChatState = { messages: [], isLoading: false, error: undefined }
-  return { state, sendMessage: vi.fn(), stop: vi.fn(), clear: vi.fn() }
+  return {
+    state,
+    sendMessage: vi.fn(),
+    stop: vi.fn(),
+    clear: vi.fn(),
+    // What fetchServerSentEvents would send, and the connection the panel
+    // hands to useChat.
+    connect: vi.fn(),
+    connection: undefined as
+      | { connect: (messages: Array<unknown>, ...rest: Array<unknown>) => void }
+      | undefined,
+  }
 })
 
 // No fetch leaves the test: useChat is a stand-in driven by `chat.state`.
@@ -53,8 +64,9 @@ const chat = vi.hoisted(() => {
 vi.mock('@tanstack/ai-react', async () => {
   const React = await import('react')
   return {
-    fetchServerSentEvents: vi.fn(),
-    useChat: () => {
+    fetchServerSentEvents: () => ({ connect: chat.connect }),
+    useChat: (options: { connection: typeof chat.connection }) => {
+      chat.connection = options.connection
       const [sent, setSent] = React.useState<ChatState['messages']>([])
       return {
         ...chat.state,
@@ -109,6 +121,8 @@ afterEach(() => {
   chat.sendMessage.mockReset()
   chat.stop.mockReset()
   chat.clear.mockReset()
+  chat.connect.mockReset()
+  chat.connection = undefined
 })
 
 /**
@@ -458,7 +472,9 @@ describe('AssistantPanel', () => {
     )
   })
 
-  it('stops a streaming reply before clearing', () => {
+  it('clears a streaming reply without calling stop first', () => {
+    // clear() cancels the reply itself; stop() first would stop it from
+    // ignoring the cleared reply's late chunks.
     chat.state.isLoading = true
     chat.state.messages = [
       { id: 'm1', role: 'user', parts: [{ type: 'text', content: 'Hi' }] },
@@ -469,11 +485,29 @@ describe('AssistantPanel', () => {
     fireEvent.click(
       within(panel).getByRole('button', { name: 'Clear conversation' }),
     )
-    expect(chat.stop).toHaveBeenCalledOnce()
     expect(chat.clear).toHaveBeenCalledOnce()
-    expect(chat.stop.mock.invocationCallOrder[0]).toBeLessThan(
-      chat.clear.mock.invocationCallOrder[0],
-    )
+    expect(chat.stop).not.toHaveBeenCalled()
+  })
+
+  it('sends only the newest 100 messages', () => {
+    renderPanel()
+    const messages = Array.from({ length: 150 }, (_, index) => ({
+      id: `m${index}`,
+    }))
+    const signal = new AbortController().signal
+    chat.connection?.connect(messages, { extra: true }, signal)
+
+    expect(chat.connect).toHaveBeenCalledOnce()
+    const [sent, data, sentSignal] = chat.connect.mock.calls[0] as [
+      Array<{ id: string }>,
+      unknown,
+      AbortSignal,
+    ]
+    expect(sent).toHaveLength(100)
+    expect(sent[0].id).toBe('m50')
+    expect(sent.at(-1)?.id).toBe('m149')
+    expect(data).toEqual({ extra: true })
+    expect(sentSignal).toBe(signal)
   })
 
   it('does nothing on Clear conversation with no messages', () => {

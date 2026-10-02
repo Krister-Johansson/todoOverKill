@@ -121,8 +121,7 @@ const terms: Array<{
     id: 'assistant',
     term: 'Assistant',
     definition:
-      'A chat panel where you ask about your work in plain words. It can also make changes for you.',
-    later: true,
+      'A chat panel where you ask questions in plain words. Open it with the Assistant button or a. For now it answers in text and cannot change your work.',
   },
   {
     id: 'voice',
@@ -171,7 +170,7 @@ const shortcuts: Array<Shortcut> = [
   },
   { keys: ['Enter'], action: 'Follow a link or press a button.' },
   { keys: ['Space'], action: 'Press a button or turn a switch on or off.' },
-  { keys: ['Escape'], action: 'Close a dialog.' },
+  { keys: ['Escape'], action: 'Close a dialog or the assistant panel.' },
   {
     keys: ['↑', '↓', '←', '→'],
     kind: 'any',
@@ -184,6 +183,7 @@ const shortcuts: Array<Shortcut> = [
       'From the top of a page, the first Tab shows "Skip to content". Enter then jumps past the menu to the page.',
   },
   { keys: ['c'], action: 'Make a new task (on a project page).' },
+  { keys: ['a'], action: 'Open the assistant panel.' },
   {
     keys: ['Ctrl', 'K'],
     kind: 'combo',

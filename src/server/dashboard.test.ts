@@ -2,12 +2,17 @@
 // Server code runs without `window`. Under jsdom, t3-env treats the module as
 // client code and blocks every server variable.
 import * as z from 'zod'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { db } from '#/server/db'
-import { listDashboardTasks } from '#/server/dashboard'
+import {
+  RECENT_ACTIVITY_LIMIT,
+  listDashboardTasks,
+  listProjectProgress,
+  listRecentActivity,
+} from '#/server/dashboard'
 import { archiveProject, createProject } from '#/server/projects'
-import { completeTask, createTask } from '#/server/tasks'
+import { completeTask, createTask, deleteTask } from '#/server/tasks'
 import { resetDatabase } from '#/test/db'
 
 const TODAY = '2026-10-02'
@@ -155,5 +160,190 @@ describe('listDashboardTasks', () => {
     await expect(listDashboardTasks('tomorrow')).rejects.toBeInstanceOf(
       z.ZodError,
     )
+  })
+})
+
+async function doneStatusId(projectId: string) {
+  const status = await db.status.findFirstOrThrow({
+    where: { projectId, category: 'done' },
+  })
+  return status.id
+}
+
+describe('listRecentActivity', () => {
+  it('returns rows newest first, each with its project and task', async () => {
+    const project = await createProject({ name: 'Website', key: 'WEB' })
+    const task = await createTask(project.id, { title: 'Ship it' })
+    await completeTask(task.id)
+
+    const rows = await listRecentActivity()
+
+    expect(rows.map((row) => row.type)).toEqual([
+      'task.completed',
+      'task.created',
+      'project.created',
+    ])
+    expect(rows[0].project).toEqual({
+      id: project.id,
+      name: 'Website',
+      key: 'WEB',
+    })
+    expect(rows[0].task).toEqual({ id: task.id, number: 1 })
+    expect(rows[2].task).toBeNull()
+  })
+
+  it('returns at most the limit, keeping the newest', async () => {
+    const project = await createProject({ name: 'Website', key: 'WEB' })
+    await createTask(project.id, { title: 'First' })
+    await createTask(project.id, { title: 'Second' })
+
+    const rows = await listRecentActivity(2)
+
+    expect(rows.map((row) => row.payload)).toEqual([
+      expect.objectContaining({ title: 'Second' }),
+      expect.objectContaining({ title: 'First' }),
+    ])
+  })
+
+  it('shows at most 20 rows by default', async () => {
+    expect(RECENT_ACTIVITY_LIMIT).toBe(20)
+    const project = await createProject({ name: 'Website', key: 'WEB' })
+    for (let i = 0; i < 21; i++) {
+      await createTask(project.id, { title: `Task ${i}` })
+    }
+
+    expect(await listRecentActivity()).toHaveLength(20)
+  })
+
+  it('leaves out the rows of archived projects', async () => {
+    const archived = await createProject({ name: 'Old site', key: 'OLD' })
+    await createTask(archived.id, { title: 'Gone' })
+    await archiveProject(archived.id)
+    await createProject({ name: 'Website', key: 'WEB' })
+
+    const rows = await listRecentActivity()
+
+    expect(rows.map((row) => [row.project.key, row.type])).toEqual([
+      ['WEB', 'project.created'],
+    ])
+  })
+
+  it('keeps a deleted task’s rows with no task', async () => {
+    const project = await createProject({ name: 'Website', key: 'WEB' })
+    const task = await createTask(project.id, { title: 'Drop it' })
+    await deleteTask(task.id)
+
+    const [deleted, created] = await listRecentActivity()
+
+    expect(deleted.type).toBe('task.deleted')
+    expect(deleted.task).toBeNull()
+    expect(deleted.payload).toEqual(
+      expect.objectContaining({ number: 1, title: 'Drop it' }),
+    )
+    expect(deleted.project.key).toBe('WEB')
+    expect(created.task).toBeNull()
+  })
+})
+
+describe('listProjectProgress', () => {
+  it('counts every task and the completed ones per project', async () => {
+    const project = await createProject({ name: 'Website', key: 'WEB' })
+    const first = await createTask(project.id, { title: 'One' })
+    await createTask(project.id, { title: 'Two' })
+    await createTask(project.id, { title: 'Three' })
+    await completeTask(first.id)
+
+    expect(await listProjectProgress()).toEqual([
+      { id: project.id, name: 'Website', key: 'WEB', total: 3, done: 1 },
+    ])
+  })
+
+  it('counts a task created in a Done status as done', async () => {
+    const project = await createProject({ name: 'Website', key: 'WEB' })
+    await createTask(project.id, {
+      title: 'Already done',
+      statusId: await doneStatusId(project.id),
+    })
+
+    const [row] = await listProjectProgress()
+
+    expect([row.total, row.done]).toEqual([1, 1])
+  })
+
+  it('lists a project with no tasks as 0 of 0', async () => {
+    await createProject({ name: 'Website', key: 'WEB' })
+
+    const [row] = await listProjectProgress()
+
+    expect([row.total, row.done]).toEqual([0, 0])
+  })
+
+  it('leaves out archived projects', async () => {
+    const archived = await createProject({ name: 'Old site', key: 'OLD' })
+    const task = await createTask(archived.id, { title: 'Gone' })
+    await completeTask(task.id)
+    await archiveProject(archived.id)
+
+    expect(await listProjectProgress()).toEqual([])
+  })
+
+  it('orders by name, then key', async () => {
+    await createProject({ name: 'Website', key: 'WEB' })
+    await createProject({ name: 'App', key: 'APP' })
+    await createProject({ name: 'Website', key: 'SITE' })
+
+    const rows = await listProjectProgress()
+
+    expect(rows.map((row) => row.key)).toEqual(['APP', 'SITE', 'WEB'])
+  })
+})
+
+describe('the dashboard reads', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  /** A project with two tasks, one of them completed. */
+  async function seedProject(key: string) {
+    const project = await createProject({ name: `Project ${key}`, key })
+    const task = await createTask(project.id, { title: 'One' })
+    await createTask(project.id, { title: 'Two' })
+    await completeTask(task.id)
+  }
+
+  /** How many times each Prisma call ran while both reads ran once. */
+  async function countCalls() {
+    const spies = {
+      activityFindMany: vi.spyOn(db.activity, 'findMany'),
+      projectFindMany: vi.spyOn(db.project, 'findMany'),
+      taskGroupBy: vi.spyOn(db.task, 'groupBy'),
+      taskFindMany: vi.spyOn(db.task, 'findMany'),
+      taskCount: vi.spyOn(db.task, 'count'),
+    }
+    await listRecentActivity()
+    await listProjectProgress()
+    const counts = Object.fromEntries(
+      Object.entries(spies).map(([name, spy]) => [name, spy.mock.calls.length]),
+    )
+    vi.restoreAllMocks()
+    return counts
+  }
+
+  it('make the same Prisma calls for one project as for five', async () => {
+    await seedProject('ONE')
+    const one = await countCalls()
+    for (const key of ['TWO', 'THREE', 'FOUR', 'FIVE']) await seedProject(key)
+
+    const five = await countCalls()
+
+    expect(one).toEqual({
+      activityFindMany: 1,
+      projectFindMany: 1,
+      taskGroupBy: 1,
+      taskFindMany: 0,
+      taskCount: 0,
+    })
+    expect(five).toEqual(one)
+    expect(await listProjectProgress()).toHaveLength(5)
   })
 })

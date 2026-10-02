@@ -29,11 +29,21 @@ async function createWebsiteTask() {
   return { project, task }
 }
 
+/**
+ * Waits past the current millisecond. Comments and activity rows sort by
+ * createdAt and then by a random id, so two writes in one millisecond could
+ * list in either order.
+ */
+function nextMillisecond() {
+  return new Promise((resolve) => setTimeout(resolve, 5))
+}
+
 /** A task with the comments A, B, C, added in that order. */
 async function createTaskWithComments() {
   const { project, task } = await createWebsiteTask()
   const comments = []
   for (const body of ['A', 'B', 'C']) {
+    await nextMillisecond()
     comments.push(await addComment(task.id, { body }))
   }
   return { project, task, comments }
@@ -142,6 +152,7 @@ describe('addComment', () => {
   it('writes one comment.added row on the task', async () => {
     const { project, task } = await createWebsiteTask()
     let comment: Awaited<ReturnType<typeof addComment>> | undefined
+    await nextMillisecond()
     const rows = await newActivity(project.id, async () => {
       comment = await addComment(task.id, { body: 'Looks good' })
     })
@@ -201,6 +212,7 @@ describe('updateComment', () => {
   it('changes the body with one comment.updated row', async () => {
     const { project, task, comments } = await createTaskWithComments()
     let updated: Awaited<ReturnType<typeof updateComment>> | undefined
+    await nextMillisecond()
     const rows = await newActivity(project.id, async () => {
       updated = await updateComment(comments[1].id, { body: '  Beta ' })
     })
@@ -225,6 +237,19 @@ describe('updateComment', () => {
     const rows = await newActivity(project.id, async () => {
       expect(await updateComment(first.id, { body: 'A' })).toEqual(first)
       expect(await updateComment(first.id, { body: '  A\n' })).toEqual(first)
+    })
+    expect(rows).toEqual([])
+  })
+
+  it('writes nothing when a stored body differs only in whitespace', async () => {
+    const { project, task } = await createWebsiteTask()
+    const stored = await db.comment.create({
+      data: { taskId: task.id, body: '  Looks good\n' },
+    })
+    const rows = await newActivity(project.id, async () => {
+      expect(await updateComment(stored.id, { body: 'Looks good' })).toEqual(
+        stored,
+      )
     })
     expect(rows).toEqual([])
   })
@@ -283,8 +308,11 @@ describe('deleteComment', () => {
 describe('activity sentences', () => {
   it('reads every row the service writes as a sentence without its text', async () => {
     const { task } = await createWebsiteTask()
+    await nextMillisecond()
     const comment = await addComment(task.id, { body: 'Looks good' })
+    await nextMillisecond()
     await updateComment(comment.id, { body: 'Looks great' })
+    await nextMillisecond()
     await deleteComment(comment.id)
     const rows = (await listTaskActivity(task.id)).filter((row) =>
       row.type.startsWith('comment.'),

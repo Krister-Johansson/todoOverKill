@@ -101,8 +101,8 @@ export async function addComment(taskId: string, input: CreateCommentInput) {
 }
 
 /**
- * Replaces the body and writes a `comment.updated` row. The body is compared
- * after trimming, so an update with the current body returns the comment
+ * Replaces the body and writes a `comment.updated` row. Both bodies are
+ * compared after trimming, so an update with the current body returns the comment
  * unchanged and writes nothing. Throws NotFoundError.
  */
 export async function updateComment(id: string, input: UpdateCommentInput) {
@@ -110,7 +110,8 @@ export async function updateComment(id: string, input: UpdateCommentInput) {
   const { body } = updateCommentSchema.parse(input)
   return db.$transaction(async (tx) => {
     const { task, comment } = await lockComment(tx, commentId)
-    if (body === comment.body) return comment
+    // Trim the stored body too: a row written outside this service may not be.
+    if (body === comment.body.trim()) return comment
     const updated = await tx.comment.update({
       where: { id: commentId },
       data: { body },

@@ -84,49 +84,33 @@ export async function listRecentActivity(limit = RECENT_ACTIVITY_LIMIT) {
   })
 }
 
-export type RecentActivityRow = Awaited<
-  ReturnType<typeof listRecentActivity>
->[number]
-
 /**
  * Every unarchived project with its number of tasks (`total`) and of completed
  * ones (`done`), ordered by name, then key. Done means `completedAt` is set,
  * the rule the Overdue word uses, so a task created in a Done status counts.
- * Two operations whatever the number of projects, run together and joined in
- * memory: the projects with their task count, and the completed tasks grouped
- * by project.
+ * Two operations whatever the number of projects: the projects, then their
+ * tasks grouped by project. Both counts come from that one grouping, so
+ * `done` is never more than `total`.
  */
 export async function listProjectProgress() {
-  const [projects, completed] = await Promise.all([
-    db.project.findMany({
-      where: { archivedAt: null },
-      orderBy: [{ name: 'asc' }, { key: 'asc' }],
-      select: {
-        id: true,
-        name: true,
-        key: true,
-        _count: { select: { tasks: true } },
-      },
-    }),
-    db.task.groupBy({
-      by: ['projectId'],
-      where: {
-        completedAt: { not: null },
-        project: { is: { archivedAt: null } },
-      },
-      _count: { _all: true },
-    }),
-  ])
-  const done = new Map(
-    completed.map((group) => [group.projectId, group._count._all]),
-  )
-  return projects.map(({ _count, ...project }) => ({
-    ...project,
-    total: _count.tasks,
-    done: done.get(project.id) ?? 0,
-  }))
+  const projects = await db.project.findMany({
+    where: { archivedAt: null },
+    orderBy: [{ name: 'asc' }, { key: 'asc' }],
+    select: { id: true, name: true, key: true },
+  })
+  const groups = await db.task.groupBy({
+    by: ['projectId'],
+    where: { projectId: { in: projects.map((project) => project.id) } },
+    // `completedAt` counts the rows where it is set.
+    _count: { _all: true, completedAt: true },
+  })
+  const counts = new Map(groups.map((group) => [group.projectId, group._count]))
+  return projects.map((project) => {
+    const count = counts.get(project.id)
+    return {
+      ...project,
+      total: count?._all ?? 0,
+      done: count?.completedAt ?? 0,
+    }
+  })
 }
-
-export type ProjectProgressRow = Awaited<
-  ReturnType<typeof listProjectProgress>
->[number]

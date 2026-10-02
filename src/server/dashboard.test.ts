@@ -4,6 +4,7 @@
 import * as z from 'zod'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { Prisma } from '#/generated/prisma/client'
 import { db } from '#/server/db'
 import {
   RECENT_ACTIVITY_LIMIT,
@@ -170,11 +171,30 @@ async function doneStatusId(projectId: string) {
   return status.id
 }
 
+/**
+ * Dates the activity rows each filter matches a minute apart, oldest first.
+ * Rows written in the same millisecond come back in id order, not write
+ * order, so the order tests set the times themselves.
+ */
+async function dateInOrder(filters: Array<Prisma.ActivityWhereInput>) {
+  for (const [minute, where] of filters.entries()) {
+    await db.activity.updateMany({
+      where,
+      data: { createdAt: new Date(Date.UTC(2026, 9, 1, 12, minute)) },
+    })
+  }
+}
+
 describe('listRecentActivity', () => {
   it('returns rows newest first, each with its project and task', async () => {
     const project = await createProject({ name: 'Website', key: 'WEB' })
     const task = await createTask(project.id, { title: 'Ship it' })
     await completeTask(task.id)
+    await dateInOrder([
+      { type: 'project.created' },
+      { type: 'task.created' },
+      { type: 'task.completed' },
+    ])
 
     const rows = await listRecentActivity()
 
@@ -194,8 +214,13 @@ describe('listRecentActivity', () => {
 
   it('returns at most the limit, keeping the newest', async () => {
     const project = await createProject({ name: 'Website', key: 'WEB' })
-    await createTask(project.id, { title: 'First' })
-    await createTask(project.id, { title: 'Second' })
+    const first = await createTask(project.id, { title: 'First' })
+    const second = await createTask(project.id, { title: 'Second' })
+    await dateInOrder([
+      { type: 'project.created' },
+      { taskId: first.id },
+      { taskId: second.id },
+    ])
 
     const rows = await listRecentActivity(2)
 
@@ -232,6 +257,11 @@ describe('listRecentActivity', () => {
     const project = await createProject({ name: 'Website', key: 'WEB' })
     const task = await createTask(project.id, { title: 'Drop it' })
     await deleteTask(task.id)
+    await dateInOrder([
+      { type: 'project.created' },
+      { type: 'task.created' },
+      { type: 'task.deleted' },
+    ])
 
     const [deleted, created] = await listRecentActivity()
 

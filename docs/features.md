@@ -264,7 +264,7 @@ Acceptance: resource reads are tested; the prompt returns text under 2,000 chara
 ## Milestone 4: AI assistant
 
 ### F38 Assistant panel with OpenRouter, text only (#38)
-`/api/chat` server route with `chat({ adapter: openRouterText(model) })` streamed as SSE; right-hand `Sheet` with `useChat`, a labelled composer, a Stop button, and a message list under a heading. Missing key shows an explanation.
+`/api/chat` is a POST-only server route that runs `chat()` with `createOpenRouterText(OPENROUTER_MODEL, OPENROUTER_API_KEY)` (the model defaults to `openai/gpt-4o-mini`) and streams the reply as server-sent events. It answers 403 for a `Host` that is not `localhost`, `127.0.0.1` or `[::1]` (the check `/api/mcp` uses, now in `src/lib/loopback.ts`), 415 for a body that is not `application/json`, so another site cannot spend the key, and 503 without a key. The panel is a non-modal right-hand `Sheet` beside the page, opened by the top bar's Assistant button or `a`, with an "Assistant" heading, a message list, a labelled composer and a Stop button. `useChat` lives in the always-mounted panel, so the conversation survives a close; Stop keeps the partial reply, moves focus to the Message field and announces "Reply stopped". The `_app` loader reads whether the key is set, and without it the panel explains how to turn the assistant on and shows no composer.
 Depends on: F34, F26.
 Acceptance: axe clean; streaming can be stopped; e2e uses a mocked SSE response.
 

@@ -4,7 +4,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { Route } from '#/routes/api/chat'
-import { callRoute } from '#/test/rest'
+import { callRoute, fetchRoute } from '#/test/rest'
 
 import type * as TanStackAI from '@tanstack/ai'
 
@@ -192,5 +192,40 @@ describe('POST /api/chat', () => {
       { abortController: AbortController },
     ]
     expect(abortController.signal.aborted).toBe(true)
+  })
+
+  it('refuses a Host header that is not loopback with 403', async () => {
+    env.OPENROUTER_API_KEY = 'test-key'
+    for (const host of ['evil.example', 'localhost.evil.example:5173']) {
+      // text/plain would be a 415 if the body were read first.
+      const response = await fetchRoute(Route)('http://localhost/api/chat', {
+        method: 'POST',
+        headers: { host, 'content-type': 'text/plain' },
+        body: JSON.stringify(validBody),
+      })
+      expect(response.status).toBe(403)
+      expect(await response.json()).toEqual({
+        error: {
+          code: 'forbidden',
+          message: 'Only localhost may use this route.',
+        },
+      })
+    }
+    expect(createOpenRouterText).not.toHaveBeenCalled()
+    expect(chat).not.toHaveBeenCalled()
+  })
+
+  it('accepts a loopback Host header on any port', async () => {
+    env.OPENROUTER_API_KEY = 'test-key'
+    for (const host of ['localhost:5173', '127.0.0.1:3100', '[::1]:4000']) {
+      const response = await fetchRoute(Route)('http://localhost/api/chat', {
+        method: 'POST',
+        headers: { host, 'content-type': 'application/json' },
+        body: JSON.stringify(validBody),
+      })
+      expect(response.status).toBe(200)
+      await response.text()
+    }
+    expect(chat).toHaveBeenCalledTimes(3)
   })
 })

@@ -13,6 +13,7 @@ export type ErrorBody = {
       | 'conflict'
       | 'internal'
       | 'assistant_disabled'
+      | 'forbidden'
     message: string
     issues?: Array<z.core.$ZodIssue>
   }

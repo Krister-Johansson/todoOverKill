@@ -281,9 +281,11 @@ function SubtaskRow({
         />
         <Label
           htmlFor={ids.checkbox(subtask.id)}
-          className="min-h-11 min-w-0 flex-1 cursor-pointer text-base font-normal break-words"
+          className="min-h-11 min-w-0 flex-1 cursor-pointer text-base font-normal"
         >
-          {subtask.title}
+          {/* The label is a flex box, so the title needs its own min-w-0
+              item to break inside a long word instead of widening the row. */}
+          <span className="min-w-0 break-words">{subtask.title}</span>
         </Label>
       </div>
       <div className="flex gap-1">

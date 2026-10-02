@@ -5,7 +5,12 @@ import { describe, expect, it } from 'vitest'
 
 import { ACTIVITY_TYPES } from '#/server/activity'
 
-import { FIELD_WORDS, describeActivity, fallbackSentence } from './activity'
+import {
+  FIELD_WORDS,
+  SUBTASK_FIELD_WORDS,
+  describeActivity,
+  fallbackSentence,
+} from './activity'
 
 /** A payload as its writer stores it, for every type. */
 const SAMPLES: Record<string, unknown> = {
@@ -17,7 +22,12 @@ const SAMPLES: Record<string, unknown> = {
   'task.completed': { number: 1 },
   'task.deleted': { number: 1, title: 'Write copy' },
   'comment.added': { body: 'Looks good' },
-  'subtask.added': { title: 'Draft the intro' },
+  'subtask.added': { number: 1, title: 'Draft the intro' },
+  'subtask.updated': { number: 1, title: 'Draft the intro', fields: ['title'] },
+  'subtask.completed': { number: 1, title: 'Draft the intro' },
+  'subtask.reopened': { number: 1, title: 'Draft the intro' },
+  'subtask.moved': { number: 1, title: 'Draft the intro', from: 2, to: 0 },
+  'subtask.deleted': { number: 1, title: 'Draft the intro' },
 }
 
 describe('describeActivity', () => {
@@ -47,7 +57,31 @@ describe('describeActivity', () => {
       'task.deleted': 'Deleted the task “Write copy”.',
       'comment.added': 'Added a comment.',
       'subtask.added': 'Added the subtask “Draft the intro”.',
+      'subtask.updated': 'Changed the title of the subtask “Draft the intro”.',
+      'subtask.completed': 'Completed the subtask “Draft the intro”.',
+      'subtask.reopened': 'Reopened the subtask “Draft the intro”.',
+      'subtask.moved': 'Reordered the subtask “Draft the intro”.',
+      'subtask.deleted': 'Deleted the subtask “Draft the intro”.',
     })
+  })
+
+  it("reads the seed's subtask.added row, which has no number", () => {
+    expect(
+      describeActivity({
+        type: 'subtask.added',
+        payload: { title: 'Draft the intro' },
+      }),
+    ).toBe('Added the subtask “Draft the intro”.')
+  })
+
+  it('has a word for every field a subtask.updated row can name', () => {
+    expect(Object.keys(SUBTASK_FIELD_WORDS).sort()).toEqual(['done', 'title'])
+    expect(
+      describeActivity({
+        type: 'subtask.updated',
+        payload: { number: 1, title: 'Ship', fields: ['title', 'done'] },
+      }),
+    ).toBe('Changed the title and the done state of the subtask “Ship”.')
   })
 
   it('has a word for every field a task.updated row can name', () => {

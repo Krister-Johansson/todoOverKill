@@ -16,6 +16,11 @@ export const ACTIVITY_TYPES = {
   taskDeleted: 'task.deleted',
   commentAdded: 'comment.added',
   subtaskAdded: 'subtask.added',
+  subtaskUpdated: 'subtask.updated',
+  subtaskCompleted: 'subtask.completed',
+  subtaskReopened: 'subtask.reopened',
+  subtaskMoved: 'subtask.moved',
+  subtaskDeleted: 'subtask.deleted',
 } as const
 
 export type ActivityType = (typeof ACTIVITY_TYPES)[keyof typeof ACTIVITY_TYPES]

@@ -15,6 +15,11 @@ export const activityTypeSchema = z.enum([
   'task.deleted',
   'comment.added',
   'subtask.added',
+  'subtask.updated',
+  'subtask.completed',
+  'subtask.reopened',
+  'subtask.moved',
+  'subtask.deleted',
 ])
 
 export type ActivityTypeName = z.infer<typeof activityTypeSchema>
@@ -45,7 +50,34 @@ export const activityPayloadSchemas = {
     title: z.string(),
   }),
   'comment.added': z.looseObject({ body: z.string().optional() }),
-  'subtask.added': z.looseObject({ title: z.string() }),
+  // The seed's subtask.added rows hold only the title.
+  'subtask.added': z.looseObject({
+    number: taskNumberSchema,
+    title: z.string(),
+  }),
+  'subtask.updated': z.looseObject({
+    number: taskNumberSchema,
+    title: z.string(),
+    fields: z.array(z.string()).min(1),
+  }),
+  'subtask.completed': z.looseObject({
+    number: taskNumberSchema,
+    title: z.string(),
+  }),
+  'subtask.reopened': z.looseObject({
+    number: taskNumberSchema,
+    title: z.string(),
+  }),
+  'subtask.moved': z.looseObject({
+    number: taskNumberSchema,
+    title: z.string(),
+    from: z.number().int(),
+    to: z.number().int(),
+  }),
+  'subtask.deleted': z.looseObject({
+    number: taskNumberSchema,
+    title: z.string(),
+  }),
 } satisfies Record<ActivityTypeName, z.ZodType>
 
 /**

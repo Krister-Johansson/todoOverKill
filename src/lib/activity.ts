@@ -16,6 +16,12 @@ export const FIELD_WORDS: Record<string, string> = {
   labels: 'the labels',
 }
 
+/** The words for each field a subtask.updated row can name. */
+export const SUBTASK_FIELD_WORDS: Record<string, string> = {
+  title: 'the title',
+  done: 'the done state',
+}
+
 const fieldList = new Intl.ListFormat('en', {
   style: 'long',
   type: 'conjunction',
@@ -45,6 +51,14 @@ const SENTENCES: { [T in ActivityTypeName]: (payload: Payload<T>) => string } =
     'task.deleted': ({ title }) => `Deleted the task ${quote(title)}.`,
     'comment.added': () => 'Added a comment.',
     'subtask.added': ({ title }) => `Added the subtask ${quote(title)}.`,
+    // The title is the one the subtask has after the change.
+    'subtask.updated': ({ title, fields }) =>
+      `Changed ${fieldList.format(fields.map((field) => SUBTASK_FIELD_WORDS[field] ?? field))} of the subtask ${quote(title)}.`,
+    'subtask.completed': ({ title }) =>
+      `Completed the subtask ${quote(title)}.`,
+    'subtask.reopened': ({ title }) => `Reopened the subtask ${quote(title)}.`,
+    'subtask.moved': ({ title }) => `Reordered the subtask ${quote(title)}.`,
+    'subtask.deleted': ({ title }) => `Deleted the subtask ${quote(title)}.`,
   }
 
 function sentenceFor<T extends ActivityTypeName>(type: T, payload: unknown) {

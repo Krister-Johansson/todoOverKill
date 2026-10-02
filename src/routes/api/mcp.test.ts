@@ -6,16 +6,14 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { Route } from '#/routes/api/mcp'
+import { addComment } from '#/server/comments'
 import { db } from '#/server/db'
+import { createLabel } from '#/server/labels'
 import { archiveProject, createProject } from '#/server/projects'
 import { createTask } from '#/server/tasks'
 import { resetDatabase } from '#/test/db'
 import { fetchRoute } from '#/test/rest'
-import {
-  listProjectsTool,
-  readServerTools,
-  serverTools,
-} from '#/tools/server'
+import { listProjectsTool, readServerTools, serverTools } from '#/tools/server'
 
 beforeEach(() => resetDatabase(db))
 
@@ -86,7 +84,7 @@ function projectNames(result: unknown) {
 }
 
 describe('/api/mcp', () => {
-  it('lists the five read tools with their schemas', async () => {
+  it('lists the eight read tools with their schemas', async () => {
     const client = await connect()
 
     const { tools } = await client.listTools()
@@ -97,6 +95,9 @@ describe('/api/mcp', () => {
       'list_tasks',
       'get_task',
       'search',
+      'list_subtasks',
+      'list_labels',
+      'list_comments',
     ])
     for (const tool of tools) {
       expect(tool.description).toEqual(expect.any(String))
@@ -117,11 +118,13 @@ describe('/api/mcp', () => {
 
     const names = (await client.listTools()).tools.map((tool) => tool.name)
 
-    expect(writeNames).toEqual(
-      expect.arrayContaining(['archive_project', 'delete_task']),
-    )
-    expect(names).not.toContain('archive_project')
-    expect(names).not.toContain('delete_task')
+    const needingApproval = [
+      'archive_project',
+      'delete_task',
+      'delete_subtask',
+      'delete_comment',
+    ]
+    expect(writeNames).toEqual(expect.arrayContaining(needingApproval))
     for (const name of writeNames) {
       expect(names).not.toContain(name)
     }
@@ -209,6 +212,53 @@ describe('/api/mcp', () => {
     })
   })
 
+  it('returns labels from list_labels as structured content', async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+    await createLabel(project.id, { name: 'UX', color: '#2563eb' })
+    await createLabel(project.id, { name: 'Bug', color: '#dc2626' })
+    const client = await connect()
+
+    const result = await client.callTool({
+      name: 'list_labels',
+      arguments: { projectId: project.id },
+    })
+
+    expect(result.isError).toBeFalsy()
+    expect(result.structuredContent).toMatchObject({
+      labels: [
+        { projectId: project.id, name: 'Bug', color: '#dc2626' },
+        { projectId: project.id, name: 'UX', color: '#2563eb' },
+      ],
+    })
+    expect(JSON.parse(textOf(result))).toEqual(result.structuredContent)
+  })
+
+  it('returns comments from list_comments with ISO dates', async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+    const task = await createTask(project.id, { title: 'Fix the header' })
+    const comment = await addComment(task.id, { body: 'Looks good' })
+    const client = await connect()
+
+    // The client checks the result against the tool's listed output schema.
+    const result = await client.callTool({
+      name: 'list_comments',
+      arguments: { taskId: task.id },
+    })
+
+    expect(result.isError).toBeFalsy()
+    expect(result.structuredContent).toEqual({
+      comments: [
+        {
+          id: comment.id,
+          taskId: task.id,
+          body: 'Looks good',
+          createdAt: comment.createdAt.toISOString(),
+          updatedAt: comment.updatedAt.toISOString(),
+        },
+      ],
+    })
+  })
+
   it('reports an unknown project as an error result with its code', async () => {
     const client = await connect()
 
@@ -259,7 +309,7 @@ describe('/api/mcp', () => {
 
       const { tools } = await client.listTools()
 
-      expect(tools).toHaveLength(5)
+      expect(tools).toHaveLength(readServerTools.length)
     }
   })
 

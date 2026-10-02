@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  addSubtaskToolSchema,
   createSubtaskSchema,
   moveSubtaskSchema,
+  moveSubtaskToolSchema,
+  subtaskIdToolSchema,
+  subtaskOutputSchema,
   updateSubtaskSchema,
+  updateSubtaskToolSchema,
 } from '#/schemas/subtask'
 
 describe('createSubtaskSchema', () => {
@@ -69,5 +74,52 @@ describe('moveSubtaskSchema', () => {
     expect(moveSubtaskSchema.safeParse({}).success).toBe(false)
     const result = moveSubtaskSchema.safeParse({ index: 0, taskId: 't' })
     expect(result.error?.issues[0].code).toBe('unrecognized_keys')
+  })
+})
+
+describe('subtask tool schemas', () => {
+  it('takes the id beside the service fields', () => {
+    expect(
+      addSubtaskToolSchema.parse({ taskId: 't1', title: ' Draft ' }),
+    ).toEqual({ taskId: 't1', title: 'Draft' })
+    expect(
+      updateSubtaskToolSchema.parse({ subtaskId: 's1', done: true }),
+    ).toEqual({ subtaskId: 's1', done: true })
+    expect(moveSubtaskToolSchema.parse({ subtaskId: 's1', index: 0 })).toEqual({
+      subtaskId: 's1',
+      index: 0,
+    })
+  })
+
+  it.each([
+    ['add_subtask', addSubtaskToolSchema, { taskId: 't1', title: 'Draft' }],
+    ['update_subtask', updateSubtaskToolSchema, { subtaskId: 's1' }],
+    ['move_subtask', moveSubtaskToolSchema, { subtaskId: 's1', index: 0 }],
+    ['a subtask id', subtaskIdToolSchema, { subtaskId: 's1' }],
+  ])('rejects an unknown field in the %s input', (_name, schema, input) => {
+    const result = schema.safeParse({ ...input, id: 's1' })
+    expect(result.error?.issues).toEqual([
+      expect.objectContaining({ code: 'unrecognized_keys', keys: ['id'] }),
+    ])
+  })
+
+  it('rejects a missing id', () => {
+    expect(addSubtaskToolSchema.safeParse({ title: 'Draft' }).success).toBe(
+      false,
+    )
+    expect(updateSubtaskToolSchema.safeParse({}).success).toBe(false)
+    expect(moveSubtaskToolSchema.safeParse({ index: 0 }).success).toBe(false)
+    expect(subtaskIdToolSchema.safeParse({}).success).toBe(false)
+  })
+
+  it('accepts a subtask as JSON', () => {
+    const subtask = {
+      id: 's1',
+      taskId: 't1',
+      title: 'Draft',
+      done: false,
+      order: 1,
+    }
+    expect(subtaskOutputSchema.parse(subtask)).toEqual(subtask)
   })
 })

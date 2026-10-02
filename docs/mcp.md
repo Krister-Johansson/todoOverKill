@@ -1,6 +1,6 @@
 # MCP server
 
-The app serves its tools over the Model Context Protocol at `/api/mcp`, so an MCP client such as Claude Code can read your projects and tasks. With `pnpm dev` running, the endpoint is `http://localhost:5173/api/mcp`, or the port in `$PORT`.
+The app serves its tools over the Model Context Protocol at `/api/mcp`, so an MCP client such as Claude Code can read your projects, tasks, subtasks, labels and comments. With `pnpm dev` running, the endpoint is `http://localhost:5173/api/mcp`, or the port in `$PORT`.
 
 The server uses the Streamable HTTP transport and is stateless. Every POST gets a new server, the response is plain JSON, and no session id is issued; the server and transport are closed once the response is ready. A GET or DELETE gets a 405 with a JSON-RPC error, because there is no event stream to open and no session to end.
 
@@ -17,6 +17,9 @@ The server registers the read tools from `src/tools/server.ts` (`readServerTools
 | `list_tasks`    | `{ tasks }` for one project in board order, with the filters `listTasks` takes            |
 | `get_task`      | One task with its status, labels and due date                                             |
 | `search`        | `{ tasks }` matching a query by title, description or reference such as `SITE-12`         |
+| `list_subtasks` | `{ subtasks }` for one task, top to bottom, each with its title and done state            |
+| `list_labels`   | `{ labels }` for one project, sorted by name, each with its name and colour               |
+| `list_comments` | `{ comments }` for one task, oldest first, each with its body and timestamps              |
 
 Each result comes twice: as `structuredContent`, which matches the tool's output schema, and as the same JSON in a text content item for clients that read only text. Timestamps are ISO strings and due dates are `YYYY-MM-DD`.
 
@@ -57,7 +60,7 @@ Claude Code calls `list_projects` to find the project id, then `list_tasks` with
 npx @modelcontextprotocol/inspector
 ```
 
-In the Inspector, choose the Streamable HTTP transport, enter `http://localhost:5173/api/mcp`, and connect. The Tools tab lists the five tools and runs them with the arguments you enter.
+In the Inspector, choose the Streamable HTTP transport, enter `http://localhost:5173/api/mcp`, and connect. The Tools tab lists the eight tools and runs them with the arguments you enter.
 
 ## Tests
 

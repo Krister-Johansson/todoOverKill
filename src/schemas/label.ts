@@ -1,6 +1,7 @@
 import * as z from 'zod'
 
 import { projectColorName } from '#/lib/project-colors'
+import { projectIdFieldSchema } from '#/schemas/project'
 
 export const labelIdSchema = z.string().min(1)
 
@@ -37,6 +38,18 @@ export const labelIdsSchema = z
   })
 
 export type CreateLabelInput = z.input<typeof createLabelSchema>
+
+/**
+ * The create_label tool's input: the project id and createLabelSchema's
+ * fields. Strict, so a misnamed field is a validation error rather than
+ * silently dropped.
+ */
+export const createLabelToolSchema = z.strictObject({
+  projectId: projectIdFieldSchema,
+  ...createLabelSchema.shape,
+})
+
+export type CreateLabelToolInput = z.input<typeof createLabelToolSchema>
 
 /**
  * A label as a tool returns it. The colour is any string, since a label need

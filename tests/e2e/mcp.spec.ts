@@ -50,6 +50,9 @@ test('the MCP server answers through the router', async ({
       'list_tasks',
       'get_task',
       'search',
+      'list_subtasks',
+      'list_labels',
+      'list_comments',
     ])
 
     const result = await client.callTool({

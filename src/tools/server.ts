@@ -1,12 +1,26 @@
 import type * as z from 'zod'
 
 import {
+  addComment,
+  deleteComment,
+  listComments,
+  updateComment,
+} from '#/server/comments'
+import { createLabel, listLabels } from '#/server/labels'
+import {
   archiveProject,
   createProject,
   getProject,
   listProjects,
 } from '#/server/projects'
 import { search } from '#/server/search'
+import {
+  addSubtask,
+  deleteSubtask,
+  listSubtasks,
+  moveSubtask,
+  updateSubtask,
+} from '#/server/subtasks'
 import {
   completeTask,
   createTask,
@@ -17,17 +31,28 @@ import {
   updateTask,
 } from '#/server/tasks'
 import {
+  addCommentDefinition,
+  addSubtaskDefinition,
   archiveProjectDefinition,
   completeTaskDefinition,
+  createLabelDefinition,
   createProjectDefinition,
   createTaskDefinition,
+  deleteCommentDefinition,
+  deleteSubtaskDefinition,
   deleteTaskDefinition,
   getProjectDefinition,
   getTaskDefinition,
+  listCommentsDefinition,
+  listLabelsDefinition,
   listProjectsDefinition,
+  listSubtasksDefinition,
   listTasksDefinition,
+  moveSubtaskDefinition,
   moveTaskDefinition,
   searchDefinition,
+  updateCommentDefinition,
+  updateSubtaskDefinition,
   updateTaskDefinition,
 } from '#/tools/definitions'
 import { toToolError } from '#/tools/errors'
@@ -126,10 +151,72 @@ export const deleteTaskTool = deleteTaskDefinition.server(
   serve(deleteTaskDefinition, ({ taskId }) => deleteTask(taskId)),
 )
 
+export const listSubtasksTool = listSubtasksDefinition.server(
+  serve(listSubtasksDefinition, async ({ taskId }) => ({
+    subtasks: await listSubtasks(taskId),
+  })),
+)
+
+export const addSubtaskTool = addSubtaskDefinition.server(
+  serve(addSubtaskDefinition, ({ taskId, ...input }) =>
+    addSubtask(taskId, input),
+  ),
+)
+
+export const updateSubtaskTool = updateSubtaskDefinition.server(
+  serve(updateSubtaskDefinition, ({ subtaskId, ...patch }) =>
+    updateSubtask(subtaskId, patch),
+  ),
+)
+
+export const moveSubtaskTool = moveSubtaskDefinition.server(
+  serve(moveSubtaskDefinition, ({ subtaskId, ...move }) =>
+    moveSubtask(subtaskId, move),
+  ),
+)
+
+export const deleteSubtaskTool = deleteSubtaskDefinition.server(
+  serve(deleteSubtaskDefinition, ({ subtaskId }) => deleteSubtask(subtaskId)),
+)
+
+export const listLabelsTool = listLabelsDefinition.server(
+  serve(listLabelsDefinition, async ({ projectId }) => ({
+    labels: await listLabels(projectId),
+  })),
+)
+
+export const createLabelTool = createLabelDefinition.server(
+  serve(createLabelDefinition, ({ projectId, ...input }) =>
+    createLabel(projectId, input),
+  ),
+)
+
+export const listCommentsTool = listCommentsDefinition.server(
+  serve(listCommentsDefinition, async ({ taskId }) => ({
+    comments: await listComments(taskId),
+  })),
+)
+
+export const addCommentTool = addCommentDefinition.server(
+  serve(addCommentDefinition, ({ taskId, ...input }) =>
+    addComment(taskId, input),
+  ),
+)
+
+export const updateCommentTool = updateCommentDefinition.server(
+  serve(updateCommentDefinition, ({ commentId, ...input }) =>
+    updateComment(commentId, input),
+  ),
+)
+
+export const deleteCommentTool = deleteCommentDefinition.server(
+  serve(deleteCommentDefinition, ({ commentId }) => deleteComment(commentId)),
+)
+
 /**
  * The tools that only read. The MCP server registers these alone (F35); the
- * write tools reach MCP in F36, with its rule that archive_project and
- * delete_task need `confirm: true`.
+ * write tools reach MCP in F36, with its rule that archive_project,
+ * delete_task, delete_subtask and delete_comment need `confirm: true`.
  */
 export const readServerTools = [
   listProjectsTool,
@@ -137,11 +224,21 @@ export const readServerTools = [
   listTasksTool,
   getTaskTool,
   searchTool,
+  listSubtasksTool,
+  listLabelsTool,
+  listCommentsTool,
 ]
 
-/** Every server tool, for chat() in the assistant (F39) and MCP from F36. */
+/**
+ * Every server tool in toolDefinitions order, for chat() in the assistant
+ * (F39) and MCP from F36.
+ */
 export const serverTools = [
-  ...readServerTools,
+  listProjectsTool,
+  getProjectTool,
+  listTasksTool,
+  getTaskTool,
+  searchTool,
   createProjectTool,
   archiveProjectTool,
   createTaskTool,
@@ -149,4 +246,15 @@ export const serverTools = [
   moveTaskTool,
   completeTaskTool,
   deleteTaskTool,
+  listSubtasksTool,
+  addSubtaskTool,
+  updateSubtaskTool,
+  moveSubtaskTool,
+  deleteSubtaskTool,
+  listLabelsTool,
+  createLabelTool,
+  listCommentsTool,
+  addCommentTool,
+  updateCommentTool,
+  deleteCommentTool,
 ]

@@ -9,6 +9,7 @@ import {
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { LiveRegionProvider } from '#/components/app/live-region'
 import { Route } from '#/routes/_app/tasks.$taskId'
 
 vi.mock('#/fns/tasks', () => ({
@@ -16,6 +17,15 @@ vi.mock('#/fns/tasks', () => ({
   taskActivityQueryOptions: (id: string) => ({
     queryKey: ['tasks', id, 'activity'],
   }),
+}))
+
+vi.mock('#/fns/subtasks', () => ({
+  subtasksQueryOptions: (id: string) => ({
+    queryKey: ['tasks', id, 'subtasks'],
+  }),
+  addSubtaskFn: vi.fn(),
+  updateSubtaskFn: vi.fn(),
+  deleteSubtaskFn: vi.fn(),
 }))
 
 vi.mock('#/fns/projects', () => ({
@@ -72,6 +82,23 @@ const activity = [
   },
 ]
 
+const subtasks = [
+  {
+    id: 's1',
+    taskId: 't1',
+    title: 'Find the cause',
+    done: true,
+    order: 1,
+  },
+  {
+    id: 's2',
+    taskId: 't1',
+    title: 'Write the fix',
+    done: false,
+    order: 2,
+  },
+]
+
 type HeadInput = Parameters<NonNullable<typeof Route.options.head>>[0]
 
 function title(loaderData: unknown) {
@@ -91,6 +118,7 @@ async function renderPage() {
   queryClient.setQueryData(['tasks', task.id], task)
   queryClient.setQueryData(['projects', project.id], project)
   queryClient.setQueryData(['tasks', task.id, 'activity'], activity)
+  queryClient.setQueryData(['tasks', task.id, 'subtasks'], subtasks)
   const rootRoute = createRootRoute()
   const appRoute = createRoute({ getParentRoute: () => rootRoute, id: '_app' })
   const routeTree = rootRoute.addChildren([
@@ -116,7 +144,9 @@ async function renderPage() {
   })
   render(
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      <LiveRegionProvider>
+        <RouterProvider router={router} />
+      </LiveRegionProvider>
     </QueryClientProvider>,
   )
   await screen.findByRole('heading', { level: 1 })
@@ -164,6 +194,30 @@ describe('task route', () => {
     const description = screen.getByRole('heading', { name: 'Description' })
     expect(
       description.compareDocumentPosition(region) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it('shows the subtasks between the detail and the activity', async () => {
+    await renderPage()
+    const region = screen.getByRole('region', { name: 'Subtasks' })
+    expect(
+      within(region).getByRole('heading', { level: 2, name: 'Subtasks' }),
+    ).toBeTruthy()
+    expect(within(region).getByText('1 of 2 done')).toBeTruthy()
+    expect(
+      within(region)
+        .getAllByRole('checkbox')
+        .map((box) => box.getAttribute('aria-checked')),
+    ).toEqual(['true', 'false'])
+    const description = screen.getByRole('heading', { name: 'Description' })
+    const activityRegion = screen.getByRole('region', { name: 'Activity' })
+    expect(
+      description.compareDocumentPosition(region) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      region.compareDocumentPosition(activityRegion) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
   })

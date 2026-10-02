@@ -1,6 +1,8 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { CHIP_FILL } from '#/lib/project-colors'
+
 import { LabelChip } from './label-chip'
 
 afterEach(cleanup)
@@ -32,9 +34,9 @@ describe('LabelChip', () => {
     expect(chip('Old').style.borderColor).toBe('')
   })
 
-  it('has a transparent background', () => {
-    render(<LabelChip label={{ name: 'Bug', color: '#dc2626' }} />)
-    expect(chip('Bug').classList).toContain('bg-transparent')
+  it('fills itself with the checked chip surface', () => {
+    render(<LabelChip label={{ name: 'Old', color: '#7c3aed' }} />)
+    expect(chip('Old').style.backgroundColor).toBe(`var(--${CHIP_FILL})`)
   })
 
   it('merges a class name', () => {

@@ -128,7 +128,7 @@ Depends on: F17.
 Acceptance: unit tests cover the labels service (list, create, duplicate-name conflict, delete) and task create and update with `labelIds`, including the `task.updated` row naming `labels` and the no-op case; through REST, POST with `labelIds`, PATCH `labelIds` replaces the set, a label from another project is a 404, and an unknown key is still a 400 (route tests and one e2e round trip).
 
 ### F58 Label chip and label colours on the checked palette (#81)
-`CHIP_SURFACES` in `src/lib/project-colors.ts` names the theme tokens a project or label colour may be painted on, and the palette test checks every colour at 3:1 on each of them in both themes. Seed label colours move onto the palette. A `LabelChip` (text, an `aria-hidden` colour dot, and a 2 px border in the label colour on a transparent background) replaces the inline chips on the board card and the task page.
+`CHIP_SURFACES` in `src/lib/project-colors.ts` names the theme tokens a project or label colour may be painted on, and the palette test checks every colour at 3:1 on each of them in both themes. Seed label colours move onto the palette. A `LabelChip` (text, an `aria-hidden` colour dot, and a 2 px border in the label colour on its own `--background` fill, so the border keeps 3:1 when a hovered card paints `--accent`) replaces the inline chips on the board card and the task page.
 Depends on: F19.
 Acceptance: the chip border reaches 3:1 on the page, card, popover, and sidebar surfaces in light and dark themes (palette test); the board card and the task page render labels through `LabelChip` and axe stays clean on both; `pnpm db:seed` stays idempotent and seeds palette colours only.
 

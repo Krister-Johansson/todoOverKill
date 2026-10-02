@@ -27,11 +27,12 @@ export const CHIP_SURFACES = [
 ] as const
 
 /**
- * Surfaces painted behind a chip while its container is hovered: the board
- * and dashboard cards paint --accent. project-colors.test.ts measures the
- * palette on each.
+ * The surface a label chip paints under its border, from CHIP_SURFACES. A
+ * hovered board or dashboard card paints --accent, which is too light in the
+ * dark theme for some palette colours, so the chip carries this fill and its
+ * border always sits on a checked surface.
  */
-export const CHIP_HOVER_SURFACES = ['accent'] as const
+export const CHIP_FILL = 'background' satisfies (typeof CHIP_SURFACES)[number]
 
 /** The palette name for a hex value, or undefined for a colour not in it. */
 export function projectColorName(value: string | null | undefined) {

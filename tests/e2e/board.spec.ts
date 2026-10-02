@@ -262,6 +262,35 @@ for (const theme of ['light', 'dark'] as const) {
   })
 }
 
+test('a hovered card keeps the page surface under its label chips in the dark theme', async ({
+  page,
+}) => {
+  const { project } = await seedBoard('Hover')
+  await page.addInitScript(
+    ([key, value]) => localStorage.setItem(key, value),
+    [THEME_STORAGE_KEY, 'dark'],
+  )
+  await openBoard(page, project.id)
+
+  const card = board(page).getByRole('link', { name: /Ship the overdue/ })
+  await card.hover()
+  const pageSurface = await page.evaluate(
+    () => getComputedStyle(document.body).backgroundColor,
+  )
+  // The card paints --accent while hovered, which is too light for some
+  // palette colours in the dark theme, so each chip fills itself with
+  // --background.
+  await expect(card).not.toHaveCSS('background-color', pageSurface)
+  for (const name of ['Bug', 'Design']) {
+    const chip = card.getByText(name, { exact: true }).locator('..')
+    await expect(chip).toHaveCSS('background-color', pageSurface)
+  }
+  await expect(card.getByText('Bug', { exact: true }).locator('..')).toHaveCSS(
+    'border-color',
+    'rgb(220, 38, 38)',
+  )
+})
+
 test('a wide board scrolls inside its region, not the page', async ({
   page,
 }) => {

@@ -3,6 +3,12 @@ import { createOpenRouterText } from '@tanstack/ai-openrouter'
 import * as z from 'zod'
 
 import { env } from '#/env'
+import {
+  InvalidChatRequestError,
+  MAX_CHAT_MESSAGES,
+  MAX_CHAT_MESSAGE_LENGTH,
+  MAX_CHAT_PART_LENGTH,
+} from '#/lib/assistant'
 
 /** What the panel shows when OPENROUTER_API_KEY is not set. */
 export const ASSISTANT_DISABLED_MESSAGE =
@@ -21,54 +27,105 @@ export const ASSISTANT_SYSTEM_PROMPT = [
   'and tell the user where in the app they can do it themselves.',
 ].join(' ')
 
-/** Longest conversation, and longest single message, sent to the model. */
-export const MAX_CHAT_MESSAGES = 100
-export const MAX_CHAT_MESSAGE_LENGTH = 20_000
+export {
+  InvalidChatRequestError,
+  MAX_CHAT_MESSAGES,
+  MAX_CHAT_MESSAGE_LENGTH,
+} from '#/lib/assistant'
+
+/** A string capped at MAX_CHAT_PART_LENGTH. */
+const partText = z.string().max(MAX_CHAT_PART_LENGTH)
+
+/**
+ * One content part. Both shapes are on the wire: TanStack's `parts` carry
+ * `content`, AG-UI's content parts carry `text`.
+ */
+const chatPartSchema = z.looseObject({
+  content: partText.optional(),
+  text: partText.optional(),
+})
+
+const chatPartsSchema = z.array(chatPartSchema).max(20)
 
 /**
  * Caps what a chat request may forward to OpenRouter. The AG-UI shape itself
- * is checked by chatParamsFromRequestBody; this only bounds its size, so a
- * large body is refused before it costs anything.
+ * is checked by chatParamsFromRequestBody; this only bounds the size of each
+ * part, so a large body is refused before it costs anything. The length of
+ * the history is not capped here: trimChatHistory keeps the newest messages.
  */
 const chatRequestLimitsSchema = z.looseObject({
-  messages: z
-    .array(
-      z.looseObject({
-        content: z
-          .union([
-            z.string().max(MAX_CHAT_MESSAGE_LENGTH),
-            z.array(z.unknown()).max(20),
-            z.record(z.string(), z.unknown()),
-          ])
-          .optional(),
-      }),
-    )
-    .max(MAX_CHAT_MESSAGES),
+  messages: z.array(
+    z.looseObject({
+      content: z
+        .union([partText, chatPartsSchema, z.record(z.string(), z.unknown())])
+        .optional(),
+      parts: chatPartsSchema.optional(),
+    }),
+  ),
 })
 
-/** Thrown by parseChatRequest when the body is not a chat request. */
-export class InvalidChatRequestError extends Error {
-  readonly code = 'validation'
-
-  constructor() {
-    super('The request is not a valid chat request.')
-    this.name = 'InvalidChatRequestError'
-  }
-}
+/** The newest user message, checked after the role filter. */
+const newestUserMessageSchema = z
+  .string()
+  .max(MAX_CHAT_MESSAGE_LENGTH, 'The newest message is too long.')
 
 export type ChatRequest = Awaited<ReturnType<typeof chatParamsFromRequestBody>>
 
+type ChatMessage = ChatRequest['messages'][number]
+
+/** A message's text: its string content, or the text of its parts. */
+function chatMessageText(message: ChatMessage) {
+  const content: unknown = 'content' in message ? message.content : undefined
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .map((part: { text?: unknown; content?: unknown }) => {
+      if (typeof part.text === 'string') return part.text
+      if (typeof part.content === 'string') return part.content
+      return ''
+    })
+    .join('')
+}
+
 /**
- * A parsed AG-UI RunAgentInput, within the size caps. Throws a ZodError when
- * it is too large and InvalidChatRequestError when it is not AG-UI.
+ * The history the model sees. Only user and assistant messages are kept, so
+ * a client cannot put a system or developer message beside
+ * ASSISTANT_SYSTEM_PROMPT. F39 must let `tool` messages through once the
+ * assistant has tools. Of those, the newest MAX_CHAT_MESSAGES are kept, and
+ * an assistant message left at the start is dropped, as some models refuse a
+ * conversation that does not start with the user.
+ */
+export function trimChatHistory(messages: Array<ChatMessage>) {
+  const kept = messages
+    .filter(
+      (message) => message.role === 'user' || message.role === 'assistant',
+    )
+    .slice(-MAX_CHAT_MESSAGES)
+  const firstUser = kept.findIndex((message) => message.role === 'user')
+  return firstUser === -1 ? [] : kept.slice(firstUser)
+}
+
+/**
+ * A parsed AG-UI RunAgentInput, within the size caps and with its history
+ * trimmed by trimChatHistory. Throws a ZodError when a part or the newest user
+ * message is too long, and InvalidChatRequestError when it is not AG-UI.
  */
 export async function parseChatRequest(body: unknown): Promise<ChatRequest> {
   chatRequestLimitsSchema.parse(body)
+  let request: ChatRequest
   try {
-    return await chatParamsFromRequestBody(body)
+    request = await chatParamsFromRequestBody(body)
   } catch {
     throw new InvalidChatRequestError()
   }
+  const messages = trimChatHistory(request.messages)
+  // Checked on the kept history, so a short message sent after a long user
+  // message cannot carry the long one past the cap.
+  const newestUser = messages
+    .filter((message) => message.role === 'user')
+    .at(-1)
+  if (newestUser) newestUserMessageSchema.parse(chatMessageText(newestUser))
+  return { ...request, messages }
 }
 
 /**

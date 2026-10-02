@@ -35,13 +35,14 @@ export function ProjectProgress({ rows }: { rows: Array<ProjectProgressRow> }) {
               key={project.id}
               className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-card p-3 text-card-foreground"
             >
-              {/* min-w-11 keeps a one-letter name a 44 by 44 px target. */}
+              {/* min-w-11 keeps a one-letter name a 44 by 44 px target; the
+                  span lets a long name with no spaces break at 320 px. */}
               <Link
                 to="/projects/$projectId/board"
                 params={{ projectId: project.id }}
-                className="inline-flex min-h-11 min-w-11 items-center font-medium break-words underline underline-offset-4"
+                className="inline-flex min-h-11 min-w-11 items-center font-medium underline underline-offset-4"
               >
-                {project.name}
+                <span className="min-w-0 break-words">{project.name}</span>
               </Link>
               <span className="text-muted-foreground">
                 {progressText(project.total, project.done)}

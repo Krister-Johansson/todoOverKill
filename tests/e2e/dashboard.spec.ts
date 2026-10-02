@@ -21,6 +21,10 @@ const LONG_TITLE = `Fix${'thecheckout'.repeat(12)}`
 // Other specs do not name a project with one letter.
 const SHORT_NAME = 'Q'
 
+// One unbroken word of 98 characters, near the 100 a project name may have,
+// so the 320 px check covers a project name that has to break inside a word.
+const LONG_NAME = `Long${'workstream'.repeat(9)}${run}`
+
 type Seeded = Awaited<ReturnType<typeof seed>>
 let seeded: Seeded
 
@@ -70,6 +74,9 @@ async function seed() {
   // A one-letter name, the shortest a project can have, for the target size.
   const short = await db.project.create({
     data: projectData(SHORT_NAME, `Q${run}`),
+  })
+  const long = await db.project.create({
+    data: projectData(LONG_NAME, `LO${run}`),
   })
   const status = (of: typeof project, name: string) =>
     of.statuses.find((s) => s.name === name)!.id
@@ -140,6 +147,7 @@ async function seed() {
     project,
     archived,
     short,
+    long,
     dueToday,
     overdue,
     completed,
@@ -390,6 +398,11 @@ test('the dashboard reflows at 320 px without horizontal scrolling', async ({
       name: seeded.project.name,
     }),
   ).toBeVisible()
+  await expect(
+    page
+      .getByRole('region', { name: 'Projects' })
+      .locator(`a[href="/projects/${seeded.long.id}/board"]`),
+  ).toHaveAccessibleName(LONG_NAME)
   const overflow = await page.evaluate(
     () =>
       document.documentElement.scrollWidth -

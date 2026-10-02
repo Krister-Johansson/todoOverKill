@@ -123,13 +123,14 @@ export const listTasksSchema = z
 
 /**
  * The list_tasks tool's input: the project id and listTasksSchema's filters.
- * Every tool transport turns the input schema into JSON Schema, which cannot
- * hold a transform, so `q` is the search text's input side, a trimmed
- * optional string. listTasks still parses it with listTasksSchema, which
- * turns blank text into no filter.
+ * `q` is the search text's input side, a trimmed optional string, so the
+ * schema has no transform and converts to JSON Schema in both of
+ * z.toJSONSchema's modes. listTasks still parses it with listTasksSchema, which
+ * turns blank text into no filter. Strict, so a REST-style name such as
+ * `status` is a validation error rather than an unfiltered list.
  */
 export const listTasksToolSchema = z
-  .object({
+  .strictObject({
     projectId: projectIdSchema.meta({
       description: 'The id of the project, from list_projects or search.',
     }),

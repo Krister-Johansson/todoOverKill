@@ -53,10 +53,27 @@ async function rejection(call: unknown) {
 }
 
 describe('tool definitions', () => {
-  it('converts every input and output schema to JSON Schema', () => {
+  // TanStack AI and the MCP SDK convert in input mode; output mode, the
+  // default, throws on a transform.
+  it.each(['input', 'output'] as const)(
+    'converts every input and output schema to JSON Schema in %s mode',
+    (io) => {
+      for (const definition of toolDefinitions) {
+        expect(() =>
+          z.toJSONSchema(definition.inputSchema, { io }),
+        ).not.toThrow()
+        expect(() =>
+          z.toJSONSchema(definition.outputSchema, { io }),
+        ).not.toThrow()
+      }
+    },
+  )
+
+  it('returns an object from every tool, as MCP structured output needs', () => {
     for (const definition of toolDefinitions) {
-      expect(() => z.toJSONSchema(definition.inputSchema)).not.toThrow()
-      expect(() => z.toJSONSchema(definition.outputSchema)).not.toThrow()
+      expect(
+        z.toJSONSchema(definition.outputSchema, { io: 'input' }),
+      ).toMatchObject({ type: 'object' })
     }
   })
 
@@ -84,13 +101,23 @@ describe('list_projects', () => {
     const open = await listProjectsTool.execute?.({})
     const all = await listProjectsTool.execute?.({ includeArchived: true })
 
-    expect(open?.map((project) => project.name)).toEqual(['Website'])
-    expect(all?.map((project) => project.name)).toEqual([
+    expect(open?.projects.map((project) => project.name)).toEqual(['Website'])
+    expect(all?.projects.map((project) => project.name)).toEqual([
       'Archive me',
       'Website',
     ])
     expectOutput(listProjectsTool.outputSchema, open)
     expectOutput(listProjectsTool.outputSchema, all)
+  })
+
+  it('reports an unknown option in readable words', async () => {
+    const error = await rejection(
+      callUnchecked(listProjectsTool, { archived: true }),
+    )
+
+    expect(error).toBeInstanceOf(ToolError)
+    expect(error).toMatchObject({ code: 'validation' })
+    expect((error as ToolError).message).toContain('archived')
   })
 })
 
@@ -105,6 +132,16 @@ describe('get_project', () => {
     )
     expect(result?.createdAt).toBe(project.createdAt.toISOString())
     expectOutput(getProjectTool.outputSchema, result)
+  })
+
+  it('reports an unknown option in readable words', async () => {
+    const error = await rejection(
+      callUnchecked(getProjectTool, { projectId: 'p1', id: 'p1' }),
+    )
+
+    expect(error).toBeInstanceOf(ToolError)
+    expect(error).toMatchObject({ code: 'validation' })
+    expect((error as ToolError).message).toContain('"id"')
   })
 
   it('reports an unknown project as not found', async () => {
@@ -141,7 +178,7 @@ describe('list_tasks', () => {
       priority: 'high',
     })
 
-    expect(result?.map((task) => task.title)).toEqual(['First', 'Later'])
+    expect(result?.tasks.map((task) => task.title)).toEqual(['First', 'Later'])
     expectOutput(listTasksTool.outputSchema, result)
   })
 
@@ -151,7 +188,7 @@ describe('list_tasks', () => {
 
     const result = await listTasksTool.execute?.({ projectId: project.id })
 
-    expect(result?.[0].dueDate).toBe('2026-10-15')
+    expect(result?.tasks[0].dueDate).toBe('2026-10-15')
     expectOutput(listTasksTool.outputSchema, result)
   })
 
@@ -165,7 +202,7 @@ describe('list_tasks', () => {
       q: '  ',
     })
 
-    expect(result).toHaveLength(2)
+    expect(result?.tasks).toHaveLength(2)
   })
 
   it('reports an unknown project as not found', async () => {
@@ -187,6 +224,22 @@ describe('list_tasks', () => {
     expect(error).toMatchObject({ code: 'validation' })
     expect(error).not.toHaveProperty('issues')
     expect((error as ToolError).message).toContain('→ at projectId')
+  })
+
+  it('reports a REST-style filter name rather than dropping it', async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+    await createTask(project.id, { title: 'One' })
+
+    const error = await rejection(
+      callUnchecked(listTasksTool, {
+        projectId: project.id,
+        status: project.statuses[1].id,
+      }),
+    )
+
+    expect(error).toBeInstanceOf(ToolError)
+    expect(error).toMatchObject({ code: 'validation' })
+    expect((error as ToolError).message).toContain('status')
   })
 
   it('reports a bad priority in readable words', async () => {
@@ -230,6 +283,16 @@ describe('get_task', () => {
     })
     expect(result?.completedAt).toEqual(expect.any(String))
     expectOutput(getTaskTool.outputSchema, result)
+  })
+
+  it('reports an unknown option in readable words', async () => {
+    const error = await rejection(
+      callUnchecked(getTaskTool, { taskId: 't1', reference: 'SITE-1' }),
+    )
+
+    expect(error).toBeInstanceOf(ToolError)
+    expect(error).toMatchObject({ code: 'validation' })
+    expect((error as ToolError).message).toContain('reference')
   })
 
   it('reports an unknown task as not found', async () => {

@@ -2,10 +2,14 @@
 // Server code runs without `window`. Under jsdom, t3-env treats the module as
 // client code and blocks every server variable.
 import * as z from 'zod'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ConflictError, NotFoundError } from '#/server/errors'
 import { ToolError, toToolError } from '#/tools/errors'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 describe('toToolError', () => {
   it('keeps the code and message of a NotFoundError', () => {
@@ -39,16 +43,27 @@ describe('toToolError', () => {
     expect(error).toBeInstanceOf(ToolError)
     expect(error).toMatchObject({ code: 'validation' })
     expect(error).not.toHaveProperty('issues')
-    const { message } = error as ToolError
+    const { message } = error
     expect(message).toContain('The input is not valid.')
     expect(message).toContain('→ at projectId')
     expect(message).toContain('→ at limit')
     expect(message).not.toContain('"code"')
   })
 
-  it('returns any other error unchanged', () => {
-    const error = new Error('Connection refused.')
+  it('logs any other error and hides its message', () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const cause = new Error(
+      'Invalid `prisma.task.findMany()` invocation: connection to 127.0.0.1:5434 refused.',
+    )
 
-    expect(toToolError(error)).toBe(error)
+    const error = toToolError(cause)
+
+    expect(error).toBeInstanceOf(ToolError)
+    expect(error).toMatchObject({
+      code: 'internal',
+      message: 'Something went wrong on the server.',
+    })
+    expect(error.message).not.toContain('prisma')
+    expect(log).toHaveBeenCalledWith(cause)
   })
 })

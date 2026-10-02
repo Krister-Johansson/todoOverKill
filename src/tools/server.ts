@@ -17,7 +17,7 @@ import { toToolError } from '#/tools/errors'
  * definition's input schema, as the chat engine does before it calls a tool,
  * so a direct call gets the same defaults and trimming. The result goes
  * through JSON, so Dates become the ISO strings the output schema expects,
- * and a service error becomes a ToolError.
+ * and any error becomes a ToolError.
  */
 function serve<TInput extends z.ZodType, TOutput extends z.ZodType>(
   definition: { inputSchema: TInput; outputSchema: TOutput },
@@ -34,7 +34,9 @@ function serve<TInput extends z.ZodType, TOutput extends z.ZodType>(
 }
 
 export const listProjectsTool = listProjectsDefinition.server(
-  serve(listProjectsDefinition, (input) => listProjects(input)),
+  serve(listProjectsDefinition, async (input) => ({
+    projects: await listProjects(input),
+  })),
 )
 
 export const getProjectTool = getProjectDefinition.server(
@@ -42,9 +44,9 @@ export const getProjectTool = getProjectDefinition.server(
 )
 
 export const listTasksTool = listTasksDefinition.server(
-  serve(listTasksDefinition, ({ projectId, ...filters }) =>
-    listTasks(projectId, filters),
-  ),
+  serve(listTasksDefinition, async ({ projectId, ...filters }) => ({
+    tasks: await listTasks(projectId, filters),
+  })),
 )
 
 export const getTaskTool = getTaskDefinition.server(

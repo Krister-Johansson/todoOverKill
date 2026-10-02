@@ -3,8 +3,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as z from 'zod'
 
+import { InvalidChatRequestError } from '#/lib/assistant'
 import {
   InvalidJsonError,
+  PayloadTooLargeError,
   UnsupportedMediaTypeError,
   errorResponse,
   handle,
@@ -65,6 +67,44 @@ describe('readJsonBody', () => {
   })
 })
 
+describe('readJsonBody with maxBytes', () => {
+  it('refuses a Content-Length over the cap before reading the body', async () => {
+    const request = new Request('http://localhost/api', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': '11' },
+      body: '{"a":1}',
+    })
+
+    await expect(
+      readJsonBody(request, { maxBytes: 10 }),
+    ).rejects.toBeInstanceOf(PayloadTooLargeError)
+    expect(request.bodyUsed).toBe(false)
+  })
+
+  it('refuses a body over the cap without a Content-Length', async () => {
+    // A string body gets no Content-Length header here, as a chunked one
+    // has none. Two bytes per é, so 6 characters are 12 bytes.
+    const request = jsonRequest('"éééééé"')
+    expect(request.headers.get('content-length')).toBeNull()
+
+    await expect(
+      readJsonBody(request, { maxBytes: 12 }),
+    ).rejects.toBeInstanceOf(PayloadTooLargeError)
+  })
+
+  it('accepts a body of exactly the cap', async () => {
+    await expect(
+      readJsonBody(jsonRequest('"éééééé"'), { maxBytes: 14 }),
+    ).resolves.toBe('éééééé')
+  })
+
+  it('still throws InvalidJsonError for a malformed body', async () => {
+    await expect(
+      readJsonBody(jsonRequest('{name:'), { maxBytes: 100 }),
+    ).rejects.toBeInstanceOf(InvalidJsonError)
+  })
+})
+
 describe('errorResponse', () => {
   it('maps a ZodError to 400 validation with the issues', async () => {
     const result = z.object({ name: z.string() }).safeParse({})
@@ -87,6 +127,30 @@ describe('errorResponse', () => {
       error: {
         code: 'invalid_json',
         message: 'The request body must be valid JSON.',
+      },
+    })
+  })
+
+  it('maps PayloadTooLargeError to 413 payload_too_large', async () => {
+    const response = errorResponse(new PayloadTooLargeError())
+
+    expect(response.status).toBe(413)
+    expect(await response.json()).toEqual({
+      error: {
+        code: 'payload_too_large',
+        message: 'The request body is too large.',
+      },
+    })
+  })
+
+  it('maps InvalidChatRequestError to 400 validation', async () => {
+    const response = errorResponse(new InvalidChatRequestError())
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      error: {
+        code: 'validation',
+        message: 'The request is not a valid chat request.',
       },
     })
   })

@@ -20,9 +20,27 @@ The plan has three levels. Each level is a GitHub issue with a label, and each l
 
 - An **epic** (label `epic`) is an outcome, such as "Refined product redesign". Its body states the goal, the acceptance criteria and the stories under it.
 - A **story** (label `story`) is a user-visible slice of an epic. Its body lists acceptance criteria and its tasks.
-- A **task** (label `task`) is one pull request. Its body is the brief an agent reads: the goal, where in the code, how to tell it is done, acceptance criteria, blockers and the design section.
+- A **task** (label `task`) is one pull request. Its body is the brief an agent reads: the goal, where in the code, how to tell it is done, acceptance criteria, who it is for, blockers and the design section.
 
 Every epic, story and task has acceptance criteria as checkboxes. A task is done when its criteria and the definition of done in `CLAUDE.md` are met.
+
+### Who the work is for
+
+Every epic, story and task has a "Who it is for" section. It names one primary persona, any others the work serves, and what they get from it. Build and review the work from that persona's side. The personas come from `docs/project.md` and `docs/accessibility.md`:
+
+| Persona               | Who it is                                                                                    |
+| --------------------- | -------------------------------------------------------------------------------------------- |
+| Solo planner          | The primary user: one person managing their own work across a few projects.                  |
+| Keyboard user         | A person who does everything without a pointer.                                              |
+| Screen reader user    | A person who uses VoiceOver and depends on names, roles and announcements.                   |
+| Low-vision user       | A person who uses 400% zoom, a 320 px wide window or the dark theme, and needs the contrast.  |
+| Motion-sensitive user | A person who has Reduce motion on, in the OS or in the app.                                  |
+| Voice user            | A person who speaks to the assistant and listens to its replies in Chrome.                   |
+| MCP client            | An agent such as Claude Code connected to `/api/mcp`.                                        |
+| Browser agent         | An agent that finds and calls the page's WebMCP tools.                                       |
+| API developer         | A person or script that calls `/api/v1` or reads the API docs.                               |
+| Maintainer            | A person or agent who builds and reviews the code.                                           |
+| Evaluator             | A person who checks the AAA claim or tries the demo from the README.                         |
 
 ### Statuses
 
@@ -90,6 +108,6 @@ Add work through handoff so it lands in the plan with the right labels and paren
 - `create_task` under a story, with a brief, acceptance criteria and `blocked_by`;
 - `plan_issue` to bring an existing open issue under a story.
 
-Keep each task to one reviewable pull request: a few files, one concern. If a task grows, split the issue. For a task that changes UI, add a Design section that links its Claude Design file and embeds the light and dark screenshots from `design-assets`. If no design file covers the change, add or update the design first.
+Keep each task to one reviewable pull request: a few files, one concern. If a task grows, split the issue. Add a "Who it is for" section to every new issue, using the personas above. For a task that changes UI, add a Design section that links its Claude Design file and embeds the light and dark screenshots from `design-assets`. If no design file covers the change, add or update the design first.
 
 Record new backlog entries in `docs/features.md` with their issue number.

@@ -7,11 +7,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { Route } from '#/routes/api/mcp'
 import { addComment, listComments } from '#/server/comments'
+import * as dashboard from '#/server/dashboard'
 import { db } from '#/server/db'
 import { createLabel } from '#/server/labels'
 import { archiveProject, createProject, getProject } from '#/server/projects'
 import { addSubtask, listSubtasks } from '#/server/subtasks'
+import * as projects from '#/server/projects'
+import { seed } from '#/server/seed'
 import { createTask, getTask } from '#/server/tasks'
+import * as tasks from '#/server/tasks'
 import { resetDatabase } from '#/test/db'
 import { fetchRoute } from '#/test/rest'
 import {
@@ -489,6 +493,236 @@ describe('/api/mcp', () => {
     expect(result.isError).toBe(true)
     expect(textOf(result)).toContain('MCP error -32602: Input validation error')
     expect(textOf(result)).toContain('archived')
+  })
+
+  it('lists the project and task resource templates as Markdown', async () => {
+    const client = await connect()
+
+    const { resourceTemplates } = await client.listResourceTemplates()
+    const { resources } = await client.listResources()
+
+    expect(resourceTemplates).toEqual([
+      expect.objectContaining({
+        name: 'project',
+        uriTemplate: 'project://{id}',
+        mimeType: 'text/markdown',
+      }),
+      expect.objectContaining({
+        name: 'task',
+        uriTemplate: 'task://{id}',
+        mimeType: 'text/markdown',
+      }),
+    ])
+    expect(resources).toEqual([])
+  })
+
+  it('reads a project as Markdown with its tasks under their status', async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+    const label = await createLabel(project.id, {
+      name: 'UX',
+      color: '#2563eb',
+    })
+    const done = project.statuses.find((status) => status.name === 'Done')
+    await createTask(project.id, {
+      title: 'Fix the header',
+      priority: 'high',
+      labelIds: [label.id],
+    })
+    await createTask(project.id, {
+      title: 'Ship the footer',
+      statusId: done?.id,
+    })
+    const client = await connect()
+    const uri = `project://${project.id}`
+
+    const { contents } = await client.readResource({ uri })
+
+    expect(contents).toEqual([
+      { uri, mimeType: 'text/markdown', text: expect.any(String) },
+    ])
+    const { text } = contents[0] as { text: string }
+    expect(text).toMatch(/^# SITE Website\n/)
+    expect(text).toContain('- Backlog: 1 task\n')
+    expect(text).toContain('## Labels\n\n- UX\n')
+    expect(text).toMatch(
+      /### Backlog\n\n- SITE-1 Fix the header \(high priority, UX\), task:\/\/\w+\n/,
+    )
+    expect(text).toMatch(/### Done\n\n- SITE-2 Ship the footer, task:\/\/\w+\n/)
+  })
+
+  it('reads a task as Markdown with its subtasks and comments', async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+    const task = await createTask(project.id, {
+      title: 'Fix the header',
+      description: 'The logo overlaps the menu.',
+      dueDate: '2026-03-20',
+    })
+    await addSubtask(task.id, { title: 'Check the logo' })
+    await addComment(task.id, { body: 'Looks good on mobile.' })
+    const client = await connect()
+    const uri = `task://${task.id}`
+
+    const { contents } = await client.readResource({ uri })
+
+    expect(contents).toEqual([
+      { uri, mimeType: 'text/markdown', text: expect.any(String) },
+    ])
+    const { text } = contents[0] as { text: string }
+    expect(text).toMatch(/^# SITE-1 Fix the header\n/)
+    expect(text).toContain(`- Project: SITE Website, project://${project.id}\n`)
+    expect(text).toContain('- Status: Backlog\n')
+    expect(text).toContain('- Due: 2026-03-20\n')
+    expect(text).toContain('## Description\n\nThe logo overlaps the menu.\n')
+    expect(text).toContain('- [ ] Check the logo\n')
+    expect(text).toContain('Looks good on mobile.\n')
+  })
+
+  it('refuses an unknown id with a not_found JSON-RPC error', async () => {
+    const client = await connect()
+
+    await expect(
+      client.readResource({ uri: 'task://missing' }),
+    ).rejects.toMatchObject({
+      code: -32602,
+      message: expect.stringContaining('not_found: No task with id missing.'),
+    })
+    await expect(
+      client.readResource({ uri: 'project://missing' }),
+    ).rejects.toMatchObject({
+      code: -32602,
+      message: expect.stringContaining(
+        'not_found: No project with id missing.',
+      ),
+    })
+  })
+
+  it('reads an id with escaped characters decoded', async () => {
+    const client = await connect()
+
+    await expect(
+      client.readResource({ uri: 'task://no%20such' }),
+    ).rejects.toThrow('not_found: No task with id no such.')
+  })
+
+  it('reports an unexpected error in a resource read as internal', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(tasks, 'getTask').mockRejectedValue(
+      new Error('connection to postgres://secret failed'),
+    )
+    vi.spyOn(projects, 'getProject').mockRejectedValue(
+      new Error('connection to postgres://secret failed'),
+    )
+    const client = await connect()
+
+    for (const uri of ['task://any', 'project://any']) {
+      const read = client.readResource({ uri })
+
+      await expect(read).rejects.toMatchObject({
+        code: -32603,
+        message: expect.stringContaining(
+          'internal: Something went wrong on the server.',
+        ),
+      })
+      await expect(read).rejects.not.toThrow('secret')
+    }
+  })
+
+  it('refuses a resource read from another Host with a 403', async () => {
+    const response = await post(
+      { method: 'resources/read', params: { uri: 'task://any' } },
+      { host: 'evil.example' },
+    )
+
+    expect(response.status).toBe(403)
+  })
+
+  it('lists the daily_review prompt with an optional today argument', async () => {
+    const client = await connect()
+
+    const { prompts } = await client.listPrompts()
+
+    expect(prompts).toEqual([
+      expect.objectContaining({
+        name: 'daily_review',
+        title: 'Daily review',
+        description: expect.any(String),
+        arguments: [
+          expect.objectContaining({ name: 'today', required: false }),
+        ],
+      }),
+    ])
+  })
+
+  it('refuses a today that is not a calendar day', async () => {
+    const client = await connect()
+
+    await expect(
+      client.getPrompt({ name: 'daily_review', arguments: { today: 'soon' } }),
+    ).rejects.toMatchObject({
+      code: -32602,
+      message: expect.stringContaining(
+        'validation: The input is not valid.\n✖ Date must be a calendar day such as 2026-10-01.',
+      ),
+    })
+  })
+
+  it('reports an unexpected error in the prompt as internal', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(dashboard, 'listDashboardTasks').mockRejectedValue(
+      new Error('connection to postgres://secret failed'),
+    )
+    const client = await connect()
+
+    const prompt = client.getPrompt({
+      name: 'daily_review',
+      arguments: { today: '2026-03-15' },
+    })
+
+    await expect(prompt).rejects.toMatchObject({
+      code: -32603,
+      message: expect.stringContaining(
+        'internal: Something went wrong on the server.',
+      ),
+    })
+    await expect(prompt).rejects.not.toThrow('secret')
+  })
+
+  it('treats a prompts/get without arguments as empty arguments', async () => {
+    // Posted by hand, so the params have no arguments key at all.
+    const response = await post({
+      method: 'prompts/get',
+      params: { name: 'daily_review' },
+    })
+
+    expect(response.status).toBe(200)
+    const { result, error } = (await response.json()) as {
+      result?: { messages: Array<{ content: { text: string } }> }
+      error?: unknown
+    }
+    expect(error).toBeUndefined()
+    expect(result?.messages[0].content.text).toMatch(/^Daily review for /)
+  })
+
+  it('builds daily_review from the seed in under 2,000 characters', async () => {
+    await seed(db, { now: new Date('2026-03-15T12:00:00Z') })
+    const client = await connect()
+
+    const { messages } = await client.getPrompt({
+      name: 'daily_review',
+      arguments: { today: '2026-03-15' },
+    })
+
+    expect(messages).toEqual([
+      { role: 'user', content: { type: 'text', text: expect.any(String) } },
+    ])
+    const { text } = messages[0].content as { text: string }
+    expect(text.length).toBeLessThan(2000)
+    const [dueToday, overdue] = text.split('\n\nOverdue')
+    expect(dueToday).toMatch(/^Daily review for 2026-03-15\.\n\nDue today/)
+    expect(dueToday).toContain('Keyboard move menu on task cards')
+    expect(overdue).toContain('Due date picker loses focus on close')
+    expect(overdue).toContain('Book the demo webinar')
+    expect(overdue).toContain('1 day late')
   })
 
   it('accepts a loopback Host header on any port', async () => {

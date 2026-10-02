@@ -262,7 +262,7 @@ Depends on: F35, F67, F68.
 Acceptance: tests for a successful move and a refused delete.
 
 ### F37 MCP resources and prompt (#37)
-`project://{id}` and `task://{id}` as Markdown; `daily_review` prompt built from the dashboard data.
+`project://{id}` and `task://{id}` as Markdown; `daily_review` prompt built from the dashboard data. `createMcpServer()` in `src/tools/mcp.ts` registers both as resource templates with the MIME type `text/markdown` and no list callback, so `resources/list` stays empty and ids come from the tools. The Markdown comes from pure functions in `src/tools/resources.ts`: a project with its statuses and task counts, labels, and tasks under one heading per status; a task with its fields, description, subtasks as checkboxes and comments. `daily_review` takes an optional `today` (`YYYY-MM-DD`, the server's day by default), reads `listDashboardTasks`, and returns one user message from `src/tools/prompts.ts` listing the tasks due today and overdue, at most 15 a section. An unknown id is a JSON-RPC `InvalidParams` error with the tools' `not_found:` text, and an unexpected error is `InternalError` with the generic `internal` message. `docs/mcp.md` covers the resources and the prompt.
 Depends on: F36.
 Acceptance: resource reads are tested; the prompt returns text under 2,000 characters for the seed.
 

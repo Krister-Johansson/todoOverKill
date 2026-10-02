@@ -61,6 +61,23 @@ with the tool's own name in place of `delete_task`. The server cannot check that
 
 A failed call is a result with `isError: true` and one text item, not a JSON-RPC error. For an unknown id the text is the code and message, such as `not_found: No project with id p1.`. An unexpected server error, such as a database failure, is logged on the server and reads `internal: Something went wrong on the server.`, without its own message. An argument the tool does not take, or one of the wrong type, fails the SDK's input check, and the text reads `MCP error -32602: Input validation error: ...` followed by the Zod issues, which name the argument.
 
+## Resources
+
+The server serves two resource templates, each read as Markdown with the MIME type `text/markdown`:
+
+| URI template     | Markdown                                                                                                                                                                                                    |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `project://{id}` | `# KEY Name`, the description, an "Archived on" line if archived, then `## Statuses` with a task count each, `## Labels`, and `## Tasks` with one `###` heading per status in board order                   |
+| `task://{id}`    | `# KEY-N Title`, a list of fields (project, status, priority, due date, labels, created, updated, and completed if set), then `## Description`, `## Subtasks` as checkboxes, and `## Comments` oldest first |
+
+A task in the project's list reads like `- SITE-1 Fix the header (high priority, due 2026-03-20, UX), task://<id>`, and a task's field list links its project as `project://<id>`, so a client can follow one resource to the next. Timestamps are ISO strings in UTC and due dates are `YYYY-MM-DD`. Titles, descriptions and comment bodies are written as they are; descriptions and comments are Markdown already.
+
+`resources/list` returns no resources: the ids are not enumerated, so a client finds them with `list_projects`, `list_tasks` or `search` and then reads the URI. A resource read has no `isError` result, so an error is a JSON-RPC error. An unknown id is `InvalidParams` (-32602) with the same text a tool returns, such as `not_found: No task with id t1.`. An unexpected server error is logged and is `InternalError` (-32603) with `internal: Something went wrong on the server.`, without its own message. The `Host` check above applies to resources and prompts as it does to tools.
+
+## Prompts
+
+`daily_review` takes one optional argument, `today`, a day as `YYYY-MM-DD`; without it the server uses its own current day. It returns one user message: the tasks due that day and the overdue ones across unarchived projects, the data the dashboard shows, each as `- KEY-N Title (Project, priority, due date)` with how many days late an overdue task is and its `task://` URI. It ends by asking the model to suggest what to do first and what to re-plan, to read `task://{id}` for detail, and to ask before calling `update_task` or `move_task`. Each section lists at most 15 tasks and counts the rest in a "…and N more" line, so the text stays bounded; with the seed it is about 640 characters, well under 2,000. A `today` that is not a calendar day is `InvalidParams` with the `validation:` text. A `prompts/get` without `arguments` is read as `{}`.
+
 ## Add it to Claude Code
 
 Start the app with `pnpm dev`, then run:
@@ -94,7 +111,7 @@ Claude Code calls `list_projects` to find the project id, then `list_tasks` with
 npx @modelcontextprotocol/inspector
 ```
 
-In the Inspector, choose the Streamable HTTP transport, enter `http://localhost:5173/api/mcp`, and connect. The Tools tab lists the 23 tools and runs them with the arguments you enter.
+In the Inspector, choose the Streamable HTTP transport, enter `http://localhost:5173/api/mcp`, and connect. The Tools tab lists the 23 tools and runs them with the arguments you enter. The Resources tab lists the two templates under Resource Templates; enter an id to read one. The Prompts tab gets `daily_review`, with or without `today`.
 
 ## Tests
 

@@ -1,12 +1,27 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import {
+  McpServer,
+  ResourceTemplate,
+} from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
+import type { Variables } from '@modelcontextprotocol/sdk/shared/uriTemplate.js'
+import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js'
 import type {
   CallToolResult,
   JSONRPCMessage,
 } from '@modelcontextprotocol/sdk/types.js'
 import * as z from 'zod'
 
+import { toCalendarDay } from '#/lib/dates'
+import { dueDateSchema } from '#/schemas/task'
+import { listComments } from '#/server/comments'
+import { listDashboardTasks } from '#/server/dashboard'
+import { listLabels } from '#/server/labels'
+import { getProject } from '#/server/projects'
+import { listSubtasks } from '#/server/subtasks'
+import { getTask, listTasks } from '#/server/tasks'
 import { ToolError, toToolError } from '#/tools/errors'
+import { dailyReviewText } from '#/tools/prompts'
+import { projectMarkdown, taskMarkdown } from '#/tools/resources'
 import { readServerTools, serverTools } from '#/tools/server'
 
 /** The part of a server tool the MCP server needs. */
@@ -120,7 +135,143 @@ function confirmationRequired(tool: ServedTool) {
 }
 
 /**
- * An McpServer with every server tool (F36). The tools that need approval,
+ * An error as a JSON-RPC error, for resource reads and prompts, which have no
+ * isError result. not_found, conflict and validation are InvalidParams with
+ * the same code-prefixed text a tool returns. Anything else goes through
+ * toToolError, which logs it, and reaches the client as the generic internal
+ * message, never its own text.
+ */
+function requestError(caught: unknown) {
+  const error = caught instanceof ToolError ? caught : toToolError(caught)
+  const text = `${error.code}: ${error.message}`
+  return error.code === 'internal'
+    ? new McpError(ErrorCode.InternalError, text)
+    : new McpError(ErrorCode.InvalidParams, text)
+}
+
+/** Runs a resource read or a prompt, with its errors as requestError has them. */
+async function answer<T>(work: () => Promise<T>) {
+  try {
+    return await work()
+  } catch (caught) {
+    throw requestError(caught)
+  }
+}
+
+/**
+ * The id in a resource URI, decoded. A {id} variable always matches one
+ * segment, but the SDK types it as a string or a list, so a list is refused.
+ */
+function idOf(variables: Variables) {
+  const { id } = variables
+  if (typeof id !== 'string') {
+    throw new ToolError('validation', 'The resource URI must hold one id.')
+  }
+  try {
+    return decodeURIComponent(id)
+  } catch {
+    throw new ToolError('validation', `The id ${id} is not a valid URI part.`)
+  }
+}
+
+const MARKDOWN = 'text/markdown'
+
+/**
+ * project://{id} and task://{id} as Markdown (F37), read through the same
+ * services as the tools. The ids are not listed: resources/list stays empty
+ * and a client finds ids with list_projects, list_tasks or search.
+ */
+function registerResources(server: McpServer) {
+  server.registerResource(
+    'project',
+    new ResourceTemplate('project://{id}', { list: undefined }),
+    {
+      title: 'Project',
+      description:
+        'A project as Markdown: its description, statuses, labels, and tasks grouped by status.',
+      mimeType: MARKDOWN,
+    },
+    (uri, variables) =>
+      answer(async () => {
+        const project = await getProject(idOf(variables))
+        const [tasks, labels] = await Promise.all([
+          listTasks(project.id),
+          listLabels(project.id),
+        ])
+        const text = projectMarkdown({ project, tasks, labels })
+        return { contents: [{ uri: uri.href, mimeType: MARKDOWN, text }] }
+      }),
+  )
+  server.registerResource(
+    'task',
+    new ResourceTemplate('task://{id}', { list: undefined }),
+    {
+      title: 'Task',
+      description:
+        'A task as Markdown: its fields, description, subtasks as checkboxes, and comments.',
+      mimeType: MARKDOWN,
+    },
+    (uri, variables) =>
+      answer(async () => {
+        const task = await getTask(idOf(variables))
+        const [project, subtasks, comments] = await Promise.all([
+          getProject(task.projectId),
+          listSubtasks(task.id),
+          listComments(task.id),
+        ])
+        const text = taskMarkdown({ task, project, subtasks, comments })
+        return { contents: [{ uri: uri.href, mimeType: MARKDOWN, text }] }
+      }),
+  )
+}
+
+/**
+ * The daily_review prompt (F37): the tasks due today and the overdue ones
+ * across unarchived projects, as one user message. today defaults to the
+ * server's local day, as the dashboard's does.
+ */
+function registerPrompts(server: McpServer) {
+  server.registerPrompt(
+    'daily_review',
+    {
+      title: 'Daily review',
+      description:
+        'Summarises the tasks due today and the overdue ones across unarchived projects, and asks what to do first.',
+      argsSchema: {
+        today: z
+          .string()
+          .optional()
+          .describe(
+            "The day as YYYY-MM-DD. Defaults to the server's current day.",
+          ),
+      },
+    },
+    ({ today }) =>
+      answer(async () => {
+        const day =
+          today === undefined
+            ? toCalendarDay(new Date())
+            : dueDateSchema.parse(today)
+        const tasks = await listDashboardTasks(day)
+        return {
+          description: `Daily review for ${day}`,
+          messages: [
+            {
+              role: 'user' as const,
+              content: {
+                type: 'text' as const,
+                text: dailyReviewText({ today: day, ...tasks }),
+              },
+            },
+          ],
+        }
+      }),
+  )
+}
+
+/**
+ * An McpServer with every server tool (F36), the project and task resources,
+ * and the daily_review prompt (F37). The tools that need approval,
  * archive_project, delete_task, delete_subtask and delete_comment, take
  * confirm: true on this transport only; without it they are refused with
  * confirmation_required and change nothing. confirm is dropped before the
@@ -159,19 +310,22 @@ export function createMcpServer() {
           : Promise.resolve(confirmationRequired(tool)),
     )
   }
+  registerResources(server)
+  registerPrompts(server)
   return server
 }
 
 /**
- * MCP lets a client leave out a tools/call's arguments, but the SDK checks
- * them against the strict input schema as they are, and undefined fails.
- * Missing arguments are read as {}, so list_projects runs with none, and a
- * tool with a required argument still names the one that is missing.
+ * MCP lets a client leave out the arguments of a tools/call or a prompts/get,
+ * but the SDK checks them against the schema as they are, and undefined
+ * fails. Missing arguments are read as {}, so list_projects and daily_review
+ * run with none, and a tool with a required argument still names the one
+ * that is missing.
  */
 function withArguments<T extends JSONRPCMessage>(message: T): T {
   if (
     'method' in message &&
-    message.method === 'tools/call' &&
+    (message.method === 'tools/call' || message.method === 'prompts/get') &&
     message.params &&
     message.params.arguments === undefined
   ) {
@@ -181,9 +335,9 @@ function withArguments<T extends JSONRPCMessage>(message: T): T {
 }
 
 /**
- * Builds a server, connects it to the transport, and fills in missing tool
- * arguments on every message the transport delivers. Returns the server so
- * the caller can close it.
+ * Builds a server, connects it to the transport, and fills in missing tool and
+ * prompt arguments on every message the transport delivers. Returns the
+ * server so the caller can close it.
  */
 export async function connectMcpServer(transport: Transport) {
   const server = createMcpServer()

@@ -135,6 +135,17 @@ describe('isModalOpen', () => {
     document.body.innerHTML = '<div role="listbox"></div>'
     expect(isModalOpen()).toBe(false)
   })
+
+  it('ignores a non-modal dialog such as the assistant panel', () => {
+    document.body.innerHTML = '<div role="dialog" data-modal="false"></div>'
+    expect(isModalOpen()).toBe(false)
+  })
+
+  it('is true with a modal dialog beside a non-modal one', () => {
+    document.body.innerHTML =
+      '<div role="dialog" data-modal="false"></div><div role="dialog"></div>'
+    expect(isModalOpen()).toBe(true)
+  })
 })
 
 describe('isCommandPaletteKey', () => {

@@ -1,10 +1,17 @@
 import { Outlet, createFileRoute, useMatches } from '@tanstack/react-router'
+import { useRef, useState } from 'react'
 
+import { AssistantPanel } from '#/components/app/assistant-panel'
 import { LiveRegionProvider } from '#/components/app/live-region'
 import { PreferencesProvider } from '#/components/app/preferences'
 import { Sidebar } from '#/components/app/sidebar'
 import { TopBar } from '#/components/app/top-bar'
+import { assistantStatusQueryOptions } from '#/fns/assistant'
 import { projectsQueryOptions } from '#/fns/projects'
+import { useHotkeys } from '#/hooks/use-hotkeys'
+import { cn } from '#/lib/utils'
+
+import type { AssistantPanelHandle } from '#/components/app/assistant-panel'
 
 declare module '@tanstack/react-router' {
   interface StaticDataRouteOption {
@@ -16,10 +23,36 @@ declare module '@tanstack/react-router' {
 export const Route = createFileRoute('/_app')({
   // Fills the sidebar's project list on the server, so it is in the first
   // paint. The sidebar reads the same query, and a create updates its cache.
+  // The assistant's status (key set or not) is read here too, so the panel
+  // never suspends when it opens.
   loader: ({ context }) =>
-    context.queryClient.ensureQueryData(projectsQueryOptions()),
+    Promise.all([
+      context.queryClient.ensureQueryData(projectsQueryOptions()),
+      context.queryClient.ensureQueryData(assistantStatusQueryOptions()),
+    ]),
   component: AppShell,
 })
+
+/**
+ * The single-key shortcut `a` (through useHotkeys, so it obeys the shortcuts
+ * setting and does nothing while typing in a field) opens the assistant
+ * panel, or moves focus into it when it is already open: to the Message
+ * field, or to the Close button when the assistant is off.
+ */
+function useAssistantPanel() {
+  const [open, setOpen] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<AssistantPanelHandle>(null)
+
+  useHotkeys({
+    a: () => {
+      if (open) panelRef.current?.focus()
+      else setOpen(true)
+    },
+  })
+
+  return { open, setOpen, buttonRef, panelRef }
+}
 
 function AppShell() {
   // The deepest route that names itself is the current page.
@@ -31,6 +64,7 @@ function AppShell() {
           .filter(Boolean)
           .at(-1),
     }) ?? 'todoOverKill'
+  const assistant = useAssistantPanel()
 
   return (
     <LiveRegionProvider>
@@ -41,10 +75,24 @@ function AppShell() {
         >
           Skip to content
         </a>
-        <div className="grid min-h-dvh grid-cols-1 md:grid-cols-[16rem_minmax(0,1fr)]">
+        {/* While the panel is open the shell leaves room for it from md up,
+            so nothing is under it (2.4.11). Below md the panel fills the
+            viewport and the shell is hidden, so no focused element can sit
+            behind it; the panel returns focus once the shell is back. */}
+        <div
+          className={cn(
+            'grid min-h-dvh grid-cols-1 md:grid-cols-[16rem_minmax(0,1fr)]',
+            assistant.open && 'max-md:hidden md:mr-80 lg:mr-96',
+          )}
+        >
           <Sidebar />
           <div className="flex min-w-0 flex-col">
-            <TopBar currentPage={title} />
+            <TopBar
+              currentPage={title}
+              assistantOpen={assistant.open}
+              onAssistantToggle={() => assistant.setOpen((open) => !open)}
+              assistantButtonRef={assistant.buttonRef}
+            />
             <main
               id="main"
               tabIndex={-1}
@@ -55,6 +103,12 @@ function AppShell() {
             </main>
           </div>
         </div>
+        <AssistantPanel
+          ref={assistant.panelRef}
+          open={assistant.open}
+          onOpenChange={assistant.setOpen}
+          returnFocusTo={assistant.buttonRef}
+        />
       </PreferencesProvider>
     </LiveRegionProvider>
   )

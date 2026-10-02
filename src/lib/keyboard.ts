@@ -32,12 +32,15 @@ export function isEditableTarget(element: EventTarget | null) {
 /**
  * Whether a dialog, an alert dialog or a menu is open anywhere in the
  * document. Radix renders these only while open, and each traps focus, so a
- * shortcut must not act behind one or stack a second focus scope on it.
+ * shortcut must not act behind one or stack a second focus scope on it. A
+ * dialog marked `data-modal="false"`, the assistant panel, does not count: it
+ * traps nothing and the page beside it stays usable, so `c`, `a` and Ctrl+K
+ * keep working while it is open.
  */
 export function isModalOpen() {
   return (
     document.querySelector(
-      '[role="dialog"], [role="alertdialog"], [role="menu"]',
+      '[role="dialog"]:not([data-modal="false"]), [role="alertdialog"], [role="menu"]',
     ) !== null
   )
 }

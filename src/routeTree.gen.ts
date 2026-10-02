@@ -13,6 +13,7 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppHelpRouteImport } from './routes/_app/help'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as ApiChatRouteImport } from './routes/api/chat'
 import { Route as ApiMcpRouteImport } from './routes/api/mcp'
 import { Route as AppProjectsProjectIdRouteImport } from './routes/_app/projects.$projectId'
 import { Route as AppTasksTaskIdRouteImport } from './routes/_app/tasks.$taskId'
@@ -43,6 +44,11 @@ const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
   getParentRoute: () => AppRoute,
+} as any)
+const ApiChatRoute = ApiChatRouteImport.update({
+  id: '/api/chat',
+  path: '/api/chat',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiMcpRoute = ApiMcpRouteImport.update({
   id: '/api/mcp',
@@ -109,6 +115,7 @@ export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/help': typeof AppHelpRoute
   '/settings': typeof AppSettingsRoute
+  '/api/chat': typeof ApiChatRoute
   '/api/mcp': typeof ApiMcpRoute
   '/projects/$projectId': typeof AppProjectsProjectIdRouteWithChildren
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
@@ -124,6 +131,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/help': typeof AppHelpRoute
   '/settings': typeof AppSettingsRoute
+  '/api/chat': typeof ApiChatRoute
   '/api/mcp': typeof ApiMcpRoute
   '/': typeof AppIndexRoute
   '/tasks/$taskId': typeof AppTasksTaskIdRoute
@@ -141,6 +149,7 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/_app/help': typeof AppHelpRoute
   '/_app/settings': typeof AppSettingsRoute
+  '/api/chat': typeof ApiChatRoute
   '/api/mcp': typeof ApiMcpRoute
   '/_app/': typeof AppIndexRoute
   '/_app/projects/$projectId': typeof AppProjectsProjectIdRouteWithChildren
@@ -160,6 +169,7 @@ export interface FileRouteTypes {
     | '/'
     | '/help'
     | '/settings'
+    | '/api/chat'
     | '/api/mcp'
     | '/projects/$projectId'
     | '/tasks/$taskId'
@@ -175,6 +185,7 @@ export interface FileRouteTypes {
   to:
     | '/help'
     | '/settings'
+    | '/api/chat'
     | '/api/mcp'
     | '/'
     | '/tasks/$taskId'
@@ -191,6 +202,7 @@ export interface FileRouteTypes {
     | '/_app'
     | '/_app/help'
     | '/_app/settings'
+    | '/api/chat'
     | '/api/mcp'
     | '/_app/'
     | '/_app/projects/$projectId'
@@ -207,6 +219,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
+  ApiChatRoute: typeof ApiChatRoute
   ApiMcpRoute: typeof ApiMcpRoute
   ApiV1ProjectsRoute: typeof ApiV1ProjectsRouteWithChildren
   ApiV1TasksTaskIdRoute: typeof ApiV1TasksTaskIdRoute
@@ -241,6 +254,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/settings'
       preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/api/chat': {
+      id: '/api/chat'
+      path: '/api/chat'
+      fullPath: '/api/chat'
+      preLoaderRoute: typeof ApiChatRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/mcp': {
       id: '/api/mcp'
@@ -385,6 +405,7 @@ const ApiV1ProjectsRouteWithChildren = ApiV1ProjectsRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
+  ApiChatRoute: ApiChatRoute,
   ApiMcpRoute: ApiMcpRoute,
   ApiV1ProjectsRoute: ApiV1ProjectsRouteWithChildren,
   ApiV1TasksTaskIdRoute: ApiV1TasksTaskIdRoute,

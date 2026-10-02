@@ -18,8 +18,9 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { LiveRegionProvider } from './live-region'
 import { TopBar } from './top-bar'
@@ -27,6 +28,10 @@ import { TopBar } from './top-bar'
 const fetchProject = vi.hoisted(() => vi.fn())
 
 vi.mock('#/fns/projects', () => ({
+  projectsQueryOptions: () => ({
+    queryKey: ['projects'],
+    queryFn: () => Promise.resolve([]),
+  }),
   projectQueryOptions: (id: string) => ({
     queryKey: ['projects', id],
     queryFn: fetchProject,
@@ -39,6 +44,12 @@ vi.mock('#/fns/tasks', () => ({
     queryKey: ['projects', projectId, 'tasks'],
   }),
 }))
+
+beforeAll(() => {
+  // jsdom does not lay out, so it has no scrollIntoView, which the command
+  // menu calls on its active option.
+  Element.prototype.scrollIntoView = vi.fn()
+})
 
 afterEach(() => {
   cleanup()
@@ -58,6 +69,7 @@ async function renderAt(path: string) {
   const queryClient = new QueryClient()
   // What the project layout's loader puts in the cache.
   queryClient.setQueryData(['projects', 'p1'], project)
+  queryClient.setQueryData(['projects'], [project])
   const rootRoute = createRootRoute({
     component: () => (
       <>
@@ -108,6 +120,33 @@ describe('TopBar', () => {
 
     fireEvent.keyDown(document.body, { key: 'c' })
     expect(screen.getByRole('dialog', { name: 'New task' })).toBeTruthy()
+  })
+
+  it('opens the command menu from the Search button on any route', async () => {
+    await renderAt('/settings')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+    const dialog = screen.getByRole('dialog', { name: 'Command menu' })
+    expect(within(dialog).getByRole('combobox', { name: 'Search' })).toBe(
+      document.activeElement,
+    )
+    expect(
+      within(dialog).queryByRole('option', { name: 'New task' }),
+    ).toBeNull()
+  })
+
+  it('opens the New task dialog from the command menu on a project route', async () => {
+    await renderAt('/projects/p1')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+    fireEvent.click(screen.getByRole('option', { name: 'New task' }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'New task' })
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(dialog).getByRole('textbox', { name: 'Title (required)' }),
+      ),
+    )
   })
 
   it('has no New task button outside a project, where c opens nothing', async () => {

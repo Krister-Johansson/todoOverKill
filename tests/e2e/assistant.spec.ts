@@ -249,6 +249,22 @@ test('Stop ends a streaming reply', async ({ page }) => {
   await expect(liveRegion(page)).toHaveText('Reply stopped')
 })
 
+/**
+ * Waits until Radix ranks a modal dialog above the panel. A new dismissable
+ * layer becomes the top one, and takes Escape, a render after it appears;
+ * until then the panel is still on top and ignores an Escape pressed outside
+ * it. That render also sets the panel's own `pointer-events: none`, so this
+ * waits for that inline style. A person cannot press Escape that fast, but
+ * Playwright can. The modal hides the panel from the accessibility tree, so
+ * the id finds it.
+ */
+async function waitForLayerAbovePanel(page: Page) {
+  await expect(page.locator('#assistant-panel')).toHaveAttribute(
+    'style',
+    /pointer-events: none/,
+  )
+}
+
 test('the page stays usable while the panel is open', async ({ page }) => {
   const project = await seedProject('Assistant')
   await page.goto(`/projects/${project.id}/board`, { waitUntil: 'networkidle' })
@@ -266,6 +282,7 @@ test('the page stays usable while the panel is open', async ({ page }) => {
   await page.keyboard.press('c')
   const newTask = page.getByRole('dialog', { name: 'New task' })
   await expect(newTask).toBeVisible()
+  await waitForLayerAbovePanel(page)
   await page.keyboard.press('Escape')
   await expect(newTask).toHaveCount(0)
   await expect(panel(page)).toBeVisible()
@@ -274,8 +291,10 @@ test('the page stays usable while the panel is open', async ({ page }) => {
   await page.keyboard.press('Control+k')
   const palette = page.getByRole('dialog', { name: 'Command menu' })
   await expect(palette).toBeVisible()
+  await waitForLayerAbovePanel(page)
   await page.keyboard.press('Escape')
   await expect(palette).toHaveCount(0)
+  await expect(panel(page)).toBeVisible()
 
   // Nothing in the content column is under the panel.
   const panelBox = await panel(page).boundingBox()

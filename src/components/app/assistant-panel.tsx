@@ -102,6 +102,9 @@ export function AssistantPanel({
         onCloseAutoFocus={(event) => event.preventDefault()}
         onInteractOutside={(event) => event.preventDefault()}
         onEscapeKeyDown={(event) => {
+          // Radix calls this only while the panel is the top dismissable
+          // layer. A dialog opened over it, such as the command menu, takes
+          // that place and closes on Escape itself.
           if (!contentRef.current?.contains(document.activeElement)) {
             event.preventDefault()
           }

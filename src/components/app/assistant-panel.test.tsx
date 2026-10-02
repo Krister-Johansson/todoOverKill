@@ -19,6 +19,14 @@ import {
   vi,
 } from 'vitest'
 
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+  DialogTrigger,
+} from '#/components/ui/dialog'
+
 import { AssistantPanel } from './assistant-panel'
 import { LiveRegionProvider } from './live-region'
 
@@ -107,6 +115,20 @@ function Harness() {
   )
 }
 
+/** A modal dialog, like the command menu, that opens over the panel. */
+function StackedDialog() {
+  return (
+    <Dialog>
+      <DialogTrigger>Command menu</DialogTrigger>
+      <DialogContent>
+        <DialogTitle>Command menu</DialogTitle>
+        <DialogDescription>Escape closes it.</DialogDescription>
+        <input aria-label="Search" />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function renderPanel({ enabled = true } = {}) {
   const queryClient = new QueryClient()
   queryClient.setQueryData(['assistant', 'status'], {
@@ -118,6 +140,7 @@ function renderPanel({ enabled = true } = {}) {
     <QueryClientProvider client={queryClient}>
       <LiveRegionProvider>
         <Harness />
+        <StackedDialog />
       </LiveRegionProvider>
     </QueryClientProvider>
   )
@@ -267,6 +290,22 @@ describe('AssistantPanel', () => {
     elsewhere.focus()
     fireEvent.keyDown(elsewhere, { key: 'Escape' })
 
+    expect(screen.getByRole('dialog', { name: 'Assistant' })).toBeTruthy()
+  })
+
+  it('leaves Escape to a dialog opened over it', async () => {
+    renderPanel()
+    openPanel()
+    fireEvent.click(screen.getByRole('button', { name: 'Command menu' }))
+    const menu = await screen.findByRole('dialog', { name: 'Command menu' })
+    const search = within(menu).getByRole('textbox', { name: 'Search' })
+    await waitFor(() => expect(document.activeElement).toBe(search))
+
+    fireEvent.keyDown(search, { key: 'Escape' })
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Command menu' })).toBeNull(),
+    )
     expect(screen.getByRole('dialog', { name: 'Assistant' })).toBeTruthy()
   })
 

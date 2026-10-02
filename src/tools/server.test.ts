@@ -894,6 +894,20 @@ describe('move_subtask', () => {
     ])
   })
 
+  it('puts the subtask last at an index past the end', async () => {
+    const task = await createTaskInProject()
+    const first = await addSubtask(task.id, { title: 'Draft' })
+    await addSubtask(task.id, { title: 'Review' })
+
+    await moveSubtaskTool.execute?.({ subtaskId: first.id, index: 10 })
+    const list = await listSubtasksTool.execute?.({ taskId: task.id })
+
+    expect(list?.subtasks.map((subtask) => subtask.title)).toEqual([
+      'Review',
+      'Draft',
+    ])
+  })
+
   it('reports an unknown subtask as not found', async () => {
     const error = await rejection(
       moveSubtaskTool.execute?.({ subtaskId: 'missing', index: 0 }),
@@ -1043,6 +1057,19 @@ describe('create_label', () => {
 
     expectValidation(error, 'Colour must be one of the project colours.')
   })
+
+  it('reports an unknown option in readable words', async () => {
+    const error = await rejection(
+      callUnchecked(createLabelTool, {
+        projectId: 'p1',
+        name: 'Bug',
+        color: '#dc2626',
+        description: 'Something is broken',
+      }),
+    )
+
+    expectValidation(error, 'description')
+  })
 })
 
 describe('list_comments', () => {
@@ -1128,6 +1155,24 @@ describe('update_comment', () => {
 
     expect(result).toMatchObject({ id: comment.id, body: 'Looks great' })
     expectOutput(updateCommentTool.outputSchema, result)
+  })
+
+  it('changes nothing when given the current body', async () => {
+    const task = await createTaskInProject()
+    const comment = await addComment(task.id, { body: 'Looks good' })
+    const activities = await db.activity.count()
+
+    const result = await updateCommentTool.execute?.({
+      commentId: comment.id,
+      body: ' Looks good ',
+    })
+
+    expect(result).toMatchObject({
+      id: comment.id,
+      body: 'Looks good',
+      updatedAt: comment.updatedAt.toISOString(),
+    })
+    expect(await db.activity.count()).toBe(activities)
   })
 
   it('reports an unknown comment as not found', async () => {

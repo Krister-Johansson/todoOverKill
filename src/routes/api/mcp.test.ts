@@ -6,6 +6,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { Route } from '#/routes/api/mcp'
+import { addComment } from '#/server/comments'
 import { db } from '#/server/db'
 import { createLabel } from '#/server/labels'
 import { archiveProject, createProject } from '#/server/projects'
@@ -124,9 +125,6 @@ describe('/api/mcp', () => {
       'delete_comment',
     ]
     expect(writeNames).toEqual(expect.arrayContaining(needingApproval))
-    for (const name of needingApproval) {
-      expect(names).not.toContain(name)
-    }
     for (const name of writeNames) {
       expect(names).not.toContain(name)
     }
@@ -233,6 +231,32 @@ describe('/api/mcp', () => {
       ],
     })
     expect(JSON.parse(textOf(result))).toEqual(result.structuredContent)
+  })
+
+  it('returns comments from list_comments with ISO dates', async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+    const task = await createTask(project.id, { title: 'Fix the header' })
+    const comment = await addComment(task.id, { body: 'Looks good' })
+    const client = await connect()
+
+    // The client checks the result against the tool's listed output schema.
+    const result = await client.callTool({
+      name: 'list_comments',
+      arguments: { taskId: task.id },
+    })
+
+    expect(result.isError).toBeFalsy()
+    expect(result.structuredContent).toEqual({
+      comments: [
+        {
+          id: comment.id,
+          taskId: task.id,
+          body: 'Looks good',
+          createdAt: comment.createdAt.toISOString(),
+          updatedAt: comment.updatedAt.toISOString(),
+        },
+      ],
+    })
   })
 
   it('reports an unknown project as an error result with its code', async () => {

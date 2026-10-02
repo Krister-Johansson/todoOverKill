@@ -164,7 +164,7 @@ export const updateSubtaskDefinition = toolDefinition({
 export const moveSubtaskDefinition = toolDefinition({
   name: 'move_subtask',
   description:
-    "Moves a subtask to another place in its task's list and returns it. index is its new place counting from 0 among the task's other subtasks, so 0 is the top and an index past the end means the end.",
+    "Moves a subtask to another place in its task's list and returns it. index is the subtask's new position in the list from list_subtasks, counting from 0, so 0 is the top. It is not the order value that list_subtasks and this tool return. An index past the end means the end.",
   inputSchema: moveSubtaskToolSchema,
   outputSchema: subtaskOutputSchema,
 })

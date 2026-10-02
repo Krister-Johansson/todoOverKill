@@ -33,7 +33,7 @@ Every epic, story and task has a "Who it is for" section. It names one primary p
 | Solo planner          | The primary user: one person managing their own work across a few projects.                  |
 | Keyboard user         | A person who does everything without a pointer.                                              |
 | Screen reader user    | A person who uses VoiceOver and depends on names, roles and announcements.                   |
-| Low-vision user       | A person who uses 400% zoom, a 320 px wide window or the dark theme, and needs the contrast.  |
+| Low-vision user       | A person who uses 400% zoom, a 320 px wide window or the dark theme, and needs the contrast. |
 | Motion-sensitive user | A person who has Reduce motion on, in the OS or in the app.                                  |
 | Voice user            | A person who speaks to the assistant and listens to its replies in Chrome.                   |
 | MCP client            | An agent such as Claude Code connected to `/api/mcp`.                                        |

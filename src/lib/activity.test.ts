@@ -21,7 +21,9 @@ const SAMPLES: Record<string, unknown> = {
   'task.moved': { number: 1, from: 'Backlog', to: 'In progress' },
   'task.completed': { number: 1 },
   'task.deleted': { number: 1, title: 'Write copy' },
-  'comment.added': { body: 'Looks good' },
+  'comment.added': { number: 1, commentId: 'c1' },
+  'comment.updated': { number: 1, commentId: 'c1' },
+  'comment.deleted': { number: 1, commentId: 'c1' },
   'subtask.added': { number: 1, title: 'Draft the intro' },
   'subtask.updated': { number: 1, title: 'Draft the intro', fields: ['title'] },
   'subtask.completed': { number: 1, title: 'Draft the intro' },
@@ -56,6 +58,8 @@ describe('describeActivity', () => {
       'task.completed': 'Completed the task.',
       'task.deleted': 'Deleted the task “Write copy”.',
       'comment.added': 'Added a comment.',
+      'comment.updated': 'Edited a comment.',
+      'comment.deleted': 'Deleted a comment.',
       'subtask.added': 'Added the subtask “Draft the intro”.',
       'subtask.updated': 'Changed the title of the subtask “Draft the intro”.',
       'subtask.completed': 'Completed the subtask “Draft the intro”.',
@@ -73,6 +77,23 @@ describe('describeActivity', () => {
         payload: { title: 'Draft the intro' },
       }),
     ).toBe('Added the subtask “Draft the intro”.')
+  })
+
+  it('never quotes the text an older comment row holds', () => {
+    const sentences = {
+      'comment.added': 'Added a comment.',
+      'comment.updated': 'Edited a comment.',
+      'comment.deleted': 'Deleted a comment.',
+    }
+    for (const [type, expected] of Object.entries(sentences)) {
+      for (const payload of [
+        { body: 'Looks good' },
+        { number: 1, excerpt: 'Looks good' },
+        {},
+      ]) {
+        expect(describeActivity({ type, payload }), type).toBe(expected)
+      }
+    }
   })
 
   it('has a word for every field a subtask.updated row can name', () => {

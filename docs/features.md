@@ -137,10 +137,15 @@ Acceptance: a user can pick several labels with the keyboard alone in the dialog
 Depends on: F19, F58.
 Acceptance: a user can add a label with a name and a named colour, and delete one after confirming, with the keyboard alone; a duplicate name shows the conflict message in the focused summary; axe is clean on the page and with the delete confirmation open, in light and dark themes, with no horizontal scroll at 320 px.
 
-### F20 Comments (#20)
-Service plus a comment list and composer in task detail. Markdown rendered with a safe subset. Edit and delete own comment (there is only one user).
+### F20 Comments service (#20)
+The backend for comments, with no UI. `src/schemas/comment.ts` (body trimmed to 1 to 10000 characters; strict create and update) and `src/server/comments.ts` (`listComments` oldest first, `addComment`, `updateComment`, `deleteComment`, with NotFoundError for an unknown task or comment). Each mutation locks the task row and writes one activity row on the task (`comment.added`, `comment.updated`, `comment.deleted`) holding the task number and the comment id, never the comment's text, each with a sentence in the Activity section; an update with the same body writes none. The comment list and composer moved to F63.
 Depends on: F17.
-Acceptance: posting focuses the new comment; the composer has a visible label.
+Acceptance: unit tests for every service function against the test database cover order, add, update, the no-op update, delete, not-found cases, and one activity row per mutation; every new activity type has a sentence; `docs/architecture.md` describes the service and its activity rows.
+
+### F63 Comments on the task page (#91)
+A Comments section on the task page, rendered by the task route like `ActivityLog`: comments oldest first, each body through the `Markdown` component, with relative and absolute time and "edited" when changed; a composer with a labelled textarea and an "Add comment" button that moves focus to the new comment and announces "Comment added"; Edit (a labelled textarea with Save and Cancel, focus back on Edit) and Delete (a confirmation dialog, focus to the next comment or the composer). Server functions in `src/fns/comments.ts` wrap the F20 service.
+Depends on: F20.
+Acceptance: with the keyboard alone a user can add, edit, and delete a comment, and each change is announced and survives a reload; posting focuses the new comment; the composer has a visible label; an empty comment shows an error in a focused summary; bodies render Markdown with raw HTML as text and unsafe links dropped, capped at 80 characters per line; controls are at least 44 by 44 px; axe is clean on the task page with comments in light and dark themes, with no horizontal scroll at 320 px.
 
 ### F21 Activity log in task detail (#21)
 Renders Activity rows as readable sentences with relative and absolute times.
@@ -184,7 +189,7 @@ Acceptance: linked from the sidebar in the same position on every page; reading 
 
 ### F28 Delete with undo (#28)
 Delete task and delete comment show a toast with Undo for 10 seconds, then commit. Toast does not auto-dismiss while focused.
-Depends on: F20.
+Depends on: F63.
 Acceptance: Undo restores the item and focus; a keyboard-only test covers it.
 
 ### F29 Project settings (#29)

@@ -49,7 +49,11 @@ const SENTENCES: { [T in ActivityTypeName]: (payload: Payload<T>) => string } =
         : `Moved from ${from} to ${to}.`,
     'task.completed': () => 'Completed the task.',
     'task.deleted': ({ title }) => `Deleted the task ${quote(title)}.`,
+    // Never the comment's text, not even from an older row that holds some:
+    // a deleted comment's words must not come back in its sentence.
     'comment.added': () => 'Added a comment.',
+    'comment.updated': () => 'Edited a comment.',
+    'comment.deleted': () => 'Deleted a comment.',
     'subtask.added': ({ title }) => `Added the subtask ${quote(title)}.`,
     // The title is the one the subtask has after the change. A row without
     // `done` names the fields only.

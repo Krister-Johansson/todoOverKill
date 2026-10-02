@@ -50,7 +50,7 @@ src/
     dashboard.ts            Service function: listDashboardTasks, the tasks due today and the overdue ones across unarchived projects
     subtasks.ts             Service functions: listSubtasks, addSubtask, updateSubtask, moveSubtask, deleteSubtask
     labels.ts               Service functions: listLabels, createLabel, deleteLabel
-    comments.ts
+    comments.ts             Service functions: listComments, addComment, updateComment, deleteComment
     activity.ts             ACTIVITY_TYPES, the activity type strings; listTaskActivity, a task's rows oldest first
     search.ts
     errors.ts               NotFoundError and ConflictError, thrown by services
@@ -67,7 +67,7 @@ src/
     client.ts               .client() implementations for UI-only tools (navigate, open task, filter, theme)
     webmcp.ts               Registers tools on document.modelContext
     mcp.ts                  Maps definitions onto @modelcontextprotocol/sdk McpServer
-  schemas/                  Zod schemas shared by forms, REST, MCP, and tools: project.ts, status.ts, task.ts, label.ts, subtask.ts
+  schemas/                  Zod schemas shared by forms, REST, MCP, and tools: project.ts, status.ts, task.ts, label.ts, subtask.ts, comment.ts
   lib/                      Utilities: dates (calendar days: today, formatting, past check, and the due filter presets; `formatDateTime` for timestamps in the local zone), priority (label, icon, and colour per priority), cn, keyboard (isEditableTarget and isSingleKeyShortcut, the checks for single-key shortcuts), motion presets, speech, project-key (key suggestion), project-colors (the project colour palette), preferences (on or off settings in localStorage), rest (the REST error envelope: handle, errorResponse, readJsonBody), board-move (moveTaskInList, the board's optimistic move)
   lib/task-filter.ts        The filter search params (taskFilterSearchSchema), matchesFilters and filterTasks, and the "Showing N of M tasks" text
   hooks/                    useReducedMotion, useTheme, usePreference, useHotkeys, useSpeechRecognition, useSpeechSynthesis
@@ -102,7 +102,7 @@ Activity    id, taskId, projectId, type, payload (json), createdAt
 
 Task numbers come from `Project.nextTaskNumber`, incremented inside the same transaction that creates the task. Statuses are per project so users can rename or add columns. Every new project gets Backlog, Todo, In progress, Done. `order` fields are floats to allow cheap reorders.
 
-The activity log is append-only and written by the service layer, never directly by a route or tool. The types are listed in `ACTIVITY_TYPES` in `src/server/activity.ts`. So far: `project.created` and `project.archived` from the projects service; `task.created`, `task.updated`, `task.moved`, `task.completed`, and `task.deleted` from the tasks service; `subtask.added`, `subtask.updated`, `subtask.completed`, `subtask.reopened`, `subtask.moved`, and `subtask.deleted` from the subtasks service; and `comment.added`, which only the seed writes so far. Restoring a project writes no row. A call that changes nothing, such as archiving an archived project or an empty task update, is not a mutation and writes no row either.
+The activity log is append-only and written by the service layer, never directly by a route or tool. The types are listed in `ACTIVITY_TYPES` in `src/server/activity.ts`. So far: `project.created` and `project.archived` from the projects service; `task.created`, `task.updated`, `task.moved`, `task.completed`, and `task.deleted` from the tasks service; `subtask.added`, `subtask.updated`, `subtask.completed`, `subtask.reopened`, `subtask.moved`, and `subtask.deleted` from the subtasks service; and `comment.added`, `comment.updated`, and `comment.deleted` from the comments service. Restoring a project writes no row. A call that changes nothing, such as archiving an archived project or an empty task update, is not a mutation and writes no row either.
 
 `listTaskActivity` in `src/server/activity.ts` reads one task's activity rows (id, type, payload, createdAt), oldest first, and throws `NotFoundError` for an unknown task. Rows that share a `createdAt` are sorted by id only so the result is stable; the id is a random cuid, so their order is arbitrary, not the order they were written. It reads through the task, so the rows of a deleted task, whose `taskId` is now null, are not part of this per-task read; they stay in the project history for a project feed. Only the task page calls it so far. The REST route `GET /tasks/:id/activity` and the MCP and AI tool surfaces for activity wait for F32 and the tool issues (F34 onwards).
 
@@ -131,6 +131,10 @@ The subtasks service lists, adds, updates, moves, and deletes a task's subtasks.
 Subtask mutations on one task run one at a time. The UI, REST, MCP and the assistant can all write at once, so every mutation (add, update, move, delete) first locks the task's row with `SELECT … FOR UPDATE` inside its transaction, as `createTask` locks the project with its increment, and reads the subtask again under the lock. Two adds then get distinct orders, two moves each start from the order the other committed so the task keeps 1..n, and a write that waited on `deleteTask` finds the task gone and throws `NotFoundError` rather than deadlocking on the cascade. The writers queue on the row while holding a pooled connection, so these transactions get `createTask`'s 10 second `maxWait` and `timeout`.
 
 Each subtask mutation writes one activity row in its transaction, with the task's `projectId` and `taskId`, so it shows in `listTaskActivity`. Every payload has the task's `number` and the subtask's `title`, its new title after a rename: `subtask.added`; `subtask.completed` and `subtask.reopened` when `done` is the only change; `subtask.updated` with `fields` (`title`, and `done` when both changed in one call, with the new `done` beside it so the sentence reads "Renamed and completed" or "Renamed and reopened") for anything else; `subtask.moved` with `from` and `to`, the old and new index, which the sentence counts from 1 ("Moved the subtask “X” from position 4 to 1."); and `subtask.deleted`. The seed's `subtask.added` rows have only the title, so the payload schema keeps `number` optional. A call that changes nothing writes no row: an empty update, an update with the current values, and a move to the subtask's own place (or past the end when it is already last).
+
+The comments service lists, adds, updates, and deletes a task's comments. `listComments` returns them oldest first (`createdAt`, then id, so comments of one millisecond come back the same way each time, though not in write order). `addComment` and `updateComment` trim the body, which must then be 1 to 10000 characters, and `updateComment` compares the trimmed body with the stored one, trimmed as well, so sending the current body back changes nothing and returns the comment as it is. `deleteComment` returns the deleted comment. The schemas in `src/schemas/comment.ts` are strict, so an unknown key is a `ZodError`, and an update must give the body, its only field. An unknown task (`listComments`, `addComment`) or comment (the rest) throws `NotFoundError`. Each mutation locks the task's row first and reads the comment again under the lock, with the same 10 second `maxWait` and `timeout`, as the subtasks service does, so a write that waited on `deleteTask` throws `NotFoundError`. `deleteTask` deletes the task's comments with it, and `getTask` and `listTasks` do not return comments.
+
+Each comment mutation writes one activity row in its transaction, with the task's `projectId` and `taskId`: `comment.added`, `comment.updated`, and `comment.deleted`. A row records that a comment was added, edited, or deleted, and which one: the payload is `{ number, commentId }`. It never holds the comment's text, so a deleted comment's words are gone from the log too, and an edit leaves no copy of the old body. The seed writes the same payload for its `comment.added` rows. The Activity section reads them as "Added a comment", "Edited a comment", and "Deleted a comment". Rows written before this change hold `{ body }` or `{ number, excerpt }`; every field of the comment payload schemas is optional, so they still parse and read as the same sentences, which never quote a body or excerpt a row still carries. An update with the current body writes no row.
 
 The dashboard service has one read. `listDashboardTasks(today)` takes today as a `YYYY-MM-DD` string, which the caller picks so the server render and the browser agree on the day, and returns `{ dueToday, overdue }` across unarchived projects. It is one query, not one per project: tasks with no `completedAt`, a due date on or before today, and a project whose `archivedAt` is null. Today goes through the tasks service's exported `toCalendarDate`, so it is compared as the same UTC midnight the `date` column stores. Due today means due on that day; overdue means due before it and not completed, the rule the board's Overdue word, the overdue filter and REST use, so a completed task is in neither list. Tasks come back ordered by due date, then project name, then project key, then number (project names repeat and every project numbers from 1, so the key keeps the order stable), each with its `status`, flat `labels` and `project` (`id`, `name`, `key`). Recent activity and per-project progress are F64 (#92).
 
@@ -219,6 +223,8 @@ GET    /search?q=
 GET    /openapi.json
 ```
 
+The comments service also has `updateComment` and `deleteComment`. Their routes, `PATCH /comments/:id` and `DELETE /comments/:id`, come with F32 (#32).
+
 The OpenAPI document is generated from the Zod schemas and served at `/api/v1/openapi.json`, with a rendered page at `/api-docs`.
 
 ## Tools: one definition, four consumers
@@ -233,6 +239,8 @@ add_comment
 search
 navigate, open_task, set_filter, set_theme        (client only)
 ```
+
+Tools to edit and delete a comment, beside `add_comment`, come with the tool issues: F34 (#34) defines them, F36 (#36) serves them over MCP, and F39 (#39) gives them to the assistant.
 
 Consumers:
 

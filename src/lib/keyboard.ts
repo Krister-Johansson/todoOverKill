@@ -44,3 +44,24 @@ export function isSingleKeyShortcut(event: KeyboardEvent) {
     document.querySelector('[role="dialog"], [role="alertdialog"]') === null
   )
 }
+
+/**
+ * Whether a keydown opens the command palette: Control+K, or Command+K on a
+ * Mac, with no Alt or Shift, not a held key repeating, not mid-composition,
+ * and no dialog open, so it never acts behind a modal or stacks a second one.
+ * Unlike a single-key shortcut it works while typing in a field, and the
+ * single-key shortcuts setting does not turn it off.
+ */
+export function isCommandPaletteShortcut(event: KeyboardEvent) {
+  if (event.defaultPrevented) return false
+  // Chrome's autofill dispatches a keydown with no key.
+  if (typeof event.key !== 'string' || event.key.toLowerCase() !== 'k') {
+    return false
+  }
+  if (!(event.ctrlKey || event.metaKey)) return false
+  if (event.altKey || event.shiftKey) return false
+  if (event.repeat || event.isComposing) return false
+  return (
+    document.querySelector('[role="dialog"], [role="alertdialog"]') === null
+  )
+}

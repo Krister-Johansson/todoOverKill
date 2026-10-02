@@ -156,16 +156,22 @@ test('c opens the dialog on the board with an empty Title field', async ({
   await expect(page.getByRole('dialog')).toHaveCount(1)
 })
 
-test('c in the search box types a c and opens nothing', async ({ page }) => {
+test('c in the command menu types a c and opens nothing else', async ({
+  page,
+}) => {
   const project = await seedProject('Search')
   await openBoard(page, project.id)
 
-  const search = page.getByRole('searchbox', { name: 'Search' })
-  await search.focus()
+  await page.getByRole('banner').getByRole('button', { name: 'Search' }).click()
+  const search = page
+    .getByRole('dialog', { name: 'Command menu' })
+    .getByRole('combobox', { name: 'Search' })
+  await expect(search).toBeFocused()
   await page.keyboard.press('c')
 
   await expect(search).toHaveValue('c')
-  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('dialog')).toHaveCount(1)
+  await expect(dialog(page)).toHaveCount(0)
 })
 
 test('c opens nothing when shortcuts are off in Settings', async ({ page }) => {

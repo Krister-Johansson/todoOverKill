@@ -36,7 +36,11 @@ test('the shell has labelled landmarks and a polite live region', async ({
     page.getByRole('navigation', { name: 'Breadcrumb' }),
   ).toBeVisible()
   await expect(page.getByRole('banner')).toBeVisible()
-  await expect(page.getByRole('search', { name: 'Search' })).toBeVisible()
+  // The Search button opens the command palette (F65); the palette's own
+  // live region exists only while it is open.
+  await expect(
+    page.getByRole('banner').getByRole('button', { name: 'Search' }),
+  ).toBeVisible()
   await expect(page.getByRole('main', { name: 'Content' })).toBeVisible()
   await expect(page.locator('[aria-live="polite"]')).toHaveCount(1)
 

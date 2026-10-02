@@ -1,7 +1,7 @@
 import { useForm, useStore } from '@tanstack/react-form'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useImperativeHandle, useRef, useState } from 'react'
 
 import { Button } from '#/components/ui/button'
 import {
@@ -48,6 +48,9 @@ const PRIORITIES = Object.entries(PRIORITY_DISPLAY) as Array<
   [Priority, (typeof PRIORITY_DISPLAY)[Priority]]
 >
 
+/** Lets the command palette open the dialog as `c` does. */
+export type CreateTaskDialogHandle = { open: () => void }
+
 const GENERIC_ERROR = 'Could not create the task. Try again.'
 
 /** Field errors are strings or Standard Schema issues, depending on the source. */
@@ -70,9 +73,15 @@ function errorText(errors: Array<unknown>) {
  * it, and focus moves to its card, or to the button on a page without cards
  * (2.4.3). Escape and Cancel return focus to the button. While a create is in
  * flight the dialog does not close, so its result always belongs to the open
- * dialog.
+ * dialog. The command palette opens it through `ref.open()`.
  */
-export function CreateTaskDialog({ project }: { project: TaskProject }) {
+export function CreateTaskDialog({
+  project,
+  ref,
+}: {
+  project: TaskProject
+  ref?: React.Ref<CreateTaskDialogHandle>
+}) {
   const announce = useAnnounce()
   const queryClient = useQueryClient()
   const id = useId()
@@ -182,6 +191,7 @@ export function CreateTaskDialog({ project }: { project: TaskProject }) {
   }
 
   useHotkeys({ c: () => handleOpenChange(true) })
+  useImperativeHandle(ref, () => ({ open: () => handleOpenChange(true) }))
 
   function describedBy(name: string, help?: string) {
     const ids = [

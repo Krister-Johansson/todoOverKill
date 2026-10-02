@@ -1,19 +1,24 @@
 import { useQuery } from '@tanstack/react-query'
 import { useParams } from '@tanstack/react-router'
-import { Search } from 'lucide-react'
+import { useRef } from 'react'
 
 import { projectQueryOptions } from '#/fns/projects'
 
+import { CommandPalette } from './command-palette'
 import { CreateTaskDialog } from './create-task-dialog'
+
+import type { CreateTaskDialogHandle } from './create-task-dialog'
 
 /**
  * The top bar. The breadcrumb shows only the current page until F48 builds
- * the full trail, and the search form is a placeholder for F65. On a project
- * route it holds the New task button, which `c` also opens. Not sticky, so it
+ * the full trail. The Search button opens the command palette, as Ctrl+K and
+ * ⌘+K do on every page. On a project route the bar holds the New task button,
+ * which `c` and the palette's New task action also open. Not sticky, so it
  * never covers the focused element (2.4.12).
  */
 export function TopBar({ currentPage }: { currentPage: string }) {
   const { projectId } = useParams({ strict: false })
+  const createTask = useRef<CreateTaskDialogHandle>(null)
   // The project layout's loader fills this cache entry before the page
   // renders, on the server too, so the button is in the first paint and
   // mounting starts no refetch. When the loader found no project the entry is
@@ -41,31 +46,17 @@ export function TopBar({ currentPage }: { currentPage: string }) {
       <div className="flex min-w-0 flex-wrap items-center gap-4">
         {projectId && project ? (
           // Keyed so a different project starts with a fresh form.
-          <CreateTaskDialog key={project.id} project={project} />
-        ) : null}
-        <form
-          role="search"
-          aria-label="Search"
-          className="flex flex-wrap items-center gap-2"
-          onSubmit={(event) => event.preventDefault()}
-        >
-          <label htmlFor="top-bar-search" className="text-sm font-medium">
-            Search
-          </label>
-          <input
-            id="top-bar-search"
-            type="search"
-            name="q"
-            className="min-h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm sm:w-56"
+          <CreateTaskDialog
+            key={project.id}
+            ref={createTask}
+            project={project}
           />
-          <button
-            type="submit"
-            className="flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground"
-          >
-            <Search aria-hidden="true" className="size-4" />
-            Search
-          </button>
-        </form>
+        ) : null}
+        <CommandPalette
+          openCreateTask={
+            projectId && project ? () => createTask.current?.open() : undefined
+          }
+        />
       </div>
     </header>
   )

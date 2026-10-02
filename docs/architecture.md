@@ -128,7 +128,7 @@ Subtask mutations on one task run one at a time. The UI, REST, MCP and the assis
 
 Each subtask mutation writes one activity row in its transaction, with the task's `projectId` and `taskId`, so it shows in `listTaskActivity`. Every payload has the task's `number` and the subtask's `title`, its new title after a rename: `subtask.added`; `subtask.completed` and `subtask.reopened` when `done` is the only change; `subtask.updated` with `fields` (`title`, and `done` when both changed in one call, with the new `done` beside it so the sentence reads "Renamed and completed" or "Renamed and reopened") for anything else; `subtask.moved` with `from` and `to`, the old and new index, which the sentence counts from 1 ("Moved the subtask “X” from position 4 to 1."); and `subtask.deleted`. The seed's `subtask.added` rows have only the title, so the payload schema keeps `number` optional. A call that changes nothing writes no row: an empty update, an update with the current values, and a move to the subtask's own place (or past the end when it is already last).
 
-The comments service lists, adds, updates, and deletes a task's comments. `listComments` returns them oldest first (`createdAt`, then id, so comments of one millisecond come back the same way each time, though not in write order). `addComment` and `updateComment` trim the body, which must then be 1 to 10000 characters, and `updateComment` compares the trimmed body with the stored one, so sending the current body back changes nothing and returns the comment as it is. `deleteComment` returns the deleted comment. The schemas in `src/schemas/comment.ts` are strict, so an unknown key is a `ZodError`, and an update must give the body, its only field. An unknown task (`listComments`, `addComment`) or comment (the rest) throws `NotFoundError`. Each mutation locks the task's row first and reads the comment again under the lock, with the same 10 second `maxWait` and `timeout`, as the subtasks service does, so a write that waited on `deleteTask` throws `NotFoundError`. `deleteTask` deletes the task's comments with it, and `getTask` and `listTasks` do not return comments.
+The comments service lists, adds, updates, and deletes a task's comments. `listComments` returns them oldest first (`createdAt`, then id, so comments of one millisecond come back the same way each time, though not in write order). `addComment` and `updateComment` trim the body, which must then be 1 to 10000 characters, and `updateComment` compares the trimmed body with the stored one, trimmed as well, so sending the current body back changes nothing and returns the comment as it is. `deleteComment` returns the deleted comment. The schemas in `src/schemas/comment.ts` are strict, so an unknown key is a `ZodError`, and an update must give the body, its only field. An unknown task (`listComments`, `addComment`) or comment (the rest) throws `NotFoundError`. Each mutation locks the task's row first and reads the comment again under the lock, with the same 10 second `maxWait` and `timeout`, as the subtasks service does, so a write that waited on `deleteTask` throws `NotFoundError`. `deleteTask` deletes the task's comments with it, and `getTask` and `listTasks` do not return comments.
 
 Each comment mutation writes one activity row in its transaction, with the task's `projectId` and `taskId`: `comment.added`, `comment.updated`, and `comment.deleted`. A row records that a comment was added, edited, or deleted, and which one: the payload is `{ number, commentId }`. It never holds the comment's text, so a deleted comment's words are gone from the log too, and an edit leaves no copy of the old body. The seed writes the same payload for its `comment.added` rows. The Activity section reads them as "Added a comment", "Edited a comment", and "Deleted a comment". Rows written before this change hold `{ body }` or `{ number, excerpt }`; every field of the comment payload schemas is optional, so they still parse and read as the same sentences, which never quote a body or excerpt a row still carries. An update with the current body writes no row.
 
@@ -211,6 +211,8 @@ GET    /search?q=
 GET    /openapi.json
 ```
 
+The comments service also has `updateComment` and `deleteComment`. Their routes, `PATCH /comments/:id` and `DELETE /comments/:id`, come with F32 (#32).
+
 The OpenAPI document is generated from the Zod schemas and served at `/api/v1/openapi.json`, with a rendered page at `/api-docs`.
 
 ## Tools: one definition, four consumers
@@ -225,6 +227,8 @@ add_comment
 search
 navigate, open_task, set_filter, set_theme        (client only)
 ```
+
+Tools to edit and delete a comment, beside `add_comment`, come with the tool issues: F34 (#34) defines them, F36 (#36) serves them over MCP, and F39 (#39) gives them to the assistant.
 
 Consumers:
 

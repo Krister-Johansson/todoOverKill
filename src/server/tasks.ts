@@ -118,11 +118,11 @@ async function orTaskNotFound<T>(id: string, work: () => Promise<T>) {
 }
 
 /** A UTC midnight `Date`, which the `@db.Date` column stores as that calendar day. */
-function toCalendarDate(day: string) {
+export function toCalendarDate(day: string) {
   return new Date(`${day}T00:00:00.000Z`)
 }
 
-function fromCalendarDate(date: Date | null) {
+export function fromCalendarDate(date: Date | null) {
   return date ? date.toISOString().slice(0, 10) : null
 }
 

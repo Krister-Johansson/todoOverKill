@@ -162,10 +162,15 @@ Filter bar on board and list: status, priority, label, due (overdue, today, this
 Depends on: F22, F19.
 Acceptance: reload keeps filters; clearing resets the URL; announcement made.
 
-### F24 Dashboard (#24)
-Index route: due today, overdue, recent activity across projects, and a per-project progress row.
+### F24 Dashboard: due today and overdue (#24)
+Index route with a "Due today" and an "Overdue" section, read with one query across unarchived projects (`listDashboardTasks`). Overdue is due before today and not completed, the rule the board, the list and REST use. Each item is a link to its task with the reference, title, project name, priority and due date. Scope was reduced on 2026-10-02 to keep it to one PR: recent activity and per-project progress moved to F64 (#92).
 Depends on: F21, F23.
-Acceptance: each section has a heading; empty states have text, not just an icon.
+Acceptance: each section has a heading and a text empty state, not just an icon; completed tasks and tasks of archived projects are left out; every item is a link at least 44 px tall; unit tests for the read against the test database; axe clean in light and dark themes and no horizontal scroll at 320 px.
+
+### F64 Dashboard: recent activity and project progress (#92)
+The rest of the dashboard, split out of F24: a "Recent activity" section with the latest activity rows across unarchived projects as sentences linking to their task, and a "Projects" section with one row per unarchived project linking to its board and showing progress as text ("7 of 21 tasks done"). One query per read, not one per project.
+Depends on: F24.
+Acceptance: each section has a heading and a text empty state; activity shows relative and absolute time; the query count does not grow with the number of projects; axe clean in light and dark themes and no horizontal scroll at 320 px.
 
 ### F25 Search service and command palette (#25)
 `src/server/search.ts` (projects and tasks by text) and a command palette (`cmd/ctrl+k`) listing actions (new task, go to project, switch theme) and search results.

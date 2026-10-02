@@ -21,6 +21,11 @@ type CardProps = {
   project: { name: string; key: string }
   /** Today as YYYY-MM-DD, from the board loader, for the Overdue word. */
   today: string
+  /**
+   * Shows the project name after the title, for lists that mix projects such
+   * as the dashboard. The board leaves it out: its cards share one project.
+   */
+  showProject?: boolean
 }
 
 /**
@@ -38,7 +43,12 @@ function Pause() {
  * only in its aria-hidden dot: users pick it, so it is not checked for
  * contrast and never colours text or borders.
  */
-export function TaskCardContent({ task, project, today }: CardProps) {
+export function TaskCardContent({
+  task,
+  project,
+  today,
+  showProject = false,
+}: CardProps) {
   const priority = PRIORITY_DISPLAY[task.priority]
   const PriorityIcon = priority.icon
   const reference = `${project.key}-${task.number}`
@@ -54,6 +64,14 @@ export function TaskCardContent({ task, project, today }: CardProps) {
       <Pause />
       <span className="min-w-0 font-medium break-words">{task.title}</span>
       <Pause />
+      {showProject ? (
+        <>
+          <span className="min-w-0 text-sm break-words text-muted-foreground">
+            {project.name}
+          </span>
+          <Pause />
+        </>
+      ) : null}
       <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
         <span
           className={`inline-flex items-center gap-1 ${priority.className}`}

@@ -1,8 +1,9 @@
 import * as z from 'zod'
 
 import { Priority } from '#/generated/prisma/enums'
-import { labelIdsSchema } from '#/schemas/label'
-import { statusIdSchema } from '#/schemas/status'
+import { labelIdsSchema, labelOutputSchema } from '#/schemas/label'
+import { projectIdSchema } from '#/schemas/project'
+import { statusIdSchema, statusOutputSchema } from '#/schemas/status'
 
 export const taskIdSchema = z.string().min(1)
 
@@ -90,21 +91,52 @@ export const searchTextSchema = z
   .optional()
   .transform((q) => q || undefined)
 
+/** The filters besides the search text. */
+const listTaskFilterShape = {
+  statusId: statusIdSchema.optional(),
+  priority: taskPrioritySchema.optional(),
+  labelId: z.string().min(1).optional(),
+  dueFrom: dueDateSchema.optional(),
+  dueTo: dueDateSchema.optional(),
+  /** False: only open tasks (no completedAt). True: only completed ones. */
+  completed: z.boolean().optional(),
+}
+
+function dueRangeInOrder({
+  dueFrom,
+  dueTo,
+}: {
+  dueFrom?: string
+  dueTo?: string
+}) {
+  return !dueFrom || !dueTo || dueFrom <= dueTo
+}
+
+const dueRangeError = {
+  error: 'The start of the due range must not be after its end.',
+}
+
 /** Every filter is optional; the ones given must all match. */
 export const listTasksSchema = z
+  .object({ ...listTaskFilterShape, q: searchTextSchema })
+  .refine(dueRangeInOrder, dueRangeError)
+
+/**
+ * The list_tasks tool's input: the project id and listTasksSchema's filters.
+ * Every tool transport turns the input schema into JSON Schema, which cannot
+ * hold a transform, so `q` is the search text's input side, a trimmed
+ * optional string. listTasks still parses it with listTasksSchema, which
+ * turns blank text into no filter.
+ */
+export const listTasksToolSchema = z
   .object({
-    statusId: statusIdSchema.optional(),
-    priority: taskPrioritySchema.optional(),
-    labelId: z.string().min(1).optional(),
-    dueFrom: dueDateSchema.optional(),
-    dueTo: dueDateSchema.optional(),
-    /** False: only open tasks (no completedAt). True: only completed ones. */
-    completed: z.boolean().optional(),
-    q: searchTextSchema,
+    projectId: projectIdSchema.meta({
+      description: 'The id of the project, from list_projects or search.',
+    }),
+    ...listTaskFilterShape,
+    q: searchTextSchema.in,
   })
-  .refine(({ dueFrom, dueTo }) => !dueFrom || !dueTo || dueFrom <= dueTo, {
-    error: 'The start of the due range must not be after its end.',
-  })
+  .refine(dueRangeInOrder, dueRangeError)
 
 /**
  * The due presets the filters offer. Overdue is due before today and not
@@ -142,7 +174,31 @@ export type MoveTaskInput = z.input<typeof moveTaskSchema>
 export type ListTasksInput = z.input<typeof listTasksSchema>
 export type PatchTaskInput = z.input<typeof patchTaskSchema>
 export type ListTasksQuery = z.input<typeof listTasksQuerySchema>
+export type ListTasksToolInput = z.input<typeof listTasksToolSchema>
 export type DueFilter = z.infer<typeof dueFilterSchema>
+
+/**
+ * A task as a tool returns it: getTask's shape after JSON, so timestamps are
+ * ISO strings, the due date is YYYY-MM-DD, and labels are sorted by name.
+ */
+export const taskOutputSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  statusId: z.string(),
+  number: z.int(),
+  title: z.string(),
+  description: z.string().nullable(),
+  priority: taskPrioritySchema,
+  dueDate: dueDateSchema.nullable(),
+  order: z.number(),
+  completedAt: z.iso.datetime().nullable(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+  status: statusOutputSchema,
+  labels: z.array(labelOutputSchema),
+})
+
+export type TaskOutput = z.infer<typeof taskOutputSchema>
 
 /**
  * The create task dialog's values. The inputs hold strings, so an empty

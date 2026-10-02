@@ -37,3 +37,16 @@ export const labelIdsSchema = z
   })
 
 export type CreateLabelInput = z.input<typeof createLabelSchema>
+
+/**
+ * A label as a tool returns it. The colour is any string, since a label need
+ * not hold a palette colour (see labelColorSchema).
+ */
+export const labelOutputSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  name: z.string(),
+  color: z.string(),
+})
+
+export type LabelOutput = z.infer<typeof labelOutputSchema>

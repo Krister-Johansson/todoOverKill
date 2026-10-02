@@ -13,15 +13,26 @@ export type TestDatabase = {
 
 /**
  * The image of the compose `db` service, so the tests run on the same
- * PostgreSQL major version as the dev database.
+ * PostgreSQL major version as the dev database. Only the `db:` block is read,
+ * so another service in the file cannot change the version.
  */
 export function composePostgresImage(compose: string) {
-  const image = /^\s+image:\s*['"]?(postgres:\d+[^\s'"]*)/m.exec(compose)?.[1]
+  // From the `db:` key up to the next key at the same indent or less.
+  const service = /^( *)db:[^\S\n]*\n((?:\1 +.*\n|[^\S\n]*\n)*)/m.exec(
+    compose.endsWith('\n') ? compose : `${compose}\n`,
+  )?.[2]
+  // postgres:17, docker.io/library/postgres:17-alpine, and so on.
+  const image =
+    service &&
+    /^\s+image:\s*['"]?((?:[\w.-]+(?::\d+)?\/)*postgres:\d+[^\s'"]*)/m.exec(
+      service,
+    )?.[1]
   if (!image) {
     throw new Error(
       [
-        'docker-compose.yml has no `image: postgres:<version>` line. The test',
-        'database container uses the same image as the dev database.',
+        'docker-compose.yml has no `image: postgres:<version>` line under the',
+        '`db` service. The test database container uses the same image as the',
+        'dev database.',
       ].join('\n'),
     )
   }
@@ -48,13 +59,16 @@ export async function prepareTestDatabase(): Promise<TestDatabase> {
   // A name of its own per run, so a check of current_database() proves the
   // client reached this container rather than some other server.
   const database = `todo_over_kill_${randomBytes(4).toString('hex')}`
+  // Docker publishes the port on every host interface, and Testcontainers
+  // cannot limit it to loopback, so each run gets a password of its own.
+  const password = randomBytes(16).toString('hex')
 
   let container
   try {
     container = await new PostgreSqlContainer(image)
       .withDatabase(database)
       .withUsername('todo')
-      .withPassword('todo')
+      .withPassword(password)
       .start()
   } catch (error) {
     throw new Error(
@@ -78,7 +92,10 @@ export async function prepareTestDatabase(): Promise<TestDatabase> {
       stdio: 'inherit',
     })
   } catch (error) {
-    await stop()
+    // Keep the migration error: a failed stop is logged, not rethrown.
+    await stop().catch((stopError: unknown) => {
+      console.error('Could not stop the test database container:', stopError)
+    })
     throw error
   }
 

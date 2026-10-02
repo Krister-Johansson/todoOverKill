@@ -282,6 +282,116 @@ describe('POST /api/chat', () => {
     expect(sent.map((message) => message.role)).toEqual(['user'])
   })
 
+  it('offers the model the tools that need no approval', async () => {
+    env.OPENROUTER_API_KEY = 'test-key'
+    const response = await fetchRoute(Route)('http://localhost/api/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(validBody),
+    })
+    expect(response.status).toBe(200)
+    await response.text()
+    const [{ tools }] = chat.mock.calls[0] as unknown as [
+      { tools: Array<{ name: string }> },
+    ]
+    const names = tools.map((tool) => tool.name)
+    expect(names).toContain('list_tasks')
+    expect(names).toContain('create_task')
+    for (const name of [
+      'archive_project',
+      'delete_task',
+      'delete_subtask',
+      'delete_comment',
+    ]) {
+      expect(names).not.toContain(name)
+    }
+  })
+
+  // The client sends a tool call as an assistant message with toolCalls and
+  // no content when the reply had no text, and its result as a tool message.
+  it.each([
+    ['no content', {}],
+    ['empty content', { content: '' }],
+  ])(
+    'passes a tool call with %s and its result on to the model',
+    async (_name, content) => {
+      env.OPENROUTER_API_KEY = 'test-key'
+      const messages = [
+        { id: 'm1', role: 'user', content: 'Which tasks are in Website?' },
+        {
+          id: 'm2',
+          role: 'assistant',
+          ...content,
+          toolCalls: [
+            {
+              id: 'call-1',
+              type: 'function',
+              function: {
+                name: 'list_tasks',
+                arguments: '{"projectId":"p1"}',
+              },
+            },
+          ],
+        },
+        {
+          id: 'm3',
+          role: 'tool',
+          toolCallId: 'call-1',
+          content: '{"tasks":[]}',
+        },
+        { id: 'm4', role: 'assistant', content: 'It has no tasks.' },
+        { id: 'm5', role: 'user', content: 'Add one called Launch' },
+      ]
+      const response = await fetchRoute(Route)('http://localhost/api/chat', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...validBody, messages }),
+      })
+      expect(response.status).toBe(200)
+      await response.text()
+      const [{ messages: sent }] = chat.mock.calls[0] as unknown as [
+        { messages: Array<object> },
+      ]
+      expect(sent).toEqual(messages)
+    },
+  )
+
+  it('drops a tool result that the trim cut from its call', async () => {
+    env.OPENROUTER_API_KEY = 'test-key'
+    const messages = [
+      { id: 'm0', role: 'user', content: 'Which tasks?' },
+      {
+        id: 'm1',
+        role: 'assistant',
+        toolCalls: [
+          {
+            id: 'call-1',
+            type: 'function',
+            function: { name: 'list_tasks', arguments: '{}' },
+          },
+        ],
+      },
+      { id: 'm2', role: 'tool', toolCallId: 'call-1', content: '{}' },
+      ...Array.from({ length: 99 }, (_, index) => ({
+        id: `u${index}`,
+        role: 'user',
+        content: 'Hi',
+      })),
+    ]
+    const response = await fetchRoute(Route)('http://localhost/api/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ ...validBody, messages }),
+    })
+    expect(response.status).toBe(200)
+    await response.text()
+    const [{ messages: sent }] = chat.mock.calls[0] as unknown as [
+      { messages: Array<{ role: string }> },
+    ]
+    expect(sent).toHaveLength(99)
+    expect(sent.every((message) => message.role === 'user')).toBe(true)
+  })
+
   it('streams the reply as server-sent events', async () => {
     env.OPENROUTER_API_KEY = 'test-key'
     const handlers = Route.options.server?.handlers as {

@@ -121,7 +121,7 @@ const terms: Array<{
     id: 'assistant',
     term: 'Assistant',
     definition:
-      'A chat panel where you ask questions in plain words. Open it with the Assistant button or a. For now it answers in text and cannot change your work.',
+      'A chat panel where you ask questions in plain words. Open it with the Assistant button or a. It can read and change your projects and tasks, and each reply shows every tool it used and how that went. It cannot archive or delete anything yet.',
   },
   {
     id: 'voice',

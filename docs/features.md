@@ -284,12 +284,12 @@ Depends on: F69.
 Acceptance: at 320 px, e2e asserts where focus lands after `c`, Ctrl+K and a command menu action; unit tests cover the Stop focus rule; axe clean in both themes.
 
 ### F39 Assistant data tools (#39)
-Pass `serverTools` from `src/tools/server.ts` (the F34 read tools and whatever F67 and F68 have added) to `chat()`. Render tool calls in the message list with name, status, and result summary.
+Pass the server tools from `src/tools/server.ts` (the F34 read tools and whatever F67 and F68 have added) to `chat()`. Render tool calls in the message list with name, status, and result summary. The four `needsApproval` tools (`archive_project`, `delete_task`, `delete_subtask`, `delete_comment`) are left out (`assistantTools`) until F40 adds the Approve and Deny prompt, since without it such a call would pause the run with nothing to answer it.
 Depends on: F38.
 Acceptance: e2e with a mocked model response that calls `list_tasks` renders the tool card.
 
 ### F40 Assistant UI tools and approvals (#40)
-`.client()` implementations for `navigate`, `open_task`, `set_filter`, `set_theme`; `needsApproval` tools show an Approve and Deny prompt in the panel. After navigation, focus moves to the page heading and the panel says where it went.
+`.client()` implementations for `navigate`, `open_task`, `set_filter`, `set_theme`; `needsApproval` tools show an Approve and Deny prompt in the panel, and `assistantTools` stops leaving them out, so the assistant can archive and delete. After navigation, focus moves to the page heading and the panel says where it went.
 Depends on: F39.
 Acceptance: e2e covers approve, deny, and a navigation with focus assertion.
 

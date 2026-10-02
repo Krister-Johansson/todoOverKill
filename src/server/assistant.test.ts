@@ -237,7 +237,105 @@ describe('trimChatHistory', () => {
       trimChatHistory([{ id: 'm1', role: 'assistant', content: 'Hello' }]),
     ).toEqual([])
   })
+
+  it('keeps a tool call with its result', () => {
+    const messages = [
+      { id: 'u1', role: 'user' as const, content: 'Which tasks?' },
+      {
+        id: 'a1',
+        role: 'assistant' as const,
+        content: null,
+        toolCalls: [call('c1')],
+      },
+      result('c1'),
+      { id: 'a2', role: 'assistant' as const, content: 'Two tasks.' },
+    ]
+    expect(trimChatHistory(messages)).toEqual(messages)
+  })
+
+  it('drops a tool result whose call the trim cut', () => {
+    // 98 user messages, then a call and its result: the newest 100 start
+    // with the result.
+    const messages = [
+      {
+        id: 'a0',
+        role: 'assistant' as const,
+        content: null,
+        toolCalls: [call('c1')],
+      },
+      result('c1'),
+      ...Array.from({ length: 99 }, (_, index) => ({
+        id: `u${index}`,
+        role: 'user' as const,
+        content: 'Hi',
+      })),
+    ]
+    const trimmed = trimChatHistory(messages)
+    expect(trimmed).toHaveLength(99)
+    expect(trimmed.every((message) => message.role === 'user')).toBe(true)
+  })
+
+  it('drops a tool result with no call before it', () => {
+    expect(
+      trimChatHistory([
+        { id: 'u1', role: 'user', content: 'Hi' },
+        result('c1'),
+        { id: 'a1', role: 'assistant', content: null, toolCalls: [call('c1')] },
+        { id: 'u2', role: 'user', content: 'Hi' },
+      ]).map((message) => message.id),
+    ).toEqual(['u1', 'u2'])
+  })
+
+  it('drops a tool call whose result was cut, and keeps the text', () => {
+    const trimmed = trimChatHistory([
+      { id: 'u1', role: 'user', content: 'Which tasks?' },
+      { id: 'a1', role: 'assistant', content: null, toolCalls: [call('c1')] },
+      {
+        id: 'a2',
+        role: 'assistant',
+        content: 'Let me look.',
+        toolCalls: [call('c2'), call('c3')],
+      },
+      result('c3'),
+      {
+        id: 'a3',
+        role: 'assistant',
+        content: 'Looking.',
+        toolCalls: [call('c4')],
+      },
+      { id: 'u2', role: 'user', content: 'Stop' },
+    ])
+    expect(trimmed).toEqual([
+      { id: 'u1', role: 'user', content: 'Which tasks?' },
+      {
+        id: 'a2',
+        role: 'assistant',
+        content: 'Let me look.',
+        toolCalls: [call('c3')],
+      },
+      result('c3'),
+      { id: 'a3', role: 'assistant', content: 'Looking.' },
+      { id: 'u2', role: 'user', content: 'Stop' },
+    ])
+  })
 })
+
+function call(id: string) {
+  return {
+    id,
+    type: 'function' as const,
+    function: { name: 'list_tasks', arguments: '{"projectId":"p1"}' },
+  }
+}
+
+function result(toolCallId: string) {
+  return {
+    id: `tool-${toolCallId}`,
+    role: 'tool' as const,
+    toolCallId,
+    content: '{"tasks":[]}',
+  }
+}
 
 describe('startAssistantReply', () => {
   it('returns null without a key', async () => {

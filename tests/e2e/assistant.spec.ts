@@ -34,29 +34,52 @@ test.afterAll(async () => {
 })
 
 /**
+ * A server tool call for the first reply, streamed as chat() streams one:
+ * TOOL_CALL_START, TOOL_CALL_ARGS and TOOL_CALL_END, then TOOL_CALL_RESULT
+ * with the result as JSON. A failure is sent as chat() sends a thrown
+ * ToolError: `{ "error": message }` marked output-error in
+ * `metadata.tanstack.state`. With `hold`, the stream stops after
+ * TOOL_CALL_END, as while a tool runs, until the fetch is aborted.
+ */
+type MockToolCall = {
+  name: string
+  args: object
+  result?: object
+  error?: string
+  hold?: boolean
+}
+
+/**
  * Replaces fetch for /api/chat with a stream of AG-UI events, one word every
  * `delayMs`, so no request leaves the browser and the placeholder key is never
- * used. Requests are counted in `window.__chatRequests`, an aborted fetch is
- * counted in `window.__chatAborts`, and the request's
- * Content-Type, which the route requires to be JSON, is kept in
- * `window.__chatContentType`.
+ * used. With `toolCall`, the first reply calls that tool before its text.
+ * Requests are counted in `window.__chatRequests` and their bodies kept in
+ * `window.__chatBodies`, an aborted fetch is counted in
+ * `window.__chatAborts`, and the request's Content-Type, which the route
+ * requires to be JSON, is kept in `window.__chatContentType`.
  */
 async function mockChatStream(
   page: Page,
-  { text, delayMs }: { text: string; delayMs: number },
+  {
+    text,
+    delayMs,
+    toolCall,
+  }: { text: string; delayMs: number; toolCall?: MockToolCall },
 ) {
   await page.addInitScript(
     // Runs in the page, so it takes its values as an argument.
     // eslint-disable-next-line no-shadow
-    ({ text, delayMs }) => {
+    ({ text, delayMs, toolCall }) => {
       const state = window as unknown as {
         __chatRequests: number
         __chatAborts: number
         __chatContentType: string | null
+        __chatBodies: Array<unknown>
       }
       state.__chatRequests = 0
       state.__chatAborts = 0
       state.__chatContentType = null
+      state.__chatBodies = []
       const realFetch = window.fetch.bind(window)
       window.fetch = (input, init) => {
         const url =
@@ -75,13 +98,52 @@ async function mockChatStream(
         const body = JSON.parse(
           typeof init?.body === 'string' ? init.body : '{}',
         )
+        state.__chatBodies.push(body)
         const threadId = body.threadId ?? 'thread'
         const runId = body.runId ?? 'run'
         const messageId = `reply-${runId}`
+        const toolCallId = `call-${runId}`
         const timestamp = Date.now()
         const words = text.split(/(?<= )/)
+        const call = state.__chatRequests === 1 ? toolCall : undefined
+        const toolEvents: Array<object> = call
+          ? [
+              {
+                type: 'TOOL_CALL_START',
+                toolCallId,
+                toolCallName: call.name,
+                parentMessageId: messageId,
+                timestamp,
+              },
+              {
+                type: 'TOOL_CALL_ARGS',
+                toolCallId,
+                delta: JSON.stringify(call.args),
+                timestamp,
+              },
+              { type: 'TOOL_CALL_END', toolCallId, timestamp },
+              {
+                type: 'TOOL_CALL_RESULT',
+                messageId,
+                toolCallId,
+                role: 'tool',
+                content: JSON.stringify(
+                  call.error === undefined
+                    ? (call.result ?? {})
+                    : { error: call.error },
+                ),
+                ...(call.error === undefined
+                  ? {}
+                  : { metadata: { tanstack: { state: 'output-error' } } }),
+                timestamp,
+              },
+            ]
+          : []
+        // Where a held stream stops: after TOOL_CALL_END.
+        const holdAt = call?.hold ? 4 : -1
         const events: Array<object | '[DONE]'> = [
           { type: 'RUN_STARTED', threadId, runId, timestamp },
+          ...toolEvents,
           {
             type: 'TEXT_MESSAGE_START',
             messageId,
@@ -117,6 +179,7 @@ async function mockChatStream(
                   `data: ${event === '[DONE]' ? event : JSON.stringify(event)}\n\n`,
                 ),
               )
+              if (index === holdAt) return
               if (index < events.length)
                 timer = window.setTimeout(next, delayMs)
               else controller.close()
@@ -136,7 +199,7 @@ async function mockChatStream(
         )
       }
     },
-    { text, delayMs },
+    { text, delayMs, toolCall },
   )
 }
 
@@ -343,6 +406,151 @@ test('Clear conversation empties the list and keeps focus', async ({
   await expect(liveRegion(page)).toHaveText('Conversation cleared')
   await expect(clear).toBeFocused()
   await expect(clear).toHaveAttribute('aria-disabled', 'true')
+})
+
+const TASKS_REPLY = 'Website has two tasks: Fix login and Ship.'
+
+const LIST_TASKS: MockToolCall = {
+  name: 'list_tasks',
+  args: { projectId: 'p1' },
+  result: {
+    tasks: [
+      { number: 1, title: 'Fix login' },
+      { number: 2, title: 'Ship' },
+    ],
+  },
+}
+
+function toolCard(page: Page, name: string) {
+  return conversation(page).getByRole('group', { name: `Tool call: ${name}` })
+}
+
+/** Reloads with a mock whose first reply calls `toolCall`, and asks. */
+async function askWithToolCall(
+  page: Page,
+  toolCall: MockToolCall,
+  delayMs = 40,
+) {
+  await mockChatStream(page, { text: TASKS_REPLY, delayMs, toolCall })
+  await page.reload({ waitUntil: 'networkidle' })
+  await assistantButton(page).click()
+  await messageField(page).fill('Which tasks does Website have?')
+  await page.keyboard.press('Enter')
+}
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`a reply that calls list_tasks shows the tool card (${theme})`, async ({
+    page,
+  }) => {
+    await page.addInitScript(
+      ([key, value]) => localStorage.setItem(key, value),
+      [THEME_STORAGE_KEY, theme],
+    )
+    await askWithToolCall(page, LIST_TASKS)
+
+    const reply = conversation(page).getByRole('listitem').nth(1)
+    await expect(reply).toContainText(TASKS_REPLY)
+    const card = toolCard(page, 'List tasks')
+    await expect(card).toHaveText('List tasksDone2 tasks')
+    // The card comes before the text, and is inside the reply.
+    await expect(reply).toContainText(`List tasksDone2 tasks${TASKS_REPLY}`)
+    await expect(liveRegion(page)).toHaveText(`Assistant: ${TASKS_REPLY}`)
+    await settle(page)
+    await expectAccessible(page)
+  })
+}
+
+test('a failed tool call shows Failed and the error', async ({ page }) => {
+  await askWithToolCall(page, {
+    name: 'list_tasks',
+    args: { projectId: 'nope' },
+    error: 'No project with id nope.',
+  })
+
+  const card = toolCard(page, 'List tasks')
+  await expect(card).toContainText('Failed')
+  await expect(card).toContainText('No project with id nope.')
+  await expect(card).not.toContainText('Done')
+  await expect(conversation(page).getByRole('listitem').nth(1)).toContainText(
+    TASKS_REPLY,
+  )
+  await settle(page)
+  await expectAccessible(page)
+})
+
+test('a follow-up sends the tool call and its result back', async ({
+  page,
+}) => {
+  await askWithToolCall(page, LIST_TASKS)
+  const items = conversation(page).getByRole('listitem')
+  await expect(items.nth(1)).toContainText(TASKS_REPLY)
+
+  await messageField(page).fill('And which is due first?')
+  await page.keyboard.press('Enter')
+  await expect(items.nth(3)).toContainText(TASKS_REPLY)
+  await expect(items).toHaveCount(4)
+
+  const bodies = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          __chatBodies: Array<{ messages: Array<Record<string, unknown>> }>
+        }
+      ).__chatBodies,
+  )
+  expect(bodies).toHaveLength(2)
+  const sent = bodies[1].messages
+  const call = sent.find(
+    (message) => message.role === 'assistant' && message.toolCalls,
+  )
+  expect(call?.toolCalls).toEqual([
+    expect.objectContaining({
+      id: expect.any(String),
+      function: expect.objectContaining({ name: 'list_tasks' }),
+    }),
+  ])
+  const callId = (call?.toolCalls as Array<{ id: string }>)[0].id
+  expect(sent).toContainEqual(
+    expect.objectContaining({
+      role: 'tool',
+      toolCallId: callId,
+      content: JSON.stringify(LIST_TASKS.result),
+    }),
+  )
+  expect(sent.at(-1)).toMatchObject({
+    role: 'user',
+    content: 'And which is due first?',
+  })
+})
+
+test('Stop while a tool runs shows Stopped and sends no unanswered call', async ({
+  page,
+}) => {
+  await askWithToolCall(page, { ...LIST_TASKS, hold: true })
+  const card = toolCard(page, 'List tasks')
+  await expect(card).toHaveText('List tasksRunning')
+
+  await panel(page).getByRole('button', { name: 'Stop' }).click()
+  await expect(card).toHaveText('List tasksStopped')
+  await expect(liveRegion(page)).toHaveText('Reply stopped')
+
+  // The next request leaves the stopped call out, as the model provider
+  // refuses a tool call with no result.
+  await messageField(page).fill('Try again')
+  await page.keyboard.press('Enter')
+  await expect(conversation(page).getByRole('listitem').nth(3)).toContainText(
+    TASKS_REPLY,
+  )
+  const sent = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          __chatBodies: Array<{ messages: Array<Record<string, unknown>> }>
+        }
+      ).__chatBodies[1].messages,
+  )
+  expect(sent.some((message) => message.toolCalls)).toBe(false)
+  expect(sent.some((message) => message.role === 'tool')).toBe(false)
 })
 
 /**

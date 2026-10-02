@@ -70,6 +70,16 @@ function groupOptions(page: Page, name: string) {
   return palette(page).getByRole('group', { name }).getByRole('option')
 }
 
+/**
+ * The visible line under the list, such as No results. The live region can
+ * hold the same words, so getByText alone would match two elements.
+ */
+function statusLine(page: Page, text: string) {
+  return palette(page)
+    .locator('p')
+    .filter({ hasText: new RegExp(`^${text}$`) })
+}
+
 function liveRegion(page: Page) {
   return palette(page).locator('[aria-live="polite"]')
 }
@@ -177,7 +187,7 @@ test('the combobox points at its listbox and the active option', async ({
   )
 
   await page.keyboard.type('no such action')
-  await expect(palette(page).getByText('No results')).toBeVisible()
+  await expect(statusLine(page, 'No results')).toBeVisible()
   await expect(palette(page).locator('[aria-live="polite"]')).toHaveText(
     'No results',
   )
@@ -449,7 +459,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expectAccessible(page)
 
     await page.keyboard.type('no such action')
-    await expect(palette(page).getByText('No results')).toBeVisible()
+    await expect(statusLine(page, 'No results')).toBeVisible()
     await expectAccessible(page)
   })
 }

@@ -59,12 +59,32 @@ describe('env', () => {
     expect(message).not.toContain('DATABASE_URL_TEST')
   })
 
-  it('names a missing DATABASE_URL_TEST', async () => {
+  it('accepts a missing DATABASE_URL_TEST', async () => {
     vi.stubEnv('DATABASE_URL_TEST', undefined)
 
-    await expect(loadEnv()).rejects.toThrow(
-      '  - DATABASE_URL_TEST: is required',
-    )
+    const env = await loadEnv()
+
+    expect(env.DATABASE_URL_TEST).toBeUndefined()
+  })
+
+  it('says where DATABASE_URL_TEST comes from when a test server lacks it', async () => {
+    // vite.config.ts validates the schema on preview, which now passes, so
+    // the first database access is where a preview with NODE_ENV=test and no
+    // DATABASE_URL_TEST stops.
+    vi.stubEnv('NODE_ENV', 'test')
+    vi.stubEnv('DATABASE_URL_TEST', undefined)
+    const cache = globalThis as { __todoOverKillDb?: unknown }
+    const cached = cache.__todoOverKillDb
+    delete cache.__todoOverKillDb
+
+    try {
+      vi.resetModules()
+      await expect(import('#/server/db')).rejects.toThrow(
+        'DATABASE_URL_TEST is not set and NODE_ENV is test.',
+      )
+    } finally {
+      cache.__todoOverKillDb = cached
+    }
   })
 
   it('rejects a value that is not a URL', async () => {

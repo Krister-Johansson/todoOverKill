@@ -1,78 +1,75 @@
 import { execFileSync } from 'node:child_process'
-import { connect } from 'node:net'
+import { randomBytes } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 
-const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
+import { PostgreSqlContainer } from '@testcontainers/postgresql'
 
-/** Resolves true when something accepts a TCP connection on host:port. */
-function isListening(host: string, port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = connect({ host, port, timeout: 1000 })
-    const done = (result: boolean) => {
-      socket.destroy()
-      resolve(result)
-    }
-    socket.once('connect', () => done(true))
-    socket.once('timeout', () => done(false))
-    socket.once('error', () => done(false))
-  })
+export type TestDatabase = {
+  /** Connection URL for the migrated database in the container. */
+  url: string
+  /** Stops and removes the container. */
+  stop: () => Promise<void>
 }
 
 /**
- * Brings the test database up to date. The Vitest and Playwright global setups
- * both call it, after their configs have loaded .env into process.env. It
- * imports nothing from the app, so Playwright's loader can run it too.
- *
- * If nothing answers on the DATABASE_URL_TEST host and it is local, the
- * compose database is started. The returned teardown stops it again after the
- * run, so the tests leave Docker as they found it.
- *
- * The URL is passed to Prisma as DATABASE_URL, and prisma.config.ts lets a
- * variable set in the environment win over .env, so migrations never reach the
- * app database.
+ * The image of the compose `db` service, so the tests run on the same
+ * PostgreSQL major version as the dev database.
  */
-export async function prepareTestDatabase(): Promise<() => void> {
-  const url = process.env.DATABASE_URL_TEST
-  if (!url) {
+export function composePostgresImage(compose: string) {
+  const image = /^\s+image:\s*['"]?(postgres:\d+[^\s'"]*)/m.exec(compose)?.[1]
+  if (!image) {
     throw new Error(
       [
-        'DATABASE_URL_TEST is not set. The unit and e2e tests migrate and',
-        'use the test database: copy .env.example to .env, or export',
-        'DATABASE_URL_TEST, and start PostgreSQL with docker compose up -d.',
+        'docker-compose.yml has no `image: postgres:<version>` line. The test',
+        'database container uses the same image as the dev database.',
       ].join('\n'),
     )
   }
+  return image
+}
 
-  const { hostname, port } = new URL(url)
-  const dbPort = Number(port || 5432)
-  let startedDb = false
+/**
+ * Starts a PostgreSQL container for one test run and applies the migrations.
+ * The Vitest global setup and tests/e2e/serve.ts both call it. It imports
+ * nothing from the app, so plain Node can run it.
+ *
+ * Each call gets its own container, on a port Docker picks, so runs in other
+ * worktrees never see this run's data. Testcontainers' Ryuk reaper removes the
+ * container if the process dies before `stop` runs.
+ *
+ * The URL is passed to Prisma as DATABASE_URL, and prisma.config.ts lets a
+ * variable set in the environment win over .env, so migrations never reach the
+ * dev database.
+ */
+export async function prepareTestDatabase(): Promise<TestDatabase> {
+  const image = composePostgresImage(
+    readFileSync(new URL('../../docker-compose.yml', import.meta.url), 'utf8'),
+  )
+  // A name of its own per run, so a check of current_database() proves the
+  // client reached this container rather than some other server.
+  const database = `todo_over_kill_${randomBytes(4).toString('hex')}`
 
-  if (!(await isListening(hostname, dbPort))) {
-    if (!LOCAL_HOSTS.has(hostname)) {
-      throw new Error(
-        `Nothing answers at ${hostname}:${dbPort}, the DATABASE_URL_TEST host.`,
-      )
-    }
-    try {
-      execFileSync('docker', ['compose', 'up', '--detach', '--wait', 'db'], {
-        stdio: 'inherit',
-      })
-    } catch (error) {
-      throw new Error(
-        [
-          `Nothing answers at ${hostname}:${dbPort} and docker compose up failed.`,
-          'Start PostgreSQL with docker compose up -d, or point',
-          'DATABASE_URL_TEST at a running server.',
-        ].join('\n'),
-        { cause: error },
-      )
-    }
-    startedDb = true
+  let container
+  try {
+    container = await new PostgreSqlContainer(image)
+      .withDatabase(database)
+      .withUsername('todo')
+      .withPassword('todo')
+      .start()
+  } catch (error) {
+    throw new Error(
+      [
+        `Could not start the ${image} test database container.`,
+        'The tests need Docker: start Docker Desktop or the Docker daemon.',
+        'Testcontainers finds it through DOCKER_HOST or the default socket.',
+      ].join('\n'),
+      { cause: error },
+    )
   }
 
-  const teardown = () => {
-    if (startedDb) {
-      execFileSync('docker', ['compose', 'stop', 'db'], { stdio: 'inherit' })
-    }
+  const url = container.getConnectionUri()
+  const stop = async () => {
+    await container.stop()
   }
 
   try {
@@ -81,9 +78,9 @@ export async function prepareTestDatabase(): Promise<() => void> {
       stdio: 'inherit',
     })
   } catch (error) {
-    teardown()
+    await stop()
     throw error
   }
 
-  return teardown
+  return { url, stop }
 }

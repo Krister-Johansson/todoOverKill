@@ -252,7 +252,7 @@ Depends on: F34.
 Acceptance: a Vitest test uses the SDK client to list tools and call `list_projects`; `docs/mcp.md` shows how to add the server to Claude Code.
 
 ### F36 MCP server: write tools with confirmation (#36)
-Serves the write tools from F67 and F68 over MCP. `delete_task` and `archive_project` require `confirm: true` and return a structured error otherwise, as do `delete_subtask` and `delete_comment`.
+Serves the write tools from F67 and F68 over MCP. `createMcpServer()` in `src/tools/mcp.ts` registers all of `serverTools`; the read tools carry `readOnlyHint: true`, the write tools `readOnlyHint: false`, and every write tool but the `create_*` and `add_*` ones `destructiveHint: true`. On MCP only, `delete_task`, `archive_project`, `delete_subtask` and `delete_comment` take an optional boolean `confirm`; without `confirm: true` they change nothing and return an `isError` result whose text starts with `confirmation_required:`, a new `ToolError` code. The shared definitions are unchanged, so the assistant keeps its own Approve and Deny prompt (F40). `docs/mcp.md` lists the write tools and the confirm rule, and the Help page's MCP entry says AI tools can read and change data and must ask before deleting or archiving.
 Depends on: F35, F67, F68.
 Acceptance: tests for a successful move and a refused delete.
 
@@ -264,12 +264,12 @@ Acceptance: resource reads are tested; the prompt returns text under 2,000 chara
 ## Milestone 4: AI assistant
 
 ### F38 Assistant panel with OpenRouter, text only (#38)
-`/api/chat` server route with `chat({ adapter: openRouterText(model) })` streamed as SSE; right-hand `Sheet` with `useChat`, a labelled composer, a Stop button, and a message list under a heading. Missing key shows an explanation.
+`/api/chat` is a POST-only server route that runs `chat()` with `createOpenRouterText(OPENROUTER_MODEL, OPENROUTER_API_KEY)` (the model defaults to `openai/gpt-4o-mini`) and streams the reply as server-sent events. It answers 403 for a `Host` that is not `localhost`, `127.0.0.1` or `[::1]` (the check `/api/mcp` uses, now in `src/lib/loopback.ts`), 415 for a body that is not `application/json`, so another site cannot spend the key, and 503 without a key. The panel is a non-modal right-hand `Sheet` beside the page, opened by the top bar's Assistant button or `a`, with an "Assistant" heading, a message list, a labelled composer and a Stop button. `useChat` lives in the always-mounted panel, so the conversation survives a close; Stop keeps the partial reply, moves focus to the Message field and announces "Reply stopped". The `_app` loader reads whether the key is set, and without it the panel explains how to turn the assistant on and shows no composer.
 Depends on: F34, F26.
 Acceptance: axe clean; streaming can be stopped; e2e uses a mocked SSE response.
 
 ### F39 Assistant data tools (#39)
-Pass `serverTools` from `src/tools/server.ts` (the F34 read tools and whatever F67 and F68 have added) to `chat()`. The MCP server takes `readServerTools` instead until F36. Render tool calls in the message list with name, status, and result summary.
+Pass `serverTools` from `src/tools/server.ts` (the F34 read tools and whatever F67 and F68 have added) to `chat()`. Render tool calls in the message list with name, status, and result summary.
 Depends on: F38.
 Acceptance: e2e with a mocked model response that calls `list_tasks` renders the tool card.
 

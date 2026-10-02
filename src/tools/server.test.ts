@@ -148,7 +148,7 @@ describe('tool definitions', () => {
     ).toEqual(needingApproval)
   })
 
-  it('lists the tools that only read, for the read-only MCP server', () => {
+  it('lists the tools that only read, which MCP marks read only', () => {
     expect(readServerTools.map((tool) => tool.name)).toEqual([
       'list_projects',
       'get_project',

@@ -4,10 +4,10 @@ import type {
   CallToolResult,
   JSONRPCMessage,
 } from '@modelcontextprotocol/sdk/types.js'
-import type * as z from 'zod'
+import * as z from 'zod'
 
 import { ToolError, toToolError } from '#/tools/errors'
-import { readServerTools } from '#/tools/server'
+import { readServerTools, serverTools } from '#/tools/server'
 
 /** The part of a server tool the MCP server needs. */
 type ServedTool = {
@@ -16,6 +16,15 @@ type ServedTool = {
   inputSchema?: z.ZodObject
   outputSchema?: z.ZodObject
   execute?: (args: never) => Promise<unknown>
+  needsApproval?: boolean
+}
+
+/** An error as an MCP result: isError, with the code and message as text. */
+function errorResult(error: ToolError): CallToolResult {
+  return {
+    isError: true,
+    content: [{ type: 'text', text: `${error.code}: ${error.message}` }],
+  }
 }
 
 /**
@@ -40,32 +49,114 @@ async function callTool(
       structuredContent: result,
     }
   } catch (caught) {
-    const error = caught instanceof ToolError ? caught : toToolError(caught)
-    return {
-      isError: true,
-      content: [{ type: 'text', text: `${error.code}: ${error.message}` }],
-    }
+    return errorResult(
+      caught instanceof ToolError ? caught : toToolError(caught),
+    )
+  }
+}
+
+const readToolNames = new Set<string>(readServerTools.map((tool) => tool.name))
+
+/**
+ * The write tools that only add rows. Every other write tool overwrites,
+ * clears, moves or removes data, so a tool missing from this list is
+ * destructive, as the MCP default has it.
+ */
+const additiveToolNames = new Set<string>([
+  'create_project',
+  'create_task',
+  'add_subtask',
+  'create_label',
+  'add_comment',
+])
+
+/**
+ * Read tools are read only. Write tools are not, and all but the ones that
+ * only add rows are destructive. Every tool is closed world: it touches only
+ * this app's database.
+ */
+function annotationsFor(tool: ServedTool) {
+  if (readToolNames.has(tool.name)) {
+    return { readOnlyHint: true, openWorldHint: false }
+  }
+  return {
+    readOnlyHint: false,
+    destructiveHint: !additiveToolNames.has(tool.name),
+    openWorldHint: false,
   }
 }
 
 /**
- * An McpServer with the read tools. Only readServerTools: the write tools
- * wait for F36, which makes the ones that archive or delete ask for
- * confirm: true. Every tool is marked read only and closed world, so a client
- * can run it without asking. The route builds a new server for every request.
+ * The input schema and description for a tool that needs approval, over MCP.
+ * The assistant asks the user with its own Approve and Deny prompt (F40); an
+ * MCP client has none the server can see, so the tool takes a confirm
+ * argument that the model sets once the user has agreed. confirm is optional
+ * rather than literally true, so a call without it reaches the handler and
+ * gets the confirmation_required refusal instead of the SDK's input error.
+ * Zod's .extend() throws on a schema with refinements, and this runs for
+ * every request, so an approval tool's input schema must have none.
+ */
+function withConfirm(tool: ServedTool) {
+  const inputSchema = (tool.inputSchema ?? z.strictObject({})).extend({
+    confirm: z
+      .boolean()
+      .optional()
+      .describe(
+        'Set to true only after the user has approved this call. Without it the call is refused with confirmation_required.',
+      ),
+  })
+  const description = `${tool.description} Over MCP, pass confirm: true once the user has approved it; without it the call is refused with confirmation_required.`
+  return { inputSchema, description }
+}
+
+/** The refusal for a tool that needs approval, called without confirm: true. */
+function confirmationRequired(tool: ServedTool) {
+  return errorResult(
+    new ToolError(
+      'confirmation_required',
+      `${tool.name} needs the user's approval. Ask the user, then call it again with confirm: true.`,
+    ),
+  )
+}
+
+/**
+ * An McpServer with every server tool (F36). The tools that need approval,
+ * archive_project, delete_task, delete_subtask and delete_comment, take
+ * confirm: true on this transport only; without it they are refused with
+ * confirmation_required and change nothing. confirm is dropped before the
+ * call, so the definition's strict input schema still parses the rest. The
+ * route builds a new server for every request.
  */
 export function createMcpServer() {
   const server = new McpServer({ name: 'todoOverKill', version: '1.0.0' })
-  for (const tool of readServerTools as Array<ServedTool>) {
+  for (const tool of serverTools as Array<ServedTool>) {
+    const annotations = annotationsFor(tool)
+    if (tool.needsApproval !== true) {
+      server.registerTool(
+        tool.name,
+        {
+          description: tool.description,
+          inputSchema: tool.inputSchema,
+          outputSchema: tool.outputSchema,
+          annotations,
+        },
+        (args) => callTool(tool, args),
+      )
+      continue
+    }
+    const { inputSchema, description } = withConfirm(tool)
     server.registerTool(
       tool.name,
       {
-        description: tool.description,
-        inputSchema: tool.inputSchema,
+        description,
+        inputSchema,
         outputSchema: tool.outputSchema,
-        annotations: { readOnlyHint: true, openWorldHint: false },
+        annotations,
       },
-      (args) => callTool(tool, args),
+      ({ confirm, ...args }) =>
+        confirm === true
+          ? callTool(tool, args)
+          : Promise.resolve(confirmationRequired(tool)),
     )
   }
   return server

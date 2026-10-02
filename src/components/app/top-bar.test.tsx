@@ -20,6 +20,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
+import { useRef, useState } from 'react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { LiveRegionProvider } from './live-region'
@@ -74,6 +75,20 @@ const project = {
   statuses: [{ id: 's1', name: 'Backlog' }],
 }
 
+/** The top bar with the assistant state the shell keeps. */
+function TopBarWithAssistant() {
+  const [open, setOpen] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  return (
+    <TopBar
+      currentPage="Page"
+      assistantOpen={open}
+      onAssistantToggle={() => setOpen((value) => !value)}
+      assistantButtonRef={buttonRef}
+    />
+  )
+}
+
 /** The top bar over a project route and the Settings route, at `path`. */
 async function renderAt(path: string) {
   const queryClient = new QueryClient()
@@ -83,7 +98,7 @@ async function renderAt(path: string) {
   const rootRoute = createRootRoute({
     component: () => (
       <>
-        <TopBar currentPage="Page" />
+        <TopBarWithAssistant />
         <Outlet />
       </>
     ),
@@ -116,6 +131,18 @@ async function renderAt(path: string) {
 }
 
 describe('TopBar', () => {
+  it('toggles aria-expanded on the Assistant button', async () => {
+    await renderAt('/settings')
+
+    const button = screen.getByRole('button', { name: 'Assistant' })
+    expect(button.getAttribute('aria-expanded')).toBe('false')
+    expect(button.getAttribute('aria-controls')).toBeNull()
+    expect(button.getAttribute('aria-keyshortcuts')).toBe('a')
+    fireEvent.click(button)
+    expect(button.getAttribute('aria-expanded')).toBe('true')
+    expect(button.getAttribute('aria-controls')).toBe('assistant-panel')
+  })
+
   it('shows the New task button on a project route', async () => {
     await renderAt('/projects/p1')
 

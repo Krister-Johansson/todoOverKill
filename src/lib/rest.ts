@@ -12,6 +12,8 @@ export type ErrorBody = {
       | 'not_found'
       | 'conflict'
       | 'internal'
+      | 'assistant_disabled'
+      | 'forbidden'
     message: string
     issues?: Array<z.core.$ZodIssue>
   }
@@ -92,7 +94,8 @@ export function errorResponse(error: unknown): Response {
   })
 }
 
-function errorJson(status: number, error: ErrorBody['error']) {
+/** A response with the REST error envelope. */
+export function errorJson(status: number, error: ErrorBody['error']) {
   return Response.json({ error } satisfies ErrorBody, { status })
 }
 

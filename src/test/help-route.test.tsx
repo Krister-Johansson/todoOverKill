@@ -114,9 +114,11 @@ describe('help route', () => {
 
     const definitionOf = (id: string) =>
       document.getElementById(id)?.nextElementSibling?.textContent ?? ''
-    expect(definitionOf('term-assistant')).toContain(
+    expect(definitionOf('term-voice')).toContain(
       'Not available yet. Arrives in a later release.',
     )
+    // F38 shipped the text assistant.
+    expect(definitionOf('term-assistant')).not.toContain('Not available yet')
     expect(definitionOf('term-backlog')).not.toContain('Not available yet')
     expect(definitionOf('term-command-menu')).not.toContain('Not available yet')
     // F66 added search results to the command menu.
@@ -125,11 +127,12 @@ describe('help route', () => {
     )
     // F30 shipped the project and status endpoints.
     expect(definitionOf('term-rest-api')).not.toContain('Not available yet')
-    // F35 shipped the MCP server's read tools.
+    // F35 shipped the MCP server's read tools and F36 its write tools.
     expect(definitionOf('term-mcp')).not.toContain('Not available yet')
     expect(definitionOf('term-mcp')).toContain(
-      'Today they can read projects and tasks.',
+      'They can read and change projects, tasks, subtasks, labels and comments. Before an AI tool deletes or archives something, it must ask you first.',
     )
+    expect(definitionOf('term-mcp')).not.toContain('later release')
   })
 
   it('shows the shortcuts in a captioned table and marks the later ones', async () => {
@@ -202,7 +205,10 @@ describe('help route', () => {
     // jsdom's name computation trims the " or " joiners, so the cell's full
     // accessible name is checked in tests/e2e/help.spec.ts instead.
 
-    expect(keysCell('Close a dialog.').textContent).toBe('Escape')
+    expect(keysCell('Close a dialog or the assistant panel.').textContent).toBe(
+      'Escape',
+    )
+    expect(keysCell('Open the assistant panel.').textContent).toBe('a')
 
     // Ctrl and ⌘ are read as Control and Command (3.1.4, 1.1.1).
     for (const [action, glyph, name] of [

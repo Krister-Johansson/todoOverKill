@@ -6,14 +6,21 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { Route } from '#/routes/api/mcp'
-import { addComment } from '#/server/comments'
+import { addComment, listComments } from '#/server/comments'
 import { db } from '#/server/db'
 import { createLabel } from '#/server/labels'
-import { archiveProject, createProject } from '#/server/projects'
-import { createTask } from '#/server/tasks'
+import { archiveProject, createProject, getProject } from '#/server/projects'
+import { addSubtask, listSubtasks } from '#/server/subtasks'
+import { createTask, getTask } from '#/server/tasks'
 import { resetDatabase } from '#/test/db'
 import { fetchRoute } from '#/test/rest'
-import { listProjectsTool, readServerTools, serverTools } from '#/tools/server'
+import {
+  deleteTaskTool,
+  listProjectsTool,
+  moveTaskTool,
+  readServerTools,
+  serverTools,
+} from '#/tools/server'
 
 beforeEach(() => resetDatabase(db))
 
@@ -84,49 +91,84 @@ function projectNames(result: unknown) {
 }
 
 describe('/api/mcp', () => {
-  it('lists the eight read tools with their schemas', async () => {
+  it('lists every tool with its schemas and annotations', async () => {
+    // Only these write tools add rows without overwriting, clearing, moving or
+    // removing any; every other write tool is destructive.
+    const additive = [
+      'create_project',
+      'create_task',
+      'add_subtask',
+      'create_label',
+      'add_comment',
+    ]
     const client = await connect()
 
     const { tools } = await client.listTools()
 
-    expect(tools.map((tool) => tool.name)).toEqual([
-      'list_projects',
-      'get_project',
-      'list_tasks',
-      'get_task',
-      'search',
-      'list_subtasks',
-      'list_labels',
-      'list_comments',
-    ])
+    expect(tools.map((tool) => tool.name)).toEqual(
+      serverTools.map((tool) => tool.name),
+    )
+    expect(tools).toHaveLength(23)
     for (const tool of tools) {
+      const readOnly = readServerTools.some((each) => each.name === tool.name)
       expect(tool.description).toEqual(expect.any(String))
       expect(tool.inputSchema).toMatchObject({ type: 'object' })
       expect(tool.outputSchema).toMatchObject({ type: 'object' })
-      expect(tool.annotations).toEqual({
-        readOnlyHint: true,
-        openWorldHint: false,
-      })
+      expect(tool.annotations).toEqual(
+        readOnly
+          ? { readOnlyHint: true, openWorldHint: false }
+          : {
+              readOnlyHint: false,
+              destructiveHint: !additive.includes(tool.name),
+              openWorldHint: false,
+            },
+      )
     }
+    expect(
+      tools
+        .filter((tool) => tool.annotations?.destructiveHint === true)
+        .map((tool) => tool.name),
+    ).toEqual([
+      'archive_project',
+      'update_task',
+      'move_task',
+      'complete_task',
+      'delete_task',
+      'update_subtask',
+      'move_subtask',
+      'delete_subtask',
+      'update_comment',
+      'delete_comment',
+    ])
   })
 
-  it('leaves the write tools off until F36', async () => {
-    const client = await connect()
-    const writeNames = serverTools
-      .map((tool) => tool.name)
-      .filter((name) => !readServerTools.some((tool) => tool.name === name))
-
-    const names = (await client.listTools()).tools.map((tool) => tool.name)
-
+  it('gives the four destructive tools, and only them, a confirm argument', async () => {
     const needingApproval = [
       'archive_project',
       'delete_task',
       'delete_subtask',
       'delete_comment',
     ]
-    expect(writeNames).toEqual(expect.arrayContaining(needingApproval))
-    for (const name of writeNames) {
-      expect(names).not.toContain(name)
+    // A flag dropped on the served tools fails here instead of leaving both
+    // sides of the checks below empty.
+    expect(
+      serverTools.filter((tool) => tool.needsApproval).map((tool) => tool.name),
+    ).toEqual(needingApproval)
+    const client = await connect()
+
+    const { tools } = await client.listTools()
+
+    for (const tool of tools) {
+      const properties = tool.inputSchema.properties ?? {}
+      if (needingApproval.includes(tool.name)) {
+        expect(properties).toHaveProperty('confirm')
+        expect(properties.confirm).toMatchObject({ type: 'boolean' })
+        expect(tool.inputSchema.required ?? []).not.toContain('confirm')
+        expect(tool.annotations?.destructiveHint).toBe(true)
+        expect(tool.description).toContain('confirm: true')
+      } else {
+        expect(properties).not.toHaveProperty('confirm')
+      }
     }
   })
 
@@ -259,6 +301,152 @@ describe('/api/mcp', () => {
     })
   })
 
+  it('moves a task through move_task', async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+    const task = await createTask(project.id, { title: 'Fix the header' })
+    const done = project.statuses.find((status) => status.name === 'Done')
+    const client = await connect()
+
+    const result = await client.callTool({
+      name: 'move_task',
+      arguments: { taskId: task.id, statusId: done?.id },
+    })
+
+    expect(result.isError).toBeFalsy()
+    expect(result.structuredContent).toMatchObject({
+      id: task.id,
+      status: { name: 'Done' },
+      completedAt: expect.any(String),
+    })
+    expect(moveTaskTool.outputSchema.parse(result.structuredContent)).toEqual(
+      result.structuredContent,
+    )
+    expect(JSON.parse(textOf(result))).toEqual(result.structuredContent)
+  })
+
+  it('refuses delete_task without confirm: true and keeps the task', async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+    const task = await createTask(project.id, { title: 'Fix the header' })
+    const client = await connect()
+
+    for (const args of [
+      { taskId: task.id },
+      { taskId: task.id, confirm: false },
+    ]) {
+      const result = await client.callTool({
+        name: 'delete_task',
+        arguments: args,
+      })
+
+      expect(result.isError).toBe(true)
+      expect(result.structuredContent).toBeUndefined()
+      expect(textOf(result)).toBe(
+        "confirmation_required: delete_task needs the user's approval. Ask the user, then call it again with confirm: true.",
+      )
+    }
+    await expect(getTask(task.id)).resolves.toMatchObject({ id: task.id })
+  })
+
+  it('deletes the task with confirm: true', async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+    const task = await createTask(project.id, { title: 'Fix the header' })
+    const client = await connect()
+
+    const result = await client.callTool({
+      name: 'delete_task',
+      arguments: { taskId: task.id, confirm: true },
+    })
+
+    expect(result.isError).toBeFalsy()
+    expect(result.structuredContent).toMatchObject({
+      id: task.id,
+      title: 'Fix the header',
+    })
+    expect(deleteTaskTool.outputSchema.parse(result.structuredContent)).toEqual(
+      result.structuredContent,
+    )
+    await expect(getTask(task.id)).rejects.toThrow(task.id)
+  })
+
+  it('refuses the other destructive tools without confirm, then runs them with it', async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+    const task = await createTask(project.id, { title: 'Fix the header' })
+    const subtask = await addSubtask(task.id, { title: 'Check the logo' })
+    const comment = await addComment(task.id, { body: 'Looks good' })
+    const client = await connect()
+    const cases = [
+      {
+        name: 'archive_project',
+        args: { projectId: project.id },
+        id: project.id,
+        isUnchanged: async () =>
+          (await getProject(project.id)).archivedAt === null,
+      },
+      {
+        name: 'delete_subtask',
+        args: { subtaskId: subtask.id },
+        id: subtask.id,
+        isUnchanged: async () => (await listSubtasks(task.id)).length === 1,
+      },
+      {
+        name: 'delete_comment',
+        args: { commentId: comment.id },
+        id: comment.id,
+        isUnchanged: async () => (await listComments(task.id)).length === 1,
+      },
+    ]
+
+    for (const { name, args, id, isUnchanged } of cases) {
+      const refused = await client.callTool({ name, arguments: args })
+
+      expect(refused.isError).toBe(true)
+      expect(refused.structuredContent).toBeUndefined()
+      expect(textOf(refused)).toMatch(/^confirmation_required: /)
+      expect(await isUnchanged()).toBe(true)
+
+      const confirmed = await client.callTool({
+        name,
+        arguments: { ...args, confirm: true },
+      })
+
+      expect(confirmed.isError).toBeFalsy()
+      expect(confirmed.structuredContent).toMatchObject({ id })
+      expect(await isUnchanged()).toBe(false)
+    }
+  })
+
+  it('refuses a confirm that is not a boolean with an input error', async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+    const task = await createTask(project.id, { title: 'Fix the header' })
+    const client = await connect()
+
+    const result = await client.callTool({
+      name: 'delete_task',
+      arguments: { taskId: task.id, confirm: 'yes' },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textOf(result)).toContain('MCP error -32602: Input validation error')
+    expect(textOf(result)).toContain('confirm')
+    await expect(getTask(task.id)).resolves.toMatchObject({ id: task.id })
+  })
+
+  it('reports an unexpected error in a confirmed delete as internal', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(deleteTaskTool, 'execute').mockRejectedValue(
+      new Error('connection to postgres://secret failed'),
+    )
+    const client = await connect()
+
+    const result = await client.callTool({
+      name: 'delete_task',
+      arguments: { taskId: 'any', confirm: true },
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textOf(result)).toBe('internal: Something went wrong on the server.')
+  })
+
   it('reports an unknown project as an error result with its code', async () => {
     const client = await connect()
 
@@ -309,7 +497,7 @@ describe('/api/mcp', () => {
 
       const { tools } = await client.listTools()
 
-      expect(tools).toHaveLength(readServerTools.length)
+      expect(tools).toHaveLength(serverTools.length)
     }
   })
 

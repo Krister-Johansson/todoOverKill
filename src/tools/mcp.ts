@@ -64,9 +64,7 @@ async function callTool(
       structuredContent: result,
     }
   } catch (caught) {
-    return errorResult(
-      caught instanceof ToolError ? caught : toToolError(caught),
-    )
+    return errorResult(toToolError(caught))
   }
 }
 
@@ -142,7 +140,7 @@ function confirmationRequired(tool: ServedTool) {
  * message, never its own text.
  */
 function requestError(caught: unknown) {
-  const error = caught instanceof ToolError ? caught : toToolError(caught)
+  const error = toToolError(caught)
   const text = `${error.code}: ${error.message}`
   return error.code === 'internal'
     ? new McpError(ErrorCode.InternalError, text)
@@ -248,10 +246,8 @@ function registerPrompts(server: McpServer) {
     },
     ({ today }) =>
       answer(async () => {
-        const day =
-          today === undefined
-            ? toCalendarDay(new Date())
-            : dueDateSchema.parse(today)
+        const current = toCalendarDay(new Date())
+        const day = today === undefined ? current : dueDateSchema.parse(today)
         const tasks = await listDashboardTasks(day)
         return {
           description: `Daily review for ${day}`,
@@ -260,7 +256,11 @@ function registerPrompts(server: McpServer) {
               role: 'user' as const,
               content: {
                 type: 'text' as const,
-                text: dailyReviewText({ today: day, ...tasks }),
+                text: dailyReviewText({
+                  today: day,
+                  isCurrentDay: day === current,
+                  ...tasks,
+                }),
               },
             },
           ],

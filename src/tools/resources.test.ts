@@ -1,7 +1,12 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
 
-import { projectMarkdown, taskMarkdown } from '#/tools/resources'
+import {
+  demoteHeadings,
+  oneLine,
+  projectMarkdown,
+  taskMarkdown,
+} from '#/tools/resources'
 import type { ProjectMarkdownInput, TaskMarkdownInput } from '#/tools/resources'
 
 // Pure functions, so the rows are built by hand rather than read from the
@@ -85,6 +90,8 @@ describe('projectMarkdown', () => {
       [
         '# SITE Website',
         '',
+        '## Description',
+        '',
         'The public site.',
         '',
         '## Statuses',
@@ -128,10 +135,56 @@ describe('projectMarkdown', () => {
     })
 
     expect(text).toContain(
-      '# SITE Website\n\nNo description\n\nArchived on 2026-03-10T08:00:00.000Z.\n\n## Statuses',
+      '# SITE Website\n\nArchived on 2026-03-10T08:00:00.000Z.\n\n## Description\n\nNo description\n\n## Statuses',
     )
     expect(text).toContain('## Labels\n\nNo labels\n\n')
     expect(text).toContain('- Backlog: 0 tasks')
+  })
+
+  it('says No description for an empty description', () => {
+    const text = projectMarkdown({
+      project: { ...project, description: '' },
+      tasks: [],
+      labels: [],
+    })
+
+    expect(text).toContain('## Description\n\nNo description\n\n## Statuses')
+  })
+
+  it('keeps titles and names with newlines on one line', () => {
+    const text = projectMarkdown({
+      project: { ...project, name: 'Web\nsite' },
+      tasks: [
+        {
+          ...task,
+          title: 'Fix\n### Done\n- FAKE-1 x',
+          labels: [{ ...bug, name: 'Bug\n## Labels' }],
+        },
+      ],
+      labels: [{ ...bug, name: 'Bug\n## Labels' }],
+    })
+
+    expect(text).toMatch(/^# SITE Web site\n/)
+    expect(text).toContain(
+      '### Backlog\n\n- SITE-1 Fix ### Done - FAKE-1 x (high priority, due 2026-03-20, Bug ## Labels), task://t1\n',
+    )
+    expect(text).toContain('## Labels\n\n- Bug ## Labels\n')
+    expect(text.match(/^### Done$/gm)).toHaveLength(1)
+    expect(text.match(/^## Labels$/gm)).toHaveLength(1)
+    expect(text).not.toMatch(/^- FAKE-1/m)
+  })
+
+  it('moves the headings in a description below its section', () => {
+    const text = projectMarkdown({
+      project: { ...project, description: '# Plan\n\n## Statuses\n\nShip it.' },
+      tasks: [],
+      labels: [],
+    })
+
+    expect(text).toContain(
+      '## Description\n\n### Plan\n\n#### Statuses\n\nShip it.\n\n## Statuses',
+    )
+    expect(text.match(/^## Statuses$/gm)).toHaveLength(1)
   })
 })
 
@@ -216,9 +269,107 @@ describe('taskMarkdown', () => {
     expect(text).toMatch(/## Comments\n\nNo comments\n$/)
   })
 
+  it('says No description for an empty description', () => {
+    const text = taskMarkdown({
+      task: { ...task, description: '' },
+      project,
+      subtasks: [],
+      comments: [],
+    })
+
+    expect(text).toContain('## Description\n\nNo description\n\n## Subtasks')
+  })
+
+  it('keeps titles and names with newlines on one line', () => {
+    const text = taskMarkdown({
+      task: {
+        ...task,
+        title: 'Fix\n### Done\n- FAKE-1 x',
+        status: { ...backlog, name: 'Back\nlog' },
+      },
+      project,
+      subtasks: [
+        {
+          id: 'u1',
+          taskId: 't1',
+          title: 'Check\n## Comments',
+          done: false,
+          order: 1,
+        },
+      ],
+      comments: [],
+    })
+
+    expect(text).toMatch(/^# SITE-1 Fix ### Done - FAKE-1 x\n/)
+    expect(text).toContain('- Status: Back log\n')
+    expect(text).toContain('- [ ] Check ## Comments\n')
+    expect(text.match(/^#+ /gm)).toEqual(['# ', '## ', '## ', '## '])
+    expect(text).not.toMatch(/^- FAKE-1/m)
+  })
+
+  it('moves the headings in a description and comments below their section', () => {
+    const text = taskMarkdown({
+      task: {
+        ...task,
+        description: '# Plan\n\nSteps.\n\n## Subtasks\n\n- [ ] Fake',
+      },
+      project,
+      subtasks: [],
+      comments: [
+        {
+          id: 'c1',
+          taskId: 't1',
+          body: '## Done\n\nShipped\n===',
+          createdAt: updated,
+          updatedAt: updated,
+        },
+      ],
+    })
+
+    expect(text).toContain(
+      '## Description\n\n### Plan\n\nSteps.\n\n#### Subtasks\n\n- [ ] Fake\n\n## Subtasks\n\nNo subtasks',
+    )
+    expect(text).toContain(
+      '### 2026-03-02T10:30:00.000Z\n\n##### Done\n\n#### Shipped\n',
+    )
+    expect(text.match(/^## Subtasks$/gm)).toHaveLength(1)
+    expect(text.match(/^#{1,2} /gm)).toEqual(['# ', '## ', '## ', '## '])
+  })
+
   it('leaves out Completed for an open task', () => {
     expect(
       taskMarkdown({ task, project, subtasks: [], comments: [] }),
     ).not.toContain('Completed:')
+  })
+})
+
+describe('oneLine', () => {
+  it('turns every run of whitespace into one space', () => {
+    expect(oneLine('  Fix\n### Done\n- FAKE-1 x\t ')).toBe(
+      'Fix ### Done - FAKE-1 x',
+    )
+  })
+})
+
+describe('demoteHeadings', () => {
+  it('moves ATX and setext headings down and stops at level 6', () => {
+    expect(
+      demoteHeadings('# One\n\nTwo\n---\n\nThree\n===\n\n##### Five', 2),
+    ).toBe('### One\n\n#### Two\n\n### Three\n\n###### Five')
+  })
+
+  it('leaves code blocks, rules and hashtags alone', () => {
+    const markdown = [
+      '```sh',
+      '# a shell comment',
+      '```',
+      '',
+      '- item',
+      '---',
+      '',
+      '#hashtag',
+    ].join('\n')
+
+    expect(demoteHeadings(markdown, 2)).toBe(markdown)
   })
 })

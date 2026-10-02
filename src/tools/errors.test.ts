@@ -22,6 +22,16 @@ describe('toToolError', () => {
     })
   })
 
+  it('returns a ToolError as it is, without logging it', () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const cause = new ToolError('validation', 'The id must not be empty.')
+
+    const error = toToolError(cause)
+
+    expect(error).toBe(cause)
+    expect(log).not.toHaveBeenCalled()
+  })
+
   it('keeps the code and message of a ConflictError', () => {
     const error = toToolError(new ConflictError('Another project uses TOK.'))
 

@@ -40,7 +40,12 @@ function dashboardTask(
 
 describe('dailyReviewText', () => {
   it('says Nothing for empty sections', () => {
-    const text = dailyReviewText({ today, dueToday: [], overdue: [] })
+    const text = dailyReviewText({
+      today,
+      isCurrentDay: true,
+      dueToday: [],
+      overdue: [],
+    })
 
     expect(text).toMatch(/^Daily review for 2026-03-15\.\n\n/)
     expect(text).toContain('Due today:\nNothing.\n\nOverdue:\nNothing.')
@@ -49,6 +54,7 @@ describe('dailyReviewText', () => {
   it('lists the tasks due today and how late the overdue ones are', () => {
     const text = dailyReviewText({
       today,
+      isCurrentDay: true,
       dueToday: [
         dashboardTask(1, { title: 'Fix the header', priority: 'none' }),
       ],
@@ -67,6 +73,41 @@ describe('dailyReviewText', () => {
     )
     expect(text).toMatch(/ask me before calling update_task or move_task\.$/)
     expect(text).toContain('task://{id}')
+    expect(text).toContain('Suggest what I should work on first today,')
+  })
+
+  it('names the day rather than today when it is not the current day', () => {
+    const text = dailyReviewText({
+      today: '2026-03-20',
+      isCurrentDay: false,
+      dueToday: [],
+      overdue: [dashboardTask(1, { dueDate: '2026-03-15' })],
+    })
+
+    expect(text).toContain(
+      'Suggest what I should work on first on 2026-03-20, and which tasks overdue by then to re-plan or drop.',
+    )
+    expect(text).not.toMatch(/first today|overdue tasks to re-plan/)
+  })
+
+  it('puts a title and project name with newlines on one line', () => {
+    const text = dailyReviewText({
+      today,
+      isCurrentDay: true,
+      dueToday: [
+        dashboardTask(1, {
+          title: 'Fix\n### Done\n- FAKE-1 x',
+          project: { id: 'p1', name: 'Web\n\nsite', key: 'SITE' },
+        }),
+      ],
+      overdue: [],
+    })
+
+    expect(text).toContain(
+      'Due today (1):\n- SITE-1 Fix ### Done - FAKE-1 x (Web site, medium priority, due 2026-03-15), task://t1\n',
+    )
+    expect(text).not.toMatch(/^- FAKE-1/m)
+    expect(text).not.toMatch(/^###/m)
   })
 
   it(`lists at most ${DAILY_REVIEW_LIMIT} tasks a section and counts the rest`, () => {
@@ -74,7 +115,12 @@ describe('dailyReviewText', () => {
       dashboardTask(index + 1, { dueDate: '2026-03-01' }),
     )
 
-    const text = dailyReviewText({ today, dueToday: [], overdue })
+    const text = dailyReviewText({
+      today,
+      isCurrentDay: true,
+      dueToday: [],
+      overdue,
+    })
 
     expect(text).toContain(`Overdue (${DAILY_REVIEW_LIMIT + 3}):\n`)
     expect(text).toContain(`SITE-${DAILY_REVIEW_LIMIT} `)
@@ -85,6 +131,7 @@ describe('dailyReviewText', () => {
   it('stays under 2,000 characters for a few tasks', () => {
     const text = dailyReviewText({
       today,
+      isCurrentDay: true,
       dueToday: [dashboardTask(1)],
       overdue: [
         dashboardTask(2, { dueDate: '2026-03-10' }),

@@ -1,4 +1,5 @@
 import type { DashboardTask } from '#/server/dashboard'
+import { oneLine } from '#/tools/resources'
 
 // The text of the MCP prompt daily_review (F37). A pure function of what
 // listDashboardTasks returns, so it is tested without a database.
@@ -9,6 +10,8 @@ export const DAILY_REVIEW_LIMIT = 15
 export type DailyReviewInput = {
   /** The day of the review, `YYYY-MM-DD`. */
   today: string
+  /** Whether `today` is the server's current day, so it can say "today". */
+  isCurrentDay: boolean
   dueToday: Array<DashboardTask>
   overdue: Array<DashboardTask>
 }
@@ -24,7 +27,7 @@ function daysBetween(from: string, to: string) {
 
 function taskLine(task: DashboardTask, today: string) {
   const details = [
-    task.project.name,
+    oneLine(task.project.name),
     task.priority === 'none' ? 'no priority' : `${task.priority} priority`,
     `due ${task.dueDate}`,
   ]
@@ -32,7 +35,7 @@ function taskLine(task: DashboardTask, today: string) {
     const late = daysBetween(task.dueDate, today)
     details.push(`${late} ${late === 1 ? 'day' : 'days'} late`)
   }
-  return `- ${task.project.key}-${task.number} ${task.title} (${details.join(', ')}), task://${task.id}`
+  return `- ${oneLine(task.project.key)}-${task.number} ${oneLine(task.title)} (${details.join(', ')}), task://${task.id}`
 }
 
 /** A section heading and up to DAILY_REVIEW_LIMIT tasks, or Nothing. */
@@ -49,17 +52,23 @@ function section(title: string, tasks: Array<DashboardTask>, today: string) {
 
 /**
  * The daily review as one block of text: the day, the tasks due that day, the
- * overdue ones with how late they are, and what the model is asked to do.
+ * overdue ones with how late they are, and what the model is asked to do. The
+ * request says "today" only when the day is the current one; for another day
+ * it names the day, since a task overdue then may not be overdue now.
  */
 export function dailyReviewText({
   today,
+  isCurrentDay,
   dueToday,
   overdue,
 }: DailyReviewInput) {
+  const ask = isCurrentDay
+    ? 'Suggest what I should work on first today, and which overdue tasks to re-plan or drop.'
+    : `Suggest what I should work on first on ${today}, and which tasks overdue by then to re-plan or drop.`
   return [
     `Daily review for ${today}.`,
     section('Due today', dueToday, today),
     section('Overdue', overdue, today),
-    'Suggest what I should work on first today, and which overdue tasks to re-plan or drop. Read task://{id} for a task you need more detail on, and ask me before calling update_task or move_task.',
+    `${ask} Read task://{id} for a task you need more detail on, and ask me before calling update_task or move_task.`,
   ].join('\n\n')
 }

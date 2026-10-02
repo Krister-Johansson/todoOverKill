@@ -99,7 +99,7 @@ export function TaskCardContent({
       {task.labels.length > 0 ? (
         <ul className="flex flex-wrap gap-1">
           {task.labels.map((label) => (
-            <li key={label.id} className="max-w-full min-w-0">
+            <li key={label.id} className="flex max-w-full min-w-0">
               <Pause />
               <LabelChip label={label} className="text-xs" />
             </li>

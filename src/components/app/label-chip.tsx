@@ -10,16 +10,15 @@ type LabelChipProps = {
  * A label's name in a pill with a 2 px border in the label colour and an
  * aria-hidden dot, so the colour is never the only cue. Only palette colours,
  * checked at 3:1 on every CHIP_SURFACES token, paint the border; any other
- * colour falls back to the theme border. The chip fills itself with
- * --background (CHIP_FILL), which matches the card, popover and page, so the
- * border keeps 3:1 when a hovered card paints --accent behind it.
+ * colour falls back to the theme border. The background is transparent, so
+ * the border sits on whatever surface the chip is placed on.
  */
 export function LabelChip({ label, className }: LabelChipProps) {
   const onPalette = projectColorName(label.color) !== undefined
   return (
     <span
       className={cn(
-        'inline-flex max-w-full min-w-0 items-center gap-1 rounded-full border-2 bg-background px-2 text-foreground',
+        'inline-flex max-w-full min-w-0 items-center gap-1 rounded-full border-2 bg-transparent px-2',
         !onPalette && 'border-border',
         className,
       )}

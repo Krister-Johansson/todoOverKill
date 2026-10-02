@@ -112,7 +112,7 @@ export function TaskDetail({
           {task.labels.length > 0 ? (
             <ul className="flex flex-wrap gap-1">
               {task.labels.map((label) => (
-                <li key={label.id} className="max-w-full min-w-0">
+                <li key={label.id} className="flex max-w-full min-w-0">
                   <LabelChip
                     label={label}
                     className="text-sm leading-relaxed"

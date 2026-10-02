@@ -28,6 +28,15 @@ vi.mock('#/fns/subtasks', () => ({
   deleteSubtaskFn: vi.fn(),
 }))
 
+vi.mock('#/fns/comments', () => ({
+  commentsQueryOptions: (id: string) => ({
+    queryKey: ['tasks', id, 'comments'],
+  }),
+  addCommentFn: vi.fn(),
+  updateCommentFn: vi.fn(),
+  deleteCommentFn: vi.fn(),
+}))
+
 vi.mock('#/fns/projects', () => ({
   projectQueryOptions: (id: string) => ({ queryKey: ['projects', id] }),
 }))
@@ -99,6 +108,16 @@ const subtasks = [
   },
 ]
 
+const comments = [
+  {
+    id: 'c1',
+    taskId: 't1',
+    body: 'Seen on **mobile** only.',
+    createdAt: new Date('2026-09-30T12:00:00.000Z'),
+    updatedAt: new Date('2026-09-30T12:00:00.000Z'),
+  },
+]
+
 type HeadInput = Parameters<NonNullable<typeof Route.options.head>>[0]
 
 function title(loaderData: unknown) {
@@ -119,6 +138,7 @@ async function renderPage() {
   queryClient.setQueryData(['projects', project.id], project)
   queryClient.setQueryData(['tasks', task.id, 'activity'], activity)
   queryClient.setQueryData(['tasks', task.id, 'subtasks'], subtasks)
+  queryClient.setQueryData(['tasks', task.id, 'comments'], comments)
   const rootRoute = createRootRoute()
   const appRoute = createRoute({ getParentRoute: () => rootRoute, id: '_app' })
   const routeTree = rootRoute.addChildren([
@@ -214,6 +234,27 @@ describe('task route', () => {
     const activityRegion = screen.getByRole('region', { name: 'Activity' })
     expect(
       description.compareDocumentPosition(region) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      region.compareDocumentPosition(activityRegion) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
+
+  it('shows the comments between the subtasks and the activity', async () => {
+    await renderPage()
+    const region = screen.getByRole('region', { name: 'Comments' })
+    expect(
+      within(region).getByRole('heading', { level: 2, name: 'Comments' }),
+    ).toBeTruthy()
+    const article = within(region).getByRole('article', { name: 'Comment 1' })
+    expect(within(article).getByText('mobile').tagName).toBe('STRONG')
+    expect(within(article).getByText(/^1 day ago \(/)).toBeTruthy()
+    const subtasksRegion = screen.getByRole('region', { name: 'Subtasks' })
+    const activityRegion = screen.getByRole('region', { name: 'Activity' })
+    expect(
+      subtasksRegion.compareDocumentPosition(region) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
     expect(

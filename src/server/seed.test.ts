@@ -4,7 +4,6 @@
 import { execFileSync } from 'node:child_process'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
-import { activityPayloadSchemas } from '#/schemas/activity'
 import { db } from '#/server/db'
 import { SEED_PROJECT_KEYS, seed } from '#/server/seed'
 
@@ -160,28 +159,6 @@ describe('seed', () => {
       for (const task of project.tasks) {
         expect(task.completedAt !== null).toBe(task.status.name === 'Done')
       }
-    }
-  })
-
-  it('writes comment rows that name the comment and hold none of its text', async () => {
-    const rows = await db.activity.findMany({
-      where: {
-        type: 'comment.added',
-        project: { key: { in: [...SEED_PROJECT_KEYS] } },
-      },
-      select: { taskId: true, payload: true },
-    })
-    expect(rows.length).toBe(first.comment)
-    for (const row of rows) {
-      const payload = activityPayloadSchemas['comment.added'].parse(row.payload)
-      expect(payload).not.toHaveProperty('body')
-      expect(payload).not.toHaveProperty('excerpt')
-      expect(payload.commentId).toEqual(expect.any(String))
-      const comment = await db.comment.findUnique({
-        where: { id: payload.commentId! },
-        select: { taskId: true },
-      })
-      expect(comment).toEqual({ taskId: row.taskId })
     }
   })
 

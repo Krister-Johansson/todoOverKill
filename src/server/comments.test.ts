@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { ZodError } from 'zod'
 
 import { describeActivity, fallbackSentence } from '#/lib/activity'
+import { activityPayloadSchemas } from '#/schemas/activity'
 import { listTaskActivity } from '#/server/activity'
 import {
   addComment,
@@ -15,6 +16,7 @@ import {
 import { db } from '#/server/db'
 import { NotFoundError } from '#/server/errors'
 import { createProject } from '#/server/projects'
+import { seed } from '#/server/seed'
 import { createTask, deleteTask, getTask, listTasks } from '#/server/tasks'
 import { resetDatabase } from '#/test/db'
 
@@ -365,5 +367,28 @@ describe('with the tasks service', () => {
     await expect(
       updateComment(comments[0].id, { body: 'Changed' }),
     ).rejects.toThrow(NotFoundError)
+  })
+})
+
+describe('with the seed', () => {
+  it('writes comment rows that name the comment and hold none of its text', async () => {
+    await seed(db, { now: new Date('2026-03-15T12:00:00Z') })
+    const rows = await db.activity.findMany({
+      where: { type: 'comment.added' },
+      select: { taskId: true, payload: true },
+    })
+    expect(rows.length).toBe(await db.comment.count())
+    expect(rows.length).toBeGreaterThan(0)
+    for (const row of rows) {
+      const payload = activityPayloadSchemas['comment.added'].parse(row.payload)
+      expect(payload).not.toHaveProperty('body')
+      expect(payload).not.toHaveProperty('excerpt')
+      expect(payload.commentId).toEqual(expect.any(String))
+      const comment = await db.comment.findUnique({
+        where: { id: payload.commentId! },
+        select: { taskId: true },
+      })
+      expect(comment).toEqual({ taskId: row.taskId })
+    }
   })
 })

@@ -77,6 +77,11 @@ Dialog with title, description, status, priority, due date, labels placeholder. 
 Depends on: F13.
 Acceptance: the new card appears in the right column without reload; focus lands on it; announcement made.
 
+### F55 Create task dialog: due date input errors and specific failure messages (#76)
+A partly typed due date, such as a month and day with no year, is a field error rather than no date: the form checks the input's `validity.badInput`. The due date help text names the part order and an example in the browser's locale, as the native field shows it. `createTaskFn` returns a deleted status or project as a `not_found` result, and the dialog says which one is gone. A failed create refetches the project query only.
+Depends on: F14.
+Acceptance: a partly typed due date shows a field error and blocks the submit, and the summary links to the field; the help text matches the format the input shows; a deleted status and a deleted project each produce their own message in the focused summary; a failed create refetches the project query only.
+
 ### F15 Move task with a "Move to" menu and keyboard (#15)
 Each card has a Move menu (dropdown listing statuses, plus "Move up" and "Move down"). Optimistic update through TanStack Query.
 Depends on: F13.

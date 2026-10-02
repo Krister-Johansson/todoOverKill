@@ -4,8 +4,7 @@ services:
     restart: unless-stopped
     ports:
       # Loopback only: the credentials are fixed and the app is single-user.
-      # DB_PORT lets the test setup match the port in DATABASE_URL_TEST.
-      - '127.0.0.1:${DB_PORT:-5434}:5432'
+      - '127.0.0.1:5434:5432'
     environment:
       POSTGRES_USER: todo
       POSTGRES_PASSWORD: todo

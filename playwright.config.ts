@@ -39,9 +39,7 @@ export default defineConfig({
     // separate process group, which Playwright's shutdown does not reach, so
     // the server outlived the run and Playwright waited minutes for it.
     command: `pnpm build && node node_modules/vite/bin/vite.js preview --port ${port} --strictPort`,
-    // Wait for the port, not a page: every page reads the database, which
-    // the global setup only starts after the server is up.
-    port,
+    url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
     // The app reads DATABASE_URL, so pointing it at the test database keeps

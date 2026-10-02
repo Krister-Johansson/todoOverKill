@@ -36,7 +36,7 @@ type ChatState = {
   messages: Array<{
     id: string
     role: 'user' | 'assistant'
-    parts: Array<{ type: 'text'; content: string }>
+    parts: Array<{ type: string; [field: string]: unknown }>
   }>
   isLoading: boolean
   error: Error | undefined
@@ -287,6 +287,101 @@ describe('AssistantPanel', () => {
     ])
   })
 
+  it('shows each tool call in its message, in order', () => {
+    chat.state.messages = [
+      { id: 'm1', role: 'user', parts: [{ type: 'text', content: 'Tasks?' }] },
+      {
+        id: 'm2',
+        role: 'assistant',
+        parts: [
+          {
+            type: 'tool-call',
+            id: 'call-1',
+            name: 'list_tasks',
+            arguments: '{"projectId":"p1"}',
+            state: 'complete',
+            output: { tasks: [{ title: 'Fix login' }, { title: 'Ship' }] },
+          },
+          {
+            type: 'tool-result',
+            toolCallId: 'call-1',
+            content: '{"tasks":[{"title":"Fix login"},{"title":"Ship"}]}',
+            state: 'complete',
+          },
+          { type: 'text', content: 'Website has two tasks.' },
+        ],
+      },
+    ]
+    renderPanel()
+    const panel = openPanel()
+
+    const reply = within(panel).getAllByRole('listitem')[1]
+    const card = within(reply).getByRole('group', {
+      name: 'Tool call: List tasks',
+    })
+    expect(card.textContent).toBe('List tasksDone2 tasks')
+    expect(reply.textContent).toBe(
+      'AssistantList tasksDone2 tasksWebsite has two tasks.',
+    )
+    expect(reply.textContent).not.toContain('Fix login')
+  })
+
+  it('shows a tool call as running only in the reply that is loading', () => {
+    const call = {
+      type: 'tool-call',
+      id: 'call-1',
+      name: 'get_task',
+      arguments: '{}',
+      state: 'input-complete',
+    }
+    chat.state.isLoading = true
+    chat.state.messages = [
+      { id: 'm1', role: 'assistant', parts: [call] },
+      { id: 'm2', role: 'user', parts: [{ type: 'text', content: 'Hi' }] },
+      { id: 'm3', role: 'assistant', parts: [{ ...call, id: 'call-2' }] },
+    ]
+    renderPanel()
+    const panel = openPanel()
+
+    const cards = within(panel).getAllByRole('group', {
+      name: 'Tool call: Get task',
+    })
+    expect(cards.map((card) => card.textContent)).toEqual([
+      'Get taskStopped',
+      'Get taskRunning',
+    ])
+  })
+
+  it('announces the tools of a finished reply with no text', async () => {
+    chat.state.isLoading = true
+    const { rerender } = renderPanel()
+    openPanel()
+
+    chat.state.isLoading = false
+    chat.state.messages = [
+      {
+        id: 'm2',
+        role: 'assistant',
+        parts: [
+          {
+            type: 'tool-call',
+            id: 'call-1',
+            name: 'list_tasks',
+            arguments: '{}',
+            state: 'complete',
+            output: { tasks: [{}, {}] },
+          },
+        ],
+      },
+    ]
+    rerender()
+    await waitFor(() =>
+      expect(liveRegion().textContent).toBe(
+        'Assistant used List tasks: 2 tasks',
+      ),
+    )
+  })
+
   it('stops a streaming reply, announces it and keeps focus in the panel', async () => {
     chat.state.isLoading = true
     const { rerender } = renderPanel()
@@ -508,6 +603,36 @@ describe('AssistantPanel', () => {
     expect(sent.at(-1)?.id).toBe('m149')
     expect(data).toEqual({ extra: true })
     expect(sentSignal).toBe(signal)
+  })
+
+  it('sends no tool call that has lost its result', () => {
+    renderPanel()
+    const user = {
+      id: 'm1',
+      role: 'user',
+      parts: [{ type: 'text', content: 'Tasks?' }],
+    }
+    const stopped = {
+      id: 'm2',
+      role: 'assistant',
+      parts: [
+        { type: 'text', content: 'Looking.' },
+        {
+          type: 'tool-call',
+          id: 'call-1',
+          name: 'list_tasks',
+          arguments: '{}',
+          state: 'input-complete',
+        },
+      ],
+    }
+    chat.connection?.connect([user, stopped], {}, new AbortController().signal)
+
+    const [sent] = chat.connect.mock.calls[0] as [Array<unknown>]
+    expect(sent).toEqual([
+      user,
+      { ...stopped, parts: [{ type: 'text', content: 'Looking.' }] },
+    ])
   })
 
   it('does nothing on Clear conversation with no messages', () => {

@@ -262,7 +262,7 @@ Depends on: F35, F67, F68.
 Acceptance: tests for a successful move and a refused delete.
 
 ### F37 MCP resources and prompt (#37)
-`project://{id}` and `task://{id}` as Markdown; `daily_review` prompt built from the dashboard data.
+`project://{id}` and `task://{id}` as Markdown; `daily_review` prompt built from the dashboard data. `createMcpServer()` in `src/tools/mcp.ts` registers both as resource templates with the MIME type `text/markdown` and no list callback, so `resources/list` stays empty and ids come from the tools. The Markdown comes from pure functions in `src/tools/resources.ts`: a project with its statuses and task counts, labels, and tasks under one heading per status; a task with its fields, description, subtasks as checkboxes and comments. Titles and names are collapsed to one line, and the headings in descriptions and comments are moved below their section. `daily_review` takes an optional `today` (`YYYY-MM-DD`, the server's day by default), reads `listDashboardTasks`, and returns one user message from `src/tools/prompts.ts` listing the tasks due today and overdue, at most 15 a section. An unknown id is a JSON-RPC `InvalidParams` error with the tools' `not_found:` text, and an unexpected error is `InternalError` with the generic `internal` message. `docs/mcp.md` covers the resources and the prompt.
 Depends on: F36.
 Acceptance: resource reads are tested; the prompt returns text under 2,000 characters for the seed.
 
@@ -284,12 +284,12 @@ Depends on: F69.
 Acceptance: at 320 px, e2e asserts where focus lands after `c`, Ctrl+K and a command menu action; unit tests cover the Stop focus rule; axe clean in both themes.
 
 ### F39 Assistant data tools (#39)
-Pass `serverTools` from `src/tools/server.ts` (the F34 read tools and whatever F67 and F68 have added) to `chat()`. Render tool calls in the message list with name, status, and result summary.
+Pass the server tools from `src/tools/server.ts` (the F34 read tools and whatever F67 and F68 have added) to `chat()`. Render tool calls in the message list with name, status, and result summary. The four `needsApproval` tools (`archive_project`, `delete_task`, `delete_subtask`, `delete_comment`) are left out (`assistantTools`) until F40 adds the Approve and Deny prompt, since without it such a call would pause the run with nothing to answer it.
 Depends on: F38.
 Acceptance: e2e with a mocked model response that calls `list_tasks` renders the tool card.
 
 ### F40 Assistant UI tools and approvals (#40)
-`.client()` implementations for `navigate`, `open_task`, `set_filter`, `set_theme`; `needsApproval` tools show an Approve and Deny prompt in the panel. After navigation, focus moves to the page heading and the panel says where it went.
+`.client()` implementations for `navigate`, `open_task`, `set_filter`, `set_theme`; `needsApproval` tools show an Approve and Deny prompt in the panel, and `assistantTools` stops leaving them out, so the assistant can archive and delete. After navigation, focus moves to the page heading and the panel says where it went.
 Depends on: F39.
 Acceptance: e2e covers approve, deny, and a navigation with focus assertion.
 

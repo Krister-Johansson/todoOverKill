@@ -27,12 +27,14 @@ export class ToolError extends Error {
 
 /**
  * Maps a service error to a ToolError, as errorResponse in src/lib/rest.ts
- * maps it to a REST error. A ZodError's issues become readable lines, one per
- * issue with its path, rather than the issues array. Any other error is logged
- * and becomes an internal error without its message, so database details
- * never reach the model provider or an MCP client.
+ * maps it to a REST error. A ToolError is returned as it is. A ZodError's
+ * issues become readable lines, one per issue with its path, rather than the
+ * issues array. Any other error is logged and becomes an internal error
+ * without its message, so database details never reach the model provider or
+ * an MCP client.
  */
 export function toToolError(error: unknown) {
+  if (error instanceof ToolError) return error
   if (error instanceof NotFoundError || error instanceof ConflictError) {
     return new ToolError(error.code, error.message)
   }

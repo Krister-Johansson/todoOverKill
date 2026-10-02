@@ -27,42 +27,25 @@ export const ASSISTANT_SYSTEM_PROMPT = [
   'and tell the user where in the app they can do it themselves.',
 ].join(' ')
 
-export {
-  InvalidChatRequestError,
-  MAX_CHAT_MESSAGES,
-  MAX_CHAT_MESSAGE_LENGTH,
-} from '#/lib/assistant'
-
 /** A string capped at MAX_CHAT_PART_LENGTH. */
 const partText = z.string().max(MAX_CHAT_PART_LENGTH)
 
 /**
- * One content part. Both shapes are on the wire: TanStack's `parts` carry
- * `content`, AG-UI's content parts carry `text`.
+ * Caps the size of each message that goes to OpenRouter. It runs on the kept
+ * history only, so an old reply or a system message that trimChatHistory
+ * drops cannot refuse the request. By then chatParamsFromRequestBody has
+ * checked the AG-UI shape and dropped TanStack's `parts`, which never reach
+ * the model: content is a string, or for a user message an array of AG-UI
+ * content parts, which carry `text`. The number of parts is not capped; the
+ * body limit bounds it.
  */
-const chatPartSchema = z.looseObject({
-  content: partText.optional(),
-  text: partText.optional(),
-})
-
-const chatPartsSchema = z.array(chatPartSchema).max(20)
-
-/**
- * Caps what a chat request may forward to OpenRouter. The AG-UI shape itself
- * is checked by chatParamsFromRequestBody; this only bounds the size of each
- * part, so a large body is refused before it costs anything. The length of
- * the history is not capped here: trimChatHistory keeps the newest messages.
- */
-const chatRequestLimitsSchema = z.looseObject({
-  messages: z.array(
-    z.looseObject({
-      content: z
-        .union([partText, chatPartsSchema, z.record(z.string(), z.unknown())])
-        .optional(),
-      parts: chatPartsSchema.optional(),
-    }),
-  ),
-})
+const keptMessagesSchema = z.array(
+  z.looseObject({
+    content: z
+      .union([partText, z.array(z.looseObject({ text: partText.optional() }))])
+      .optional(),
+  }),
+)
 
 /** The newest user message, checked after the role filter. */
 const newestUserMessageSchema = z
@@ -73,17 +56,15 @@ export type ChatRequest = Awaited<ReturnType<typeof chatParamsFromRequestBody>>
 
 type ChatMessage = ChatRequest['messages'][number]
 
-/** A message's text: its string content, or the text of its parts. */
+/** A message's text: its string content, or the text of its content parts. */
 function chatMessageText(message: ChatMessage) {
   const content: unknown = 'content' in message ? message.content : undefined
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return ''
   return content
-    .map((part: { text?: unknown; content?: unknown }) => {
-      if (typeof part.text === 'string') return part.text
-      if (typeof part.content === 'string') return part.content
-      return ''
-    })
+    .map((part: { text?: unknown }) =>
+      typeof part.text === 'string' ? part.text : '',
+    )
     .join('')
 }
 
@@ -106,12 +87,12 @@ export function trimChatHistory(messages: Array<ChatMessage>) {
 }
 
 /**
- * A parsed AG-UI RunAgentInput, within the size caps and with its history
- * trimmed by trimChatHistory. Throws a ZodError when a part or the newest user
- * message is too long, and InvalidChatRequestError when it is not AG-UI.
+ * A parsed AG-UI RunAgentInput with its history trimmed by trimChatHistory and
+ * within the size caps. Throws InvalidChatRequestError when the body is not
+ * AG-UI or no user message is left to answer, and a ZodError when a kept part
+ * or the newest user message is too long.
  */
 export async function parseChatRequest(body: unknown): Promise<ChatRequest> {
-  chatRequestLimitsSchema.parse(body)
   let request: ChatRequest
   try {
     request = await chatParamsFromRequestBody(body)
@@ -119,8 +100,14 @@ export async function parseChatRequest(body: unknown): Promise<ChatRequest> {
     throw new InvalidChatRequestError()
   }
   const messages = trimChatHistory(request.messages)
-  // Checked on the kept history, so a short message sent after a long user
-  // message cannot carry the long one past the cap.
+  if (messages.length === 0) {
+    throw new InvalidChatRequestError('The request has no user message.')
+  }
+  keptMessagesSchema.parse(messages)
+  // Only the newest user message is held to MAX_CHAT_MESSAGE_LENGTH. Older
+  // messages, user ones included, are limited by the part cap alone. It is
+  // found after the role filter, so a message sent after it cannot make it
+  // count as older history.
   const newestUser = messages
     .filter((message) => message.role === 'user')
     .at(-1)

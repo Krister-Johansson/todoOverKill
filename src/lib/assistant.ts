@@ -19,12 +19,15 @@ export const MAX_CHAT_BODY_BYTES = 1_048_576
 /** Shown and announced when the composer refuses a message. */
 export const MESSAGE_TOO_LONG_ERROR = 'Messages can be up to 20,000 characters.'
 
-/** Thrown by parseChatRequest when the body is not a chat request. */
+/**
+ * Thrown by parseChatRequest when the body is not a chat request, or has no
+ * user message to answer.
+ */
 export class InvalidChatRequestError extends Error {
   readonly code = 'validation'
 
-  constructor() {
-    super('The request is not a valid chat request.')
+  constructor(message = 'The request is not a valid chat request.') {
+    super(message)
     this.name = 'InvalidChatRequestError'
   }
 }

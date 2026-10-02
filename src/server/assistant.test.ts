@@ -4,8 +4,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ZodError } from 'zod'
 
+import { InvalidChatRequestError } from '#/lib/assistant'
 import {
-  InvalidChatRequestError,
   getAssistantStatus,
   parseChatRequest,
   startAssistantReply,
@@ -144,28 +144,59 @@ describe('parseChatRequest', () => {
   })
 
   it.each([
-    ['string content', { content: 'x'.repeat(100_001) }],
-    [
-      'a content part',
-      { content: [{ type: 'text', text: 'x'.repeat(100_001) }] },
-    ],
-    [
-      'a TanStack part',
-      {
-        content: 'Hi',
-        parts: [{ type: 'text', content: 'x'.repeat(100_001) }],
-      },
-    ],
-  ])('refuses %s over 100,000 characters', async (_name, fields) => {
+    ['assistant string content', 'assistant', 'x'.repeat(100_001)],
+    ['user string content', 'user', 'x'.repeat(100_001)],
+    ['a content part', 'user', [{ type: 'text', text: 'x'.repeat(100_001) }]],
+  ])('refuses %s over 100,000 characters', async (_name, role, content) => {
     await expect(
       parseChatRequest({
         ...validBody,
         messages: [
-          { id: 'm1', role: 'assistant', ...fields },
-          { id: 'm2', role: 'user', content: 'Hi' },
+          { id: 'm1', role: 'user', content: 'Hi' },
+          { id: 'm2', role, content },
+          { id: 'm3', role: 'user', content: 'Hi' },
         ],
       }),
     ).rejects.toBeInstanceOf(ZodError)
+  })
+
+  it('does not check parts that are trimmed or never reach the model', async () => {
+    const request = await parseChatRequest({
+      ...validBody,
+      messages: [
+        // The 101st-newest message, dropped by the trim.
+        { id: 'old', role: 'user', content: 'x'.repeat(100_001) },
+        { id: 'system', role: 'system', content: 'x'.repeat(100_001) },
+        ...Array.from({ length: 100 }, (_, index) => ({
+          id: `message-${index}`,
+          role: 'user',
+          content: 'Hi',
+          // TanStack's parts are dropped by chatParamsFromRequestBody.
+          parts: [{ type: 'text', content: 'x'.repeat(100_001) }],
+        })),
+      ],
+    })
+    expect(request.messages).toHaveLength(100)
+    expect(request.messages[0]).toMatchObject({ id: 'message-0' })
+  })
+
+  it.each([
+    ['no messages', []],
+    [
+      'only system and developer messages',
+      [
+        { id: 'm1', role: 'system', content: 'Hi' },
+        { id: 'm2', role: 'developer', content: 'Hi' },
+      ],
+    ],
+    [
+      'only assistant messages',
+      [{ id: 'm1', role: 'assistant', content: 'Hi' }],
+    ],
+  ])('refuses a request with %s', async (_name, messages) => {
+    await expect(parseChatRequest({ ...validBody, messages })).rejects.toThrow(
+      new InvalidChatRequestError('The request has no user message.'),
+    )
   })
 
   it('drops system and developer messages', async () => {

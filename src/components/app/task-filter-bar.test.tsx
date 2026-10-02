@@ -177,6 +177,28 @@ describe('TaskFilterBar', () => {
     expect(onChange).toHaveBeenLastCalledWith({ q: undefined, due: 'week' })
   })
 
+  it('applies once when Enter fires search and submits the form', () => {
+    const { onChange } = renderBar({ filters: { q: 'copy' } })
+    const text = screen.getByRole('searchbox', { name: 'Text' })
+    fireEvent.change(text, { target: { value: '' } })
+    // Chrome's order for Enter in an emptied search field.
+    fireEvent(text, new Event('search'))
+    fireEvent.submit(text.closest('form')!)
+    expect(onChange).toHaveBeenCalledOnce()
+    expect(onChange).toHaveBeenLastCalledWith({ q: undefined })
+  })
+
+  it('does not apply text that is already applied', () => {
+    const { onChange } = renderBar({ filters: { q: 'copy' } })
+    const text = screen.getByRole<HTMLInputElement>('searchbox', {
+      name: 'Text',
+    })
+    fireEvent.change(text, { target: { value: ' copy ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+    expect(onChange).not.toHaveBeenCalled()
+    expect(text.value).toBe('copy')
+  })
+
   it('ignores search while the field still has text', () => {
     const { onChange } = renderBar({ filters: { q: 'copy' } })
     const text = screen.getByRole('searchbox', { name: 'Text' })

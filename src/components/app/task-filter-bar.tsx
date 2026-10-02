@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useId, useRef, useState } from 'react'
 
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
@@ -65,29 +65,48 @@ export function TaskFilterBar({
   }
   const clearable = active || text !== ''
 
+  // The text this bar last asked for, so the same text is not applied twice.
+  const sentText = useRef(filters.q)
+  useEffect(() => {
+    sentText.current = filters.q
+  }, [filters.q])
+
   // Every applied change resets the field to the text it applies, so typed
   // text that was never applied does not linger beside other filters.
   function change(patch: Partial<TaskFilters>) {
     const next = { ...filters, ...patch }
     setText(next.q ?? '')
+    sentText.current = next.q
     onChange(next)
   }
 
-  // Escape and the field's clear control empty a search field and fire
-  // `search`, which React has no prop for. An empty field then means no text
-  // filter, as it does after Apply.
+  // Enter, Apply, Escape and the field's clear control all apply the text
+  // here. Chrome fires `search` on Enter as well as submitting the form, so
+  // text already asked for is not applied again: one change makes one
+  // navigation and one announcement.
+  function applyText(value: string) {
+    const q = value.trim() || undefined
+    if (q === sentText.current) {
+      setText(q ?? '')
+      return
+    }
+    change({ q })
+  }
+
+  // Escape and the clear control empty a search field and fire `search`,
+  // which React has no prop for. An empty field then means no text filter,
+  // as it does after Apply.
   const textRef = useRef<HTMLInputElement>(null)
+  const onSearch = useEffectEvent(() => {
+    if (textRef.current?.value === '') applyText('')
+  })
   useEffect(() => {
     const input = textRef.current
     if (!input) return
-    const onSearch = () => {
-      if (input.value !== '' || filters.q === undefined) return
-      setText('')
-      onChange({ ...filters, q: undefined })
-    }
-    input.addEventListener('search', onSearch)
-    return () => input.removeEventListener('search', onSearch)
-  }, [filters, onChange])
+    const listener = () => onSearch()
+    input.addEventListener('search', listener)
+    return () => input.removeEventListener('search', listener)
+  }, [])
 
   return (
     <form
@@ -95,7 +114,7 @@ export function TaskFilterBar({
       noValidate
       onSubmit={(event) => {
         event.preventDefault()
-        change({ q: text.trim() || undefined })
+        applyText(text)
       }}
       className="flex flex-col gap-3"
     >

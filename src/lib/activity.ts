@@ -49,7 +49,13 @@ const SENTENCES: { [T in ActivityTypeName]: (payload: Payload<T>) => string } =
         : `Moved from ${from} to ${to}.`,
     'task.completed': () => 'Completed the task.',
     'task.deleted': ({ title }) => `Deleted the task ${quote(title)}.`,
-    'comment.added': () => 'Added a comment.',
+    // Rows written before the comments service hold no excerpt.
+    'comment.added': ({ excerpt }) =>
+      excerpt ? `Added the comment ${quote(excerpt)}.` : 'Added a comment.',
+    'comment.updated': ({ excerpt }) =>
+      excerpt ? `Edited the comment ${quote(excerpt)}.` : 'Edited a comment.',
+    'comment.deleted': ({ excerpt }) =>
+      excerpt ? `Deleted the comment ${quote(excerpt)}.` : 'Deleted a comment.',
     'subtask.added': ({ title }) => `Added the subtask ${quote(title)}.`,
     // The title is the one the subtask has after the change. A row without
     // `done` names the fields only.

@@ -247,7 +247,7 @@ Depends on: F34.
 Acceptance: unit tests call each server tool against the test database; a test asserts which tools carry `needsApproval`; `docs/architecture.md`'s tool list matches the definitions.
 
 ### F35 MCP server: read tools (#35)
-`/api/mcp` server route with `@modelcontextprotocol/sdk` Streamable HTTP; registers `list_projects`, `get_project`, `list_tasks`, `get_task`, `search`. `createMcpServer()` in `src/tools/mcp.ts` registers `readServerTools` from `src/tools/server.ts`, not `serverTools`, so F67's write tools stay off MCP until F36 adds confirmation. The route is stateless: a new server and transport per POST, JSON responses, no session id, and a 405 JSON-RPC error for GET and DELETE. `docs/mcp.md` covers the tools, the error results and the Claude Code setup.
+`/api/mcp` server route with `@modelcontextprotocol/sdk` Streamable HTTP; registers `list_projects`, `get_project`, `list_tasks`, `get_task`, `search`. `createMcpServer()` in `src/tools/mcp.ts` registers `readServerTools` from `src/tools/server.ts`, not `serverTools`, so F67's write tools stay off MCP until F36 adds confirmation. The route is stateless: a new server and transport per POST, JSON responses, no session id, and a 405 JSON-RPC error for GET and DELETE. A POST whose `Host` is not `localhost`, `127.0.0.1` or `[::1]` gets a 403, against DNS rebinding. `docs/mcp.md` covers the tools, the error results and the Claude Code setup.
 Depends on: F34.
 Acceptance: a Vitest test uses the SDK client to list tools and call `list_projects`; `docs/mcp.md` shows how to add the server to Claude Code.
 

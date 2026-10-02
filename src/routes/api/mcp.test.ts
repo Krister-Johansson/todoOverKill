@@ -3,7 +3,7 @@
 // client code and blocks every server variable.
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { Route } from '#/routes/api/mcp'
 import { db } from '#/server/db'
@@ -18,6 +18,7 @@ beforeEach(() => resetDatabase(db))
 const clients: Array<Client> = []
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await Promise.all(clients.splice(0).map((client) => client.close()))
 })
 
@@ -28,12 +29,16 @@ beforeEach(() => {
   responses = []
 })
 
-/** An SDK client whose requests go to the route's handlers in process. */
-async function connect() {
+/**
+ * An SDK client whose requests go to the route's handlers in process. With a
+ * host, every request carries it as its Host header.
+ */
+async function connect(host?: string) {
   const send = fetchRoute(Route)
   const transport = new StreamableHTTPClientTransport(
     new URL('http://localhost/api/mcp'),
     {
+      requestInit: host ? { headers: { host } } : undefined,
       fetch: async (input, init) => {
         const response = await send(input, init)
         responses.push(response)
@@ -45,6 +50,19 @@ async function connect() {
   await client.connect(transport)
   clients.push(client)
   return client
+}
+
+/** A raw JSON-RPC POST to the route, as a client other than the SDK's sends it. */
+function post(message: object, headers: Record<string, string> = {}) {
+  return fetchRoute(Route)('http://localhost/api/mcp', {
+    method: 'POST',
+    headers: {
+      accept: 'application/json, text/event-stream',
+      'content-type': 'application/json',
+      ...headers,
+    },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, ...message }),
+  })
 }
 
 /** The text of a tool result's first content item. */
@@ -80,6 +98,10 @@ describe('/api/mcp', () => {
       expect(tool.description).toEqual(expect.any(String))
       expect(tool.inputSchema).toMatchObject({ type: 'object' })
       expect(tool.outputSchema).toMatchObject({ type: 'object' })
+      expect(tool.annotations).toEqual({
+        readOnlyHint: true,
+        openWorldHint: false,
+      })
     }
   })
 
@@ -129,6 +151,21 @@ describe('/api/mcp', () => {
     expect(projectNames(all)).toEqual(['Archive me', 'Website'])
   })
 
+  it('treats a call without arguments as empty arguments', async () => {
+    await createProject({ name: 'Website', key: 'SITE' })
+
+    // Posted by hand, so the params have no arguments key at all.
+    const response = await post({
+      method: 'tools/call',
+      params: { name: 'list_projects' },
+    })
+
+    expect(response.status).toBe(200)
+    const { result } = (await response.json()) as { result: unknown }
+    expect(result).not.toHaveProperty('isError')
+    expect(projectNames(result)).toEqual(['Website'])
+  })
+
   it('reads a task through list_tasks, get_task and search', async () => {
     const project = await createProject({ name: 'Website', key: 'SITE' })
     const task = await createTask(project.id, { title: 'Fix the header' })
@@ -172,6 +209,22 @@ describe('/api/mcp', () => {
     expect(textOf(result)).toBe('not_found: No project with id missing.')
   })
 
+  it('reports an unexpected error as internal, without its message', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.spyOn(listProjectsTool, 'execute').mockRejectedValue(
+      new Error('connection to postgres://secret failed'),
+    )
+    const client = await connect()
+
+    const result = await client.callTool({
+      name: 'list_projects',
+      arguments: {},
+    })
+
+    expect(result.isError).toBe(true)
+    expect(textOf(result)).toBe('internal: Something went wrong on the server.')
+  })
+
   it('refuses an unknown argument with an error result', async () => {
     const client = await connect()
 
@@ -185,6 +238,29 @@ describe('/api/mcp', () => {
     expect(result.isError).toBe(true)
     expect(textOf(result)).toContain('MCP error -32602: Input validation error')
     expect(textOf(result)).toContain('archived')
+  })
+
+  it('accepts a loopback Host header on any port', async () => {
+    for (const host of ['localhost:5173', '127.0.0.1:3100', '[::1]:4000']) {
+      const client = await connect(host)
+
+      const { tools } = await client.listTools()
+
+      expect(tools).toHaveLength(5)
+    }
+  })
+
+  it('refuses any other Host header with a 403 JSON-RPC error', async () => {
+    for (const host of ['evil.example', 'localhost.evil.example:5173']) {
+      const response = await post({ method: 'tools/list' }, { host })
+
+      expect(response.status).toBe(403)
+      expect(await response.json()).toEqual({
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Only localhost may use this server.' },
+        id: null,
+      })
+    }
   })
 
   it('answers GET and DELETE with a 405 JSON-RPC error', async () => {

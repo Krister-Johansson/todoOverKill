@@ -4,6 +4,7 @@
 import * as z from 'zod'
 import { beforeEach, describe, expect, it } from 'vitest'
 
+import { addComment, listComments } from '#/server/comments'
 import { db } from '#/server/db'
 import { createLabel } from '#/server/labels'
 import {
@@ -11,23 +12,35 @@ import {
   archiveProject,
   createProject,
 } from '#/server/projects'
+import { addSubtask, listSubtasks } from '#/server/subtasks'
 import { completeTask, createTask, getTask } from '#/server/tasks'
 import { toolDefinitions } from '#/tools/definitions'
 import { ToolError } from '#/tools/errors'
 import {
+  addCommentTool,
+  addSubtaskTool,
   archiveProjectTool,
   completeTaskTool,
+  createLabelTool,
   createProjectTool,
   createTaskTool,
+  deleteCommentTool,
+  deleteSubtaskTool,
   deleteTaskTool,
   getProjectTool,
   getTaskTool,
+  listCommentsTool,
+  listLabelsTool,
   listProjectsTool,
+  listSubtasksTool,
   listTasksTool,
+  moveSubtaskTool,
   moveTaskTool,
   readServerTools,
   searchTool,
   serverTools,
+  updateCommentTool,
+  updateSubtaskTool,
   updateTaskTool,
 } from '#/tools/server'
 import { resetDatabase } from '#/test/db'
@@ -102,12 +115,28 @@ describe('tool definitions', () => {
       'move_task',
       'complete_task',
       'delete_task',
+      'list_subtasks',
+      'add_subtask',
+      'update_subtask',
+      'move_subtask',
+      'delete_subtask',
+      'list_labels',
+      'create_label',
+      'list_comments',
+      'add_comment',
+      'update_comment',
+      'delete_comment',
     ])
     expect(new Set(names).size).toBe(names.length)
   })
 
-  it('asks for approval before archiving a project or deleting a task only', () => {
-    const needingApproval = ['archive_project', 'delete_task']
+  it('asks for approval before archiving a project or deleting a task, subtask or comment only', () => {
+    const needingApproval = [
+      'archive_project',
+      'delete_task',
+      'delete_subtask',
+      'delete_comment',
+    ]
 
     expect(
       toolDefinitions
@@ -126,6 +155,9 @@ describe('tool definitions', () => {
       'list_tasks',
       'get_task',
       'search',
+      'list_subtasks',
+      'list_labels',
+      'list_comments',
     ])
   })
 })
@@ -712,5 +744,487 @@ describe('delete_task', () => {
     )
 
     expectValidation(error, 'force')
+  })
+})
+
+/** A project with one task, for the subtask and comment tools. */
+async function createTaskInProject() {
+  const project = await createProject({ name: 'Website', key: 'SITE' })
+  return createTask(project.id, { title: 'Fix the header' })
+}
+
+describe('list_subtasks', () => {
+  it("returns the task's subtasks top to bottom", async () => {
+    const task = await createTaskInProject()
+    await addSubtask(task.id, { title: 'Draft' })
+    await addSubtask(task.id, { title: 'Review' })
+
+    const result = await listSubtasksTool.execute?.({ taskId: task.id })
+
+    expect(result?.subtasks.map((subtask) => subtask.title)).toEqual([
+      'Draft',
+      'Review',
+    ])
+    expectOutput(listSubtasksTool.outputSchema, result)
+  })
+
+  it('reports an unknown task as not found', async () => {
+    const error = await rejection(
+      listSubtasksTool.execute?.({ taskId: 'missing' }),
+    )
+
+    expectNotFound(error, 'No task with id missing.')
+  })
+
+  it('reports an unknown option in readable words', async () => {
+    const error = await rejection(
+      callUnchecked(listSubtasksTool, { taskId: 't1', done: false }),
+    )
+
+    expectValidation(error, 'done')
+  })
+
+  it('reports a blank task id in readable words', async () => {
+    const error = await rejection(listSubtasksTool.execute?.({ taskId: '' }))
+
+    expectValidation(error, '→ at taskId')
+  })
+})
+
+describe('add_subtask', () => {
+  it('adds the subtask at the end, not done', async () => {
+    const task = await createTaskInProject()
+    await addSubtask(task.id, { title: 'Draft' })
+
+    const result = await addSubtaskTool.execute?.({
+      taskId: task.id,
+      title: ' Review ',
+    })
+
+    expect(result).toMatchObject({
+      taskId: task.id,
+      title: 'Review',
+      done: false,
+    })
+    expectOutput(addSubtaskTool.outputSchema, result)
+    expect((await listSubtasks(task.id)).map((row) => row.title)).toEqual([
+      'Draft',
+      'Review',
+    ])
+  })
+
+  it('reports an unknown task as not found', async () => {
+    const error = await rejection(
+      addSubtaskTool.execute?.({ taskId: 'missing', title: 'Draft' }),
+    )
+
+    expectNotFound(error, 'No task with id missing.')
+  })
+
+  it('reports a blank title in readable words', async () => {
+    const error = await rejection(
+      addSubtaskTool.execute?.({ taskId: 't1', title: '  ' }),
+    )
+
+    expectValidation(error, 'Title is required.', '→ at title')
+  })
+})
+
+describe('update_subtask', () => {
+  it('changes the title and ticks the subtask off', async () => {
+    const task = await createTaskInProject()
+    const subtask = await addSubtask(task.id, { title: 'Draft' })
+
+    const result = await updateSubtaskTool.execute?.({
+      subtaskId: subtask.id,
+      title: 'Draft the intro',
+      done: true,
+    })
+
+    expect(result).toMatchObject({
+      id: subtask.id,
+      title: 'Draft the intro',
+      done: true,
+    })
+    expectOutput(updateSubtaskTool.outputSchema, result)
+  })
+
+  it('reports an unknown subtask as not found', async () => {
+    const error = await rejection(
+      updateSubtaskTool.execute?.({ subtaskId: 'missing', done: true }),
+    )
+
+    expectNotFound(error, 'No subtask with id missing.')
+  })
+
+  it('reports a done that is not true or false in readable words', async () => {
+    const error = await rejection(
+      callUnchecked(updateSubtaskTool, { subtaskId: 's1', done: 'yes' }),
+    )
+
+    expectValidation(error, 'Done must be true or false.', '→ at done')
+  })
+
+  it('reports a blank title in readable words', async () => {
+    const error = await rejection(
+      updateSubtaskTool.execute?.({ subtaskId: 's1', title: ' ' }),
+    )
+
+    expectValidation(error, 'Title is required.', '→ at title')
+  })
+})
+
+describe('move_subtask', () => {
+  it('puts the subtask first at index 0', async () => {
+    const task = await createTaskInProject()
+    await addSubtask(task.id, { title: 'Draft' })
+    const last = await addSubtask(task.id, { title: 'Review' })
+
+    const result = await moveSubtaskTool.execute?.({
+      subtaskId: last.id,
+      index: 0,
+    })
+    const list = await listSubtasksTool.execute?.({ taskId: task.id })
+
+    expect(result).toMatchObject({ id: last.id, order: 1 })
+    expectOutput(moveSubtaskTool.outputSchema, result)
+    expect(list?.subtasks.map((subtask) => subtask.title)).toEqual([
+      'Review',
+      'Draft',
+    ])
+  })
+
+  it('puts the subtask last at an index past the end', async () => {
+    const task = await createTaskInProject()
+    const first = await addSubtask(task.id, { title: 'Draft' })
+    await addSubtask(task.id, { title: 'Review' })
+
+    await moveSubtaskTool.execute?.({ subtaskId: first.id, index: 10 })
+    const list = await listSubtasksTool.execute?.({ taskId: task.id })
+
+    expect(list?.subtasks.map((subtask) => subtask.title)).toEqual([
+      'Review',
+      'Draft',
+    ])
+  })
+
+  it('reports an unknown subtask as not found', async () => {
+    const error = await rejection(
+      moveSubtaskTool.execute?.({ subtaskId: 'missing', index: 0 }),
+    )
+
+    expectNotFound(error, 'No subtask with id missing.')
+  })
+
+  it('reports a negative index in readable words', async () => {
+    const error = await rejection(
+      moveSubtaskTool.execute?.({ subtaskId: 's1', index: -1 }),
+    )
+
+    expectValidation(error, 'Index must be 0 or more.', '→ at index')
+  })
+})
+
+describe('delete_subtask', () => {
+  it('returns the subtask and deletes it', async () => {
+    const task = await createTaskInProject()
+    const subtask = await addSubtask(task.id, { title: 'Draft' })
+
+    const result = await deleteSubtaskTool.execute?.({ subtaskId: subtask.id })
+
+    expect(result).toMatchObject({ id: subtask.id, title: 'Draft' })
+    expectOutput(deleteSubtaskTool.outputSchema, result)
+    expect(await listSubtasks(task.id)).toEqual([])
+  })
+
+  it('reports an unknown subtask as not found', async () => {
+    const error = await rejection(
+      deleteSubtaskTool.execute?.({ subtaskId: 'missing' }),
+    )
+
+    expectNotFound(error, 'No subtask with id missing.')
+  })
+
+  it('reports an unknown option in readable words', async () => {
+    const error = await rejection(
+      callUnchecked(deleteSubtaskTool, { subtaskId: 's1', force: true }),
+    )
+
+    expectValidation(error, 'force')
+  })
+
+  it('reports a blank subtask id in readable words', async () => {
+    const error = await rejection(
+      deleteSubtaskTool.execute?.({ subtaskId: '' }),
+    )
+
+    expectValidation(error, '→ at subtaskId')
+  })
+})
+
+describe('list_labels', () => {
+  it("returns the project's labels sorted by name", async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+    await createLabel(project.id, { name: 'UX', color: '#2563eb' })
+    await createLabel(project.id, { name: 'Bug', color: '#dc2626' })
+
+    const result = await listLabelsTool.execute?.({ projectId: project.id })
+
+    expect(result?.labels.map((label) => label.name)).toEqual(['Bug', 'UX'])
+    expectOutput(listLabelsTool.outputSchema, result)
+  })
+
+  it('reports an unknown project as not found', async () => {
+    const error = await rejection(
+      listLabelsTool.execute?.({ projectId: 'missing' }),
+    )
+
+    expectNotFound(error, 'No project with id missing.')
+  })
+
+  it('reports an unknown option in readable words', async () => {
+    const error = await rejection(
+      callUnchecked(listLabelsTool, { projectId: 'p1', name: 'Bug' }),
+    )
+
+    expectValidation(error, 'name')
+  })
+
+  it('reports a blank project id in readable words', async () => {
+    const error = await rejection(listLabelsTool.execute?.({ projectId: '' }))
+
+    expectValidation(error, '→ at projectId')
+  })
+})
+
+describe('create_label', () => {
+  it('creates the label with its colour in lower case', async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+
+    const result = await createLabelTool.execute?.({
+      projectId: project.id,
+      name: ' Bug ',
+      color: '#DC2626',
+    })
+
+    expect(result).toMatchObject({
+      projectId: project.id,
+      name: 'Bug',
+      color: '#dc2626',
+    })
+    expectOutput(createLabelTool.outputSchema, result)
+  })
+
+  it('reports an unknown project as not found', async () => {
+    const error = await rejection(
+      createLabelTool.execute?.({
+        projectId: 'missing',
+        name: 'Bug',
+        color: '#dc2626',
+      }),
+    )
+
+    expectNotFound(error, 'No project with id missing.')
+  })
+
+  it('reports a name taken in another case as a conflict', async () => {
+    const project = await createProject({ name: 'Website', key: 'SITE' })
+    await createLabel(project.id, { name: 'Bug', color: '#dc2626' })
+
+    const error = await rejection(
+      createLabelTool.execute?.({
+        projectId: project.id,
+        name: 'bug',
+        color: '#2563eb',
+      }),
+    )
+
+    expect(error).toBeInstanceOf(ToolError)
+    expect(error).toMatchObject({
+      code: 'conflict',
+      message: 'A label named Bug already exists in this project.',
+    })
+  })
+
+  it('reports a colour outside the palette in readable words', async () => {
+    const error = await rejection(
+      createLabelTool.execute?.({
+        projectId: 'p1',
+        name: 'Bug',
+        color: '#123456',
+      }),
+    )
+
+    expectValidation(error, 'Colour must be one of the project colours.')
+  })
+
+  it('reports an unknown option in readable words', async () => {
+    const error = await rejection(
+      callUnchecked(createLabelTool, {
+        projectId: 'p1',
+        name: 'Bug',
+        color: '#dc2626',
+        description: 'Something is broken',
+      }),
+    )
+
+    expectValidation(error, 'description')
+  })
+})
+
+describe('list_comments', () => {
+  it("returns the task's comments oldest first", async () => {
+    const task = await createTaskInProject()
+    await addComment(task.id, { body: 'First' })
+    await addComment(task.id, { body: 'Second' })
+
+    const result = await listCommentsTool.execute?.({ taskId: task.id })
+
+    expect(result?.comments.map((comment) => comment.body)).toEqual([
+      'First',
+      'Second',
+    ])
+    expectOutput(listCommentsTool.outputSchema, result)
+  })
+
+  it('reports an unknown task as not found', async () => {
+    const error = await rejection(
+      listCommentsTool.execute?.({ taskId: 'missing' }),
+    )
+
+    expectNotFound(error, 'No task with id missing.')
+  })
+
+  it('reports an unknown option in readable words', async () => {
+    const error = await rejection(
+      callUnchecked(listCommentsTool, { taskId: 't1', limit: 5 }),
+    )
+
+    expectValidation(error, 'limit')
+  })
+
+  it('reports a blank task id in readable words', async () => {
+    const error = await rejection(listCommentsTool.execute?.({ taskId: '' }))
+
+    expectValidation(error, '→ at taskId')
+  })
+})
+
+describe('add_comment', () => {
+  it('adds the comment with ISO timestamps', async () => {
+    const task = await createTaskInProject()
+
+    const result = await addCommentTool.execute?.({
+      taskId: task.id,
+      body: ' Looks good ',
+    })
+
+    expect(result).toMatchObject({ taskId: task.id, body: 'Looks good' })
+    expect(result?.createdAt).toBe(
+      (await listComments(task.id))[0].createdAt.toISOString(),
+    )
+    expectOutput(addCommentTool.outputSchema, result)
+  })
+
+  it('reports an unknown task as not found', async () => {
+    const error = await rejection(
+      addCommentTool.execute?.({ taskId: 'missing', body: 'Hi' }),
+    )
+
+    expectNotFound(error, 'No task with id missing.')
+  })
+
+  it('reports a blank body in readable words', async () => {
+    const error = await rejection(
+      addCommentTool.execute?.({ taskId: 't1', body: ' ' }),
+    )
+
+    expectValidation(error, 'Comment is required.', '→ at body')
+  })
+})
+
+describe('update_comment', () => {
+  it('replaces the body', async () => {
+    const task = await createTaskInProject()
+    const comment = await addComment(task.id, { body: 'Looks good' })
+
+    const result = await updateCommentTool.execute?.({
+      commentId: comment.id,
+      body: 'Looks great',
+    })
+
+    expect(result).toMatchObject({ id: comment.id, body: 'Looks great' })
+    expectOutput(updateCommentTool.outputSchema, result)
+  })
+
+  it('changes nothing when given the current body', async () => {
+    const task = await createTaskInProject()
+    const comment = await addComment(task.id, { body: 'Looks good' })
+    const activities = await db.activity.count()
+
+    const result = await updateCommentTool.execute?.({
+      commentId: comment.id,
+      body: ' Looks good ',
+    })
+
+    expect(result).toMatchObject({
+      id: comment.id,
+      body: 'Looks good',
+      updatedAt: comment.updatedAt.toISOString(),
+    })
+    expect(await db.activity.count()).toBe(activities)
+  })
+
+  it('reports an unknown comment as not found', async () => {
+    const error = await rejection(
+      updateCommentTool.execute?.({ commentId: 'missing', body: 'Hi' }),
+    )
+
+    expectNotFound(error, 'No comment with id missing.')
+  })
+
+  it('reports a missing body in readable words', async () => {
+    const error = await rejection(
+      callUnchecked(updateCommentTool, { commentId: 'c1' }),
+    )
+
+    expectValidation(error, '→ at body')
+  })
+})
+
+describe('delete_comment', () => {
+  it('returns the comment and deletes it', async () => {
+    const task = await createTaskInProject()
+    const comment = await addComment(task.id, { body: 'Looks good' })
+
+    const result = await deleteCommentTool.execute?.({ commentId: comment.id })
+
+    expect(result).toMatchObject({ id: comment.id, body: 'Looks good' })
+    expectOutput(deleteCommentTool.outputSchema, result)
+    expect(await listComments(task.id)).toEqual([])
+  })
+
+  it('reports an unknown comment as not found', async () => {
+    const error = await rejection(
+      deleteCommentTool.execute?.({ commentId: 'missing' }),
+    )
+
+    expectNotFound(error, 'No comment with id missing.')
+  })
+
+  it('reports an unknown option in readable words', async () => {
+    const error = await rejection(
+      callUnchecked(deleteCommentTool, { commentId: 'c1', force: true }),
+    )
+
+    expectValidation(error, 'force')
+  })
+
+  it('reports a blank comment id in readable words', async () => {
+    const error = await rejection(
+      deleteCommentTool.execute?.({ commentId: '' }),
+    )
+
+    expectValidation(error, '→ at commentId')
   })
 })

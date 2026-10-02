@@ -134,8 +134,7 @@ const terms: Array<{
     id: 'mcp',
     term: 'MCP',
     definition:
-      'Model Context Protocol. A common way for AI (artificial intelligence) tools, such as Claude Code, to read and change your tasks.',
-    later: true,
+      'Model Context Protocol. A common way for AI (artificial intelligence) tools, such as Claude Code, to work with your data. Today they can read projects and tasks. Changing them arrives in a later release.',
   },
   {
     id: 'webmcp',

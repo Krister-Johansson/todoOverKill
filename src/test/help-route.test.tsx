@@ -123,6 +123,11 @@ describe('help route', () => {
     expect(definitionOf('term-command-menu')).not.toContain('Not available yet')
     // F30 shipped the project and status endpoints.
     expect(definitionOf('term-rest-api')).not.toContain('Not available yet')
+    // F35 shipped the MCP server's read tools.
+    expect(definitionOf('term-mcp')).not.toContain('Not available yet')
+    expect(definitionOf('term-mcp')).toContain(
+      'Today they can read projects and tasks.',
+    )
   })
 
   it('shows the shortcuts in a captioned table and marks the later ones', async () => {

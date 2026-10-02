@@ -260,7 +260,9 @@ test('a double-click on Switch theme switches it once', async ({ page }) => {
   await expect(searchButton(page)).toBeFocused()
 })
 
-test('Control+k in the New task dialog keeps focus in it', async ({ page }) => {
+test('Control+k in the New task dialog keeps its default and opens nothing', async ({
+  page,
+}) => {
   const project = await seedProject('Inside a dialog')
   await page.goto(`/projects/${project.id}/board`, { waitUntil: 'networkidle' })
   await page
@@ -283,7 +285,7 @@ test('Control+k in the New task dialog keeps focus in it', async ({ page }) => {
     field.dispatchEvent(event)
     return event.defaultPrevented
   })
-  expect(prevented).toBe(true)
+  expect(prevented).toBe(false)
   await page.keyboard.press('Control+k')
   await expect(palette(page)).toHaveCount(0)
   await expect(title).toBeFocused()

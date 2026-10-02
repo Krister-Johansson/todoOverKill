@@ -301,7 +301,9 @@ function HelpPage() {
           <ShortcutKeys keys={['⌘', 'K']} kind="combo" /> work even while you
           type in a field. They are not single-key shortcuts, so that setting
           does not turn them off. On a Mac, Ctrl+K in a text field opens the
-          command menu instead of deleting to the end of the line.
+          command menu instead of deleting to the end of the line. While another
+          dialog is open the command menu stays shut and the keys keep their
+          usual action, so there Ctrl+K still deletes to the end of the line.
         </p>
       </HelpSection>
 

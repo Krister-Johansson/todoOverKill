@@ -345,27 +345,38 @@ describe('CommandPalette', () => {
     openFromButton()
     type('help')
 
+    // true: the default was not prevented, since nothing opened.
     expect(fireEvent.keyDown(combobox(), { key: 'k', ctrlKey: true })).toBe(
-      false,
+      true,
     )
+    expect(screen.getByRole('dialog', { name: 'Command menu' })).toBeTruthy()
     expect(screen.getAllByRole('dialog')).toHaveLength(1)
     expect(combobox().getAttribute('value')).toBe('help')
     expect(document.activeElement).toBe(combobox())
   })
 
-  it('does not open while another dialog is open, nor let the browser act', async () => {
-    await renderAt('/')
-    const other = document.createElement('div')
-    other.setAttribute('role', 'dialog')
-    document.body.append(other)
+  it.each([
+    ['Control', { ctrlKey: true }],
+    ['Command', { metaKey: true }],
+  ])(
+    'leaves %s+K its default and stays shut while another dialog is open',
+    async (_, mod) => {
+      await renderAt('/')
+      const other = document.createElement('div')
+      other.setAttribute('role', 'dialog')
+      const field = document.createElement('textarea')
+      other.append(field)
+      document.body.append(other)
+      field.focus()
 
-    // false: the default was prevented, so focus stays in the dialog.
-    expect(fireEvent.keyDown(document.body, { key: 'k', ctrlKey: true })).toBe(
-      false,
-    )
-    expect(screen.queryByRole('dialog', { name: 'Command menu' })).toBeNull()
-    other.remove()
-  })
+      // true: the default was not prevented, so on a Mac Ctrl+K still deletes
+      // to the end of the line in the field.
+      expect(fireEvent.keyDown(field, { key: 'k', ...mod })).toBe(true)
+      expect(screen.queryByRole('dialog', { name: 'Command menu' })).toBeNull()
+      expect(document.activeElement).toBe(field)
+      other.remove()
+    },
+  )
 
   it('opens on the K key of a layout without Latin letters', async () => {
     await renderAt('/')

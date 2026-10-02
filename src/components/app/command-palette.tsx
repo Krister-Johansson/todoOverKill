@@ -32,7 +32,7 @@ import { Kbd, KbdGroup } from '#/components/ui/kbd'
 import { Label } from '#/components/ui/label'
 import { projectsQueryOptions } from '#/fns/projects'
 import { useTheme } from '#/hooks/use-theme'
-import { isCommandPaletteKey, isCommandPaletteShortcut } from '#/lib/keyboard'
+import { isCommandPaletteShortcut } from '#/lib/keyboard'
 
 import { useAnnounce } from './live-region'
 
@@ -103,13 +103,12 @@ export function CommandPalette({
   }
 
   const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
-    if (!isCommandPaletteKey(event)) return
-    const opens = isCommandPaletteShortcut(event)
-    // Chrome and Firefox would otherwise focus the address bar and take focus
-    // out of the page, even when another dialog keeps the palette shut or the
-    // palette is already open.
+    // Only a key press that opens the palette loses its default. While another
+    // dialog or the palette itself is open, the key keeps it, so on a Mac
+    // Ctrl+K in a text field still deletes to the end of the line.
+    if (!isCommandPaletteShortcut(event)) return
     event.preventDefault()
-    if (opens) handleOpenChange(true)
+    handleOpenChange(true)
   })
 
   useEffect(() => {

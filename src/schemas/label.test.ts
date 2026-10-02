@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { createLabelSchema, labelIdsSchema } from '#/schemas/label'
+import {
+  createLabelSchema,
+  createLabelToolSchema,
+  labelIdsSchema,
+} from '#/schemas/label'
 
 describe('createLabelSchema', () => {
   it('trims the name and keeps a palette colour', () => {
@@ -61,5 +65,36 @@ describe('labelIdsSchema', () => {
 
   it('rejects an empty id', () => {
     expect(labelIdsSchema.safeParse(['']).success).toBe(false)
+  })
+})
+
+describe('createLabelToolSchema', () => {
+  it('takes the project id beside the service fields', () => {
+    expect(
+      createLabelToolSchema.parse({
+        projectId: 'p1',
+        name: ' Bug ',
+        color: '#DC2626',
+      }),
+    ).toEqual({ projectId: 'p1', name: 'Bug', color: '#dc2626' })
+  })
+
+  it('rejects an unknown field', () => {
+    const result = createLabelToolSchema.safeParse({
+      projectId: 'p1',
+      name: 'Bug',
+      color: '#dc2626',
+      colour: '#dc2626',
+    })
+    expect(result.error?.issues).toEqual([
+      expect.objectContaining({ code: 'unrecognized_keys', keys: ['colour'] }),
+    ])
+  })
+
+  it('rejects a missing project id', () => {
+    expect(
+      createLabelToolSchema.safeParse({ name: 'Bug', color: '#dc2626' })
+        .success,
+    ).toBe(false)
   })
 })

@@ -1,6 +1,14 @@
 import { toolDefinition } from '@tanstack/ai'
 import * as z from 'zod'
 
+import { PROJECT_COLORS } from '#/lib/project-colors'
+import {
+  addCommentToolSchema,
+  commentIdToolSchema,
+  commentOutputSchema,
+  updateCommentToolSchema,
+} from '#/schemas/comment'
+import { createLabelToolSchema, labelOutputSchema } from '#/schemas/label'
 import {
   createProjectSchema,
   listProjectsSchema,
@@ -9,6 +17,13 @@ import {
   projectWithStatusesOutputSchema,
 } from '#/schemas/project'
 import { searchResultsOutputSchema, searchSchema } from '#/schemas/search'
+import {
+  addSubtaskToolSchema,
+  moveSubtaskToolSchema,
+  subtaskIdToolSchema,
+  subtaskOutputSchema,
+  updateSubtaskToolSchema,
+} from '#/schemas/subtask'
 import {
   createTaskToolSchema,
   listTasksToolSchema,
@@ -43,7 +58,7 @@ export const getProjectDefinition = toolDefinition({
 export const listTasksDefinition = toolDefinition({
   name: 'list_tasks',
   description:
-    "Lists a project's tasks in board order as { tasks }, each with its status and labels. Every filter is optional and the ones given must all match: statusId (a status from get_project), priority (none, low, medium, high or urgent), labelId, dueFrom and dueTo (YYYY-MM-DD, both ends included; tasks with no due date are left out), completed (false for open tasks only, true for completed ones only) and q (text in the title or description, ignoring case). Use search instead to find tasks across projects or by reference.",
+    "Lists a project's tasks in board order as { tasks }, each with its status and labels. Every filter is optional and the ones given must all match: statusId (a status from get_project), priority (none, low, medium, high or urgent), labelId (a label from list_labels), dueFrom and dueTo (YYYY-MM-DD, both ends included; tasks with no due date are left out), completed (false for open tasks only, true for completed ones only) and q (text in the title or description, ignoring case). Use search instead to find tasks across projects or by reference.",
   inputSchema: listTasksToolSchema,
   outputSchema: z.object({ tasks: z.array(taskOutputSchema) }),
 })
@@ -81,13 +96,10 @@ export const archiveProjectDefinition = toolDefinition({
   needsApproval: true,
 })
 
-// No tool lists a project's labels until F68 adds list_labels, so create_task
-// and update_task send the model to the labels on existing tasks; F68 points
-// them at list_labels instead.
 export const createTaskDefinition = toolDefinition({
   name: 'create_task',
   description:
-    "Creates a task in a project and returns it with its status and labels. title is required (1 to 200 characters). statusId (a status from get_project) defaults to the project's first status, and the task goes to the end of it; a task created in a done-category status starts completed, with completedAt set. priority (none, low, medium, high or urgent) defaults to none. description (up to 10000 characters), dueDate (YYYY-MM-DD) and labelIds (ids of the project's labels) are optional. Label ids come from the labels on the project's tasks in list_tasks or get_task.",
+    "Creates a task in a project and returns it with its status and labels. title is required (1 to 200 characters). statusId (a status from get_project) defaults to the project's first status, and the task goes to the end of it; a task created in a done-category status starts completed, with completedAt set. priority (none, low, medium, high or urgent) defaults to none. description (up to 10000 characters), dueDate (YYYY-MM-DD) and labelIds (ids of the project's labels, from list_labels) are optional.",
   inputSchema: createTaskToolSchema,
   outputSchema: taskOutputSchema,
 })
@@ -95,7 +107,7 @@ export const createTaskDefinition = toolDefinition({
 export const updateTaskDefinition = toolDefinition({
   name: 'update_task',
   description:
-    "Changes a task's title, description, priority, due date (YYYY-MM-DD) or labels and returns the task. Every field is optional and only the ones given change. null clears the description or the due date. labelIds replaces the whole label set with the project's labels given, and [] removes every label; label ids come from the labels on the project's tasks in list_tasks or get_task. Use move_task to change the status or the place on the board, and complete_task to complete it.",
+    "Changes a task's title, description, priority, due date (YYYY-MM-DD) or labels and returns the task. Every field is optional and only the ones given change. null clears the description or the due date. labelIds replaces the whole label set with the project's labels given, and [] removes every label; label ids come from list_labels. Use move_task to change the status or the place on the board, and complete_task to complete it.",
   inputSchema: updateTaskToolSchema,
   outputSchema: taskOutputSchema,
 })
@@ -125,6 +137,95 @@ export const deleteTaskDefinition = toolDefinition({
   needsApproval: true,
 })
 
+export const listSubtasksDefinition = toolDefinition({
+  name: 'list_subtasks',
+  description:
+    "Lists a task's subtasks top to bottom as { subtasks }, each with its id, title, done (true when ticked off) and order. Use it to find a subtask id before calling update_subtask, move_subtask or delete_subtask.",
+  inputSchema: taskIdToolSchema,
+  outputSchema: z.object({ subtasks: z.array(subtaskOutputSchema) }),
+})
+
+export const addSubtaskDefinition = toolDefinition({
+  name: 'add_subtask',
+  description:
+    "Adds a subtask to the end of a task's list, not done, and returns it. title is required (1 to 200 characters). Use move_subtask afterwards to put it somewhere else.",
+  inputSchema: addSubtaskToolSchema,
+  outputSchema: subtaskOutputSchema,
+})
+
+export const updateSubtaskDefinition = toolDefinition({
+  name: 'update_subtask',
+  description:
+    "Changes a subtask's title (1 to 200 characters), its done state, or both, and returns the subtask. Both fields are optional and only the ones given change; done true ticks it off and false opens it again. Use move_subtask to change its place.",
+  inputSchema: updateSubtaskToolSchema,
+  outputSchema: subtaskOutputSchema,
+})
+
+export const moveSubtaskDefinition = toolDefinition({
+  name: 'move_subtask',
+  description:
+    "Moves a subtask to another place in its task's list and returns it. index is its new place counting from 0 among the task's other subtasks, so 0 is the top and an index past the end means the end.",
+  inputSchema: moveSubtaskToolSchema,
+  outputSchema: subtaskOutputSchema,
+})
+
+export const deleteSubtaskDefinition = toolDefinition({
+  name: 'delete_subtask',
+  description:
+    'Deletes a subtask and returns it as it was. It cannot be undone; to keep it, use update_subtask with done true instead. Needs the user to approve it.',
+  inputSchema: subtaskIdToolSchema,
+  outputSchema: subtaskOutputSchema,
+  needsApproval: true,
+})
+
+export const listLabelsDefinition = toolDefinition({
+  name: 'list_labels',
+  description:
+    "Lists a project's labels sorted by name as { labels }, each with its id, name and colour. Use it to find the label ids that create_task and update_task take and that list_tasks filters on.",
+  inputSchema: projectIdToolSchema,
+  outputSchema: z.object({ labels: z.array(labelOutputSchema) }),
+})
+
+export const createLabelDefinition = toolDefinition({
+  name: 'create_label',
+  description: `Creates a label in a project and returns it. name is required (1 to 50 characters), and no other label in the project may have the same name in any case, so call list_labels first. color is required and must be one of the project colours: ${PROJECT_COLORS.map((color) => `${color.value} (${color.name})`).join(', ')}. Attach the label to a task with create_task or update_task.`,
+  inputSchema: createLabelToolSchema,
+  outputSchema: labelOutputSchema,
+})
+
+export const listCommentsDefinition = toolDefinition({
+  name: 'list_comments',
+  description:
+    "Lists a task's comments oldest first as { comments }, each with its id, body, createdAt and updatedAt. Use it to read the discussion on a task or to find a comment id before calling update_comment or delete_comment.",
+  inputSchema: taskIdToolSchema,
+  outputSchema: z.object({ comments: z.array(commentOutputSchema) }),
+})
+
+export const addCommentDefinition = toolDefinition({
+  name: 'add_comment',
+  description:
+    'Adds a comment to a task and returns it. body is required (1 to 10000 characters).',
+  inputSchema: addCommentToolSchema,
+  outputSchema: commentOutputSchema,
+})
+
+export const updateCommentDefinition = toolDefinition({
+  name: 'update_comment',
+  description:
+    "Replaces a comment's body (1 to 10000 characters) and returns the comment. Sending the current body changes nothing.",
+  inputSchema: updateCommentToolSchema,
+  outputSchema: commentOutputSchema,
+})
+
+export const deleteCommentDefinition = toolDefinition({
+  name: 'delete_comment',
+  description:
+    'Deletes a comment and returns it as it was. It cannot be undone. Needs the user to approve it.',
+  inputSchema: commentIdToolSchema,
+  outputSchema: commentOutputSchema,
+  needsApproval: true,
+})
+
 export const toolDefinitions = [
   listProjectsDefinition,
   getProjectDefinition,
@@ -138,4 +239,15 @@ export const toolDefinitions = [
   moveTaskDefinition,
   completeTaskDefinition,
   deleteTaskDefinition,
+  listSubtasksDefinition,
+  addSubtaskDefinition,
+  updateSubtaskDefinition,
+  moveSubtaskDefinition,
+  deleteSubtaskDefinition,
+  listLabelsDefinition,
+  createLabelDefinition,
+  listCommentsDefinition,
+  addCommentDefinition,
+  updateCommentDefinition,
+  deleteCommentDefinition,
 ]

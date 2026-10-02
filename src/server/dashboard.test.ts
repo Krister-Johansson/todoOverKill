@@ -106,7 +106,7 @@ describe('listDashboardTasks', () => {
     expect(task.labels).toEqual([label])
   })
 
-  it('orders by due date, then project name, then number', async () => {
+  it('orders by due date, then project name, then key, then number', async () => {
     const zoo = await createProject({ name: 'Zoo', key: 'ZOO' })
     const app = await createProject({ name: 'App', key: 'APP' })
     await createTask(zoo.id, { title: 'ZOO-1', dueDate: '2026-09-30' })
@@ -123,6 +123,20 @@ describe('listDashboardTasks', () => {
       'APP-2',
       'ZOO-1',
       'ZOO-3',
+    ])
+  })
+
+  it('orders projects with the same name by key', async () => {
+    const web = await createProject({ name: 'Website', key: 'WEB' })
+    const site = await createProject({ name: 'Website', key: 'SITE' })
+    await createTask(web.id, { title: 'WEB-1', dueDate: '2026-10-01' })
+    await createTask(site.id, { title: 'SITE-1', dueDate: '2026-10-01' })
+
+    const { overdue } = await listDashboardTasks(TODAY)
+
+    expect(overdue.map((task) => [task.project.key, task.number])).toEqual([
+      ['SITE', 1],
+      ['WEB', 1],
     ])
   })
 

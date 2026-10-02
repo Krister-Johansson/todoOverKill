@@ -28,7 +28,8 @@ export type DashboardTask = ReturnType<typeof flatten>
  * `YYYY-MM-DD` day: those due that day, and the overdue ones, due before it.
  * Completed tasks are left out of both, the same rule as the board's Overdue
  * word and the overdue filter. One query across projects, ordered by due
- * date, then project name, then task number; each task carries its project.
+ * date, then project name, then project key, then task number, so the order
+ * is the same on every read; each task carries its project.
  * Throws a ZodError when `today` is not a calendar day.
  */
 export async function listDashboardTasks(today: string) {
@@ -43,6 +44,7 @@ export async function listDashboardTasks(today: string) {
     orderBy: [
       { dueDate: 'asc' },
       { project: { name: 'asc' } },
+      { project: { key: 'asc' } },
       { number: 'asc' },
     ],
   })

@@ -3,12 +3,16 @@ import { describe, expect, it } from 'vitest'
 import {
   createTaskFormSchema,
   createTaskSchema,
+  createTaskToolSchema,
   listTasksQuerySchema,
   listTasksSchema,
   moveTaskSchema,
+  moveTaskToolSchema,
   patchTaskSchema,
+  taskIdToolSchema,
   toCreateTaskInput,
   updateTaskSchema,
+  updateTaskToolSchema,
 } from '#/schemas/task'
 
 describe('createTaskSchema', () => {
@@ -344,5 +348,46 @@ describe('patchTaskSchema', () => {
     expect(result.error?.issues).toEqual([
       expect.objectContaining({ code: 'unrecognized_keys', keys: ['status'] }),
     ])
+  })
+})
+
+describe('write tool schemas', () => {
+  it('takes the id beside the service fields', () => {
+    expect(
+      createTaskToolSchema.parse({ projectId: 'p1', title: ' Ship ' }),
+    ).toEqual({ projectId: 'p1', title: 'Ship', priority: 'none' })
+    expect(updateTaskToolSchema.parse({ taskId: 't1', dueDate: null })).toEqual(
+      { taskId: 't1', dueDate: null },
+    )
+    expect(moveTaskToolSchema.parse({ taskId: 't1', index: 0 })).toEqual({
+      taskId: 't1',
+      index: 0,
+    })
+  })
+
+  it.each([
+    ['create_task', createTaskToolSchema, { projectId: 'p1', title: 'Ship' }],
+    ['update_task', updateTaskToolSchema, { taskId: 't1' }],
+    ['move_task', moveTaskToolSchema, { taskId: 't1', index: 0 }],
+    ['a task id', taskIdToolSchema, { taskId: 't1' }],
+  ])('rejects an unknown field in the %s input', (_name, schema, input) => {
+    const result = schema.safeParse({ ...input, status: 's1' })
+    expect(result.error?.issues).toEqual([
+      expect.objectContaining({ code: 'unrecognized_keys', keys: ['status'] }),
+    ])
+  })
+
+  it('rejects a missing id', () => {
+    expect(createTaskToolSchema.safeParse({ title: 'Ship' }).success).toBe(
+      false,
+    )
+    expect(updateTaskToolSchema.safeParse({}).success).toBe(false)
+  })
+
+  it('rejects a move with neither a status nor an index', () => {
+    const result = moveTaskToolSchema.safeParse({ taskId: 't1' })
+    expect(result.error?.issues[0].message).toBe(
+      'Give a status, an index, or both.',
+    )
   })
 })

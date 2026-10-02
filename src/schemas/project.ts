@@ -29,6 +29,11 @@ const colorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/, {
 
 export const projectIdSchema = z.string().min(1)
 
+/** The project id as a tool argument, described for the model. */
+export const projectIdFieldSchema = projectIdSchema.meta({
+  description: 'The id of the project, from list_projects or search.',
+})
+
 export const createProjectSchema = z.object({
   name: nameSchema,
   key: projectKeySchema,

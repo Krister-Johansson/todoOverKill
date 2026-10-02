@@ -78,11 +78,64 @@ describe('POST /api/chat', () => {
     expect(chat).not.toHaveBeenCalled()
   })
 
-  it('returns 400 for a malformed body', async () => {
+  it('refuses a body that is not application/json with 415', async () => {
+    // A cross-site page can send text/plain without a CORS preflight.
+    env.OPENROUTER_API_KEY = 'test-key'
+    const { status, json } = await callRoute(Route, 'POST', {
+      url: '/api/chat',
+      body: JSON.stringify(validBody),
+      contentType: 'text/plain',
+    })
+    expect(status).toBe(415)
+    expect(json).toMatchObject({ error: { code: 'unsupported_media_type' } })
+    expect(chat).not.toHaveBeenCalled()
+  })
+
+  it('returns 400 for malformed JSON', async () => {
     env.OPENROUTER_API_KEY = 'test-key'
     const { status, json } = await callRoute(Route, 'POST', {
       url: '/api/chat',
       body: '{"messages":',
+    })
+    expect(status).toBe(400)
+    expect(json).toMatchObject({ error: { code: 'invalid_json' } })
+    expect(chat).not.toHaveBeenCalled()
+  })
+
+  it('returns 400 for a body that is not a chat request', async () => {
+    env.OPENROUTER_API_KEY = 'test-key'
+    const { status, json } = await callRoute(Route, 'POST', {
+      url: '/api/chat',
+      body: { messages: [] },
+    })
+    expect(status).toBe(400)
+    expect(json).toEqual({
+      error: {
+        code: 'validation',
+        message: 'The request is not a valid chat request.',
+      },
+    })
+    expect(chat).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [
+      'too many messages',
+      Array.from({ length: 101 }, (_, index) => ({
+        id: `message-${index}`,
+        role: 'user',
+        content: 'Hi',
+      })),
+    ],
+    [
+      'a message that is too long',
+      [{ id: 'message-1', role: 'user', content: 'x'.repeat(20_001) }],
+    ],
+  ])('returns 400 for %s', async (_name, messages) => {
+    env.OPENROUTER_API_KEY = 'test-key'
+    const { status, json } = await callRoute(Route, 'POST', {
+      url: '/api/chat',
+      body: { ...validBody, messages },
     })
     expect(status).toBe(400)
     expect(json).toMatchObject({ error: { code: 'validation' } })
@@ -117,5 +170,27 @@ describe('POST /api/chat', () => {
         systemPrompts: [expect.stringContaining('plain language')],
       }),
     )
+  })
+
+  it('aborts the model call when the request was aborted before it started', async () => {
+    env.OPENROUTER_API_KEY = 'test-key'
+    const client = new AbortController()
+    const request = new Request('http://localhost/api/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(validBody),
+      signal: client.signal,
+    })
+    // Stop pressed while the body was still being read.
+    client.abort()
+    const handlers = Route.options.server?.handlers as {
+      POST: (ctx: { request: Request }) => Promise<Response>
+    }
+    await handlers.POST({ request })
+
+    const [{ abortController }] = chat.mock.calls[0] as unknown as [
+      { abortController: AbortController },
+    ]
+    expect(abortController.signal.aborted).toBe(true)
   })
 })

@@ -5,43 +5,86 @@ on:
     branches: [main]
   pull_request:
 
+# A newer push to a pull request cancels the run for the older commit. Pushes
+# to main get a group per commit and are never cancelled, so every commit on
+# main keeps its own result.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# No database service: pnpm test and pnpm test:e2e each start their own
+# PostgreSQL container with Testcontainers, on the runner's Docker.
+env:
+  CI: true
+
 jobs:
-  check:
-    name: Lint, typecheck, unit, and e2e
+  # pnpm lint includes the contrast check (scripts/check-contrast.ts).
+  lint:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    # No database service: pnpm test and pnpm test:e2e each start their own
-    # PostgreSQL container with Testcontainers, on the runner's Docker.
-    env:
-      CI: true
-
     steps:
       - uses: actions/checkout@v7
-
-      # Reads the pnpm version from packageManager in package.json.
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-
+      - uses: ./.github/actions/setup
       - run: pnpm lint
 
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
       - run: pnpm typecheck
 
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
       - run: pnpm test
 
+  # The shard count is the length of the matrix; job-total reads it from there.
+  # Each shard is its own runner, so it builds the app and starts its own
+  # database container (tests/e2e/serve.ts).
+  e2e:
+    name: e2e ${{ matrix.shard }}/${{ strategy.job-total }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+
+      - id: playwright
+        run: echo "version=$(pnpm exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
+      # Skips the browser download when the cache restored it; the system
+      # libraries are installed either way.
       - run: pnpm exec playwright install --with-deps chromium
 
-      - run: pnpm test:e2e
+      - run: pnpm test:e2e --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.shard }}
           path: playwright-report/
           retention-days: 7
+
+  # The one check the main ruleset requires. It passes only when every job
+  # above passed, so a failed, skipped or cancelled job fails it too.
+  test:
+    if: always()
+    needs: [lint, typecheck, unit, e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job passed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: jq -e 'all(.[]; .result == "success")' <<< "$NEEDS"

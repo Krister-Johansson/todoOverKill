@@ -156,6 +156,9 @@ for (const key of ['Control+k', 'Meta+k']) {
     expect(await lastPrevented(page)).toBe(true)
     await page.keyboard.press('Escape')
     await expect(palette(page)).toHaveCount(0)
+    // Opened from the page body, so focus goes to the Search button. Wait for
+    // it: Radix moves focus a task after the palette unmounts.
+    await expect(searchButton(page)).toBeFocused()
 
     // A select is a field where single-key shortcuts stay off.
     const status = page
@@ -304,6 +307,60 @@ test('Escape returns focus to the element that opened the palette', async ({
   await expect(combobox(page)).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(help).toBeFocused()
+})
+
+test('the palette is gone as soon as it closes, with no exit animation', async ({
+  page,
+}) => {
+  await page.goto('/', { waitUntil: 'networkidle' })
+  await page.keyboard.press('Control+k')
+  await settle(page)
+
+  // The closed state sets no animation, so Radix unmounts the content at once
+  // rather than on animationend.
+  const closedAnimation = await palette(page).evaluate((dialog) => {
+    dialog.setAttribute('data-state', 'closed')
+    const name = getComputedStyle(dialog).animationName
+    dialog.setAttribute('data-state', 'open')
+    return name
+  })
+  expect(closedAnimation).toBe('none')
+
+  await page.keyboard.press('Escape')
+  // Read straight away, with no retry that could wait out an animation.
+  expect(
+    await page.evaluate(
+      () => document.querySelectorAll('[role="dialog"]').length,
+    ),
+  ).toBe(0)
+  await expect(searchButton(page)).toBeFocused()
+
+  // Control+k straight after Escape opens it again; a closing palette would
+  // still count as an open dialog and swallow the chord.
+  await page.keyboard.press('Control+k')
+  await expect(combobox(page)).toBeFocused()
+  await expect(combobox(page)).toHaveValue('')
+})
+
+test('the pointer moves the active option, so Enter runs that one', async ({
+  page,
+}) => {
+  await page.goto('/', { waitUntil: 'networkidle' })
+  await searchButton(page).click()
+  await settle(page)
+
+  const help = palette(page).getByRole('option', { name: 'Go to Help' })
+  await help.hover()
+  await expect(help).toHaveAttribute('aria-selected', 'true')
+  await expect(palette(page).locator('[aria-selected="true"]')).toHaveCount(1)
+  await expect(combobox(page)).toHaveAttribute(
+    'aria-activedescendant',
+    (await help.getAttribute('id'))!,
+  )
+
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/\/help$/)
+  await expect(main(page)).toBeFocused()
 })
 
 test('Control+k opens the palette with single-key shortcuts off', async ({

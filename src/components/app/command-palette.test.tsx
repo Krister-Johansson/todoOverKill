@@ -210,6 +210,24 @@ describe('CommandPalette', () => {
     expect(activeOption()?.textContent).toBe('Go to Dashboard')
   })
 
+  it('makes the option under the pointer the active one', async () => {
+    await renderAt('/')
+    openFromButton()
+
+    const help = screen.getByRole('option', { name: 'Go to Help' })
+    fireEvent.pointerMove(help)
+    expect(activeOption()).toBe(help)
+    expect(help.getAttribute('aria-selected')).toBe('true')
+    expect(
+      screen
+        .getAllByRole('option')
+        .filter((option) => option.getAttribute('aria-selected') === 'true'),
+    ).toHaveLength(1)
+    // Keys carry on from the pointer's option.
+    press('ArrowDown')
+    expect(activeOption()?.textContent).toMatch(/^Switch to/)
+  })
+
   it('goes to a page on Enter and moves focus to the main landmark', async () => {
     const router = await renderAt('/settings')
     openFromButton()

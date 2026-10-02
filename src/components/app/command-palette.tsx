@@ -36,6 +36,7 @@ import { isCommandPaletteKey, isCommandPaletteShortcut } from '#/lib/keyboard'
 
 import { useAnnounce } from './live-region'
 
+import type { listProjectsFn } from '#/fns/projects'
 import type { LucideIcon } from 'lucide-react'
 
 // What an action does. Navigation starts at once; the rest waits until the
@@ -51,6 +52,10 @@ type Action = { id: string; label: string; icon: LucideIcon; run: Run }
 const ANNOUNCE_DELAY = 250
 
 const themeNames = { light: 'Light', dark: 'Dark' } as const
+
+// One array for "no projects yet", so the actions memo is not rebuilt on
+// every render while the query has no data.
+const NO_PROJECTS: Awaited<ReturnType<typeof listProjectsFn>> = []
 
 function matching(actions: Array<Action>, text: string) {
   const query = text.trim().toLowerCase()
@@ -98,7 +103,6 @@ export function CommandPalette({
   }
 
   const onKeyDown = useEffectEvent((event: KeyboardEvent) => {
-    if (event.defaultPrevented || event.isComposing) return
     if (!isCommandPaletteKey(event)) return
     const opens = isCommandPaletteShortcut(event)
     // Chrome and Firefox would otherwise focus the address bar and take focus
@@ -127,9 +131,9 @@ export function CommandPalette({
     // same action again or replace it with another.
     if (!open || chosen.current) return
     chosen.current = next
-    if (next.kind === 'navigate') {
-      next.go().catch(() => announce('That page could not be opened'))
-    }
+    // A loader that fails, such as notFound for a project deleted in another
+    // tab, renders the route's error component; the promise still resolves.
+    if (next.kind === 'navigate') void next.go()
     if (next.kind === 'theme') setTheme(next.theme)
     setOpen(false)
   }
@@ -153,9 +157,11 @@ export function CommandPalette({
         </Button>
       </DialogTrigger>
       {/* No exit animation, so the palette unmounts as soon as it closes and
-          the chosen action never waits on animationend. */}
+          the chosen action never waits on animationend. The important
+          modifier is needed: tailwind-merge keeps DialogContent's
+          animate-out, which the stylesheet puts after animate-none. */}
       <DialogContent
-        className="data-[state=closed]:animate-none"
+        className="data-[state=closed]:animate-none!"
         onCloseAutoFocus={(event) => {
           // Runs once the palette has unmounted, so its aria-hidden no longer
           // hides the shell's live region and a second dialog does not fight
@@ -194,7 +200,7 @@ function PaletteBody({
   const optionId = (action: Action) => `${id}-option-${action.id}`
   const navigate = useNavigate()
   const { resolved } = useTheme()
-  const { data: projects = [] } = useQuery(projectsQueryOptions())
+  const { data: projects = NO_PROJECTS } = useQuery(projectsQueryOptions())
   const [text, setText] = useState('')
   const [active, setActive] = useState(0)
   const [typed, setTyped] = useState(false)
@@ -353,7 +359,14 @@ function PaletteBody({
               id={optionId(action)}
               role="option"
               aria-selected={index === activeIndex}
-              className="flex min-h-11 min-w-0 cursor-pointer items-center gap-3 rounded-md px-3 text-sm font-medium break-words hover:bg-accent hover:text-accent-foreground aria-selected:bg-primary aria-selected:text-primary-foreground"
+              className="flex min-h-11 min-w-0 cursor-pointer items-center gap-3 rounded-md px-3 text-sm font-medium break-words aria-selected:bg-primary aria-selected:text-primary-foreground"
+              // The pointer moves the active option, as in the APG examples,
+              // so the highlighted option is always the one Enter runs. A
+              // move, not an enter, so scrolling under a still pointer does
+              // not take the active option from the keyboard.
+              onPointerMove={() => {
+                if (index !== activeIndex) setActive(index)
+              }}
               // Keeps focus in the input, where the keyboard works.
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => onRun(action.run)}

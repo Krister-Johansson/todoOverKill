@@ -34,7 +34,10 @@ import { toToolError } from '#/tools/errors'
 
 /**
  * What a service may return for an output schema's JSON: the same shape, with
- * a Date wherever the schema has a string, since JSON turns it into one.
+ * a Date allowed wherever the schema has a string, since JSON turns it into
+ * one. It checks field names, nullability and nesting, not string formats: a
+ * due date returned as a Date passes typecheck and then fails the output
+ * schema at runtime, because JSON makes it a timestamp rather than YYYY-MM-DD.
  */
 type BeforeJson<T> = T extends string
   ? T | Date
@@ -50,7 +53,8 @@ type BeforeJson<T> = T extends string
  * so a direct call gets the same defaults and trimming. The result goes
  * through JSON, so Dates become the ISO strings the output schema expects,
  * and any error becomes a ToolError. `call`'s return type is checked against
- * the output schema, so a service whose shape drifts fails typecheck.
+ * the output schema with BeforeJson, so a service whose fields drift fails
+ * typecheck; string formats are left to the output schema.
  */
 function serve<TInput extends z.ZodType, TOutput extends z.ZodType>(
   definition: { inputSchema: TInput; outputSchema: TOutput },
@@ -122,13 +126,22 @@ export const deleteTaskTool = deleteTaskDefinition.server(
   serve(deleteTaskDefinition, ({ taskId }) => deleteTask(taskId)),
 )
 
-/** Every server tool, for chat() in the assistant (F39) and the MCP server (F35). */
-export const serverTools = [
+/**
+ * The tools that only read. The MCP server registers these alone (F35); the
+ * write tools reach MCP in F36, with its rule that archive_project and
+ * delete_task need `confirm: true`.
+ */
+export const readServerTools = [
   listProjectsTool,
   getProjectTool,
   listTasksTool,
   getTaskTool,
   searchTool,
+]
+
+/** Every server tool, for chat() in the assistant (F39) and MCP from F36. */
+export const serverTools = [
+  ...readServerTools,
   createProjectTool,
   archiveProjectTool,
   createTaskTool,

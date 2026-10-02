@@ -25,6 +25,7 @@ import {
   listProjectsTool,
   listTasksTool,
   moveTaskTool,
+  readServerTools,
   searchTool,
   serverTools,
   updateTaskTool,
@@ -116,6 +117,16 @@ describe('tool definitions', () => {
     expect(
       serverTools.filter((tool) => tool.needsApproval).map((tool) => tool.name),
     ).toEqual(needingApproval)
+  })
+
+  it('lists the tools that only read, for the read-only MCP server', () => {
+    expect(readServerTools.map((tool) => tool.name)).toEqual([
+      'list_projects',
+      'get_project',
+      'list_tasks',
+      'get_task',
+      'search',
+    ])
   })
 })
 

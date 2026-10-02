@@ -34,6 +34,11 @@ export const projectIdFieldSchema = projectIdSchema.meta({
   description: 'The id of the project, from list_projects or search.',
 })
 
+/** The input of a tool that takes only a project id. */
+export const projectIdToolSchema = z.strictObject({
+  projectId: projectIdFieldSchema,
+})
+
 export const createProjectSchema = z.object({
   name: nameSchema,
   key: projectKeySchema,

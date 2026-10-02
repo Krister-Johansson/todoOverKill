@@ -4,7 +4,7 @@ import * as z from 'zod'
 import {
   createProjectSchema,
   listProjectsSchema,
-  projectIdFieldSchema,
+  projectIdToolSchema,
   projectOutputSchema,
   projectWithStatusesOutputSchema,
 } from '#/schemas/project'
@@ -23,8 +23,6 @@ import {
 // error rather than a filter silently dropped. Every transport turns them into
 // JSON Schema; they have no transforms, so both z.toJSONSchema modes work.
 // Output schemas are objects, because MCP structured output must be one.
-
-const projectIdToolSchema = z.strictObject({ projectId: projectIdFieldSchema })
 
 export const listProjectsDefinition = toolDefinition({
   name: 'list_projects',
@@ -69,7 +67,7 @@ export const searchDefinition = toolDefinition({
 export const createProjectDefinition = toolDefinition({
   name: 'create_project',
   description:
-    "Creates a project and returns it with its default statuses (Backlog, Todo, In progress, Done) in board order. name is required (1 to 100 characters). key is required: 2 to 10 letters or digits starting with a letter, upper-cased, and no other project may use it; it prefixes the project's task references, such as TOK-42. description (up to 2000 characters) and color (a hex value such as #1d4ed8) are optional. Use list_projects first if the project may already exist.",
+    "Creates a project and returns it with its default statuses (Backlog, Todo, In progress, Done) in board order. name is required (1 to 100 characters). key is required: 2 to 10 letters or digits starting with a letter, upper-cased, and no other project may use it; it prefixes the project's task references, such as TOK-42. description (up to 2000 characters) and color (a hex value such as #1d4ed8) are optional. Use list_projects with includeArchived true first if the project may already exist, since an archived project's key is still taken.",
   inputSchema: createProjectSchema.strict(),
   outputSchema: projectWithStatusesOutputSchema,
 })
@@ -83,10 +81,13 @@ export const archiveProjectDefinition = toolDefinition({
   needsApproval: true,
 })
 
+// No tool lists a project's labels until F68 adds list_labels, so create_task
+// and update_task send the model to the labels on existing tasks; F68 points
+// them at list_labels instead.
 export const createTaskDefinition = toolDefinition({
   name: 'create_task',
   description:
-    "Creates a task in a project and returns it with its status and labels. title is required (1 to 200 characters). statusId (a status from get_project) defaults to the project's first status, and the task goes to the end of it. priority (none, low, medium, high or urgent) defaults to none. description (up to 10000 characters), dueDate (YYYY-MM-DD) and labelIds (ids of the project's labels) are optional.",
+    "Creates a task in a project and returns it with its status and labels. title is required (1 to 200 characters). statusId (a status from get_project) defaults to the project's first status, and the task goes to the end of it; a task created in a done-category status starts completed, with completedAt set. priority (none, low, medium, high or urgent) defaults to none. description (up to 10000 characters), dueDate (YYYY-MM-DD) and labelIds (ids of the project's labels) are optional. Label ids come from the labels on the project's tasks in list_tasks or get_task.",
   inputSchema: createTaskToolSchema,
   outputSchema: taskOutputSchema,
 })
@@ -94,7 +95,7 @@ export const createTaskDefinition = toolDefinition({
 export const updateTaskDefinition = toolDefinition({
   name: 'update_task',
   description:
-    "Changes a task's title, description, priority, due date (YYYY-MM-DD) or labels and returns the task. Every field is optional and only the ones given change. null clears the description or the due date. labelIds replaces the whole label set with the project's labels given, and [] removes every label. Use move_task to change the status or the place on the board, and complete_task to complete it.",
+    "Changes a task's title, description, priority, due date (YYYY-MM-DD) or labels and returns the task. Every field is optional and only the ones given change. null clears the description or the due date. labelIds replaces the whole label set with the project's labels given, and [] removes every label; label ids come from the labels on the project's tasks in list_tasks or get_task. Use move_task to change the status or the place on the board, and complete_task to complete it.",
   inputSchema: updateTaskToolSchema,
   outputSchema: taskOutputSchema,
 })
@@ -110,7 +111,7 @@ export const moveTaskDefinition = toolDefinition({
 export const completeTaskDefinition = toolDefinition({
   name: 'complete_task',
   description:
-    "Completes a task and returns it: completedAt is set and, unless it is already in a done-category status, the task moves to the end of the project's first one (Done by default). Completing a completed task changes nothing.",
+    "Completes a task and returns it: completedAt is set and, unless it is already in a done-category status, the task moves to the end of the project's first one (Done by default). If the project has no done-category status, the task keeps its status and only completedAt is set. Completing a completed task changes nothing.",
   inputSchema: taskIdToolSchema,
   outputSchema: taskOutputSchema,
 })

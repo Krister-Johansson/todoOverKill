@@ -49,6 +49,10 @@ jobs:
   # while CI stays green. Add an explicit total to the matrix before that.
   # Each shard is its own runner, so it builds the app and starts its own
   # database container (tests/e2e/serve.ts).
+  # The main ruleset requires every job here by name, each e2e shard
+  # included. Renaming a job or changing the shard count means updating the
+  # ruleset's required checks, or pull requests wait on a check that never
+  # reports.
   e2e:
     name: e2e ${{ matrix.shard }}/${{ strategy.job-total }}
     runs-on: ubuntu-latest
@@ -90,19 +94,3 @@ jobs:
           name: playwright-report-${{ matrix.shard }}
           path: playwright-report/
           retention-days: 7
-
-  # The one check the main ruleset requires. It passes only when every job
-  # above passed, so a failed, skipped or cancelled job fails it too. That
-  # includes a run cancelled by a newer push, which is intended: the newer
-  # run reports its own result. Keep if: always(), or a failed job would skip
-  # this one and a skipped required check counts as passing.
-  test:
-    if: always()
-    needs: [lint, typecheck, unit, e2e]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Every job passed
-        env:
-          NEEDS: ${{ toJSON(needs) }}
-        run: jq -e 'all(.[]; .result == "success")' <<< "$NEEDS"

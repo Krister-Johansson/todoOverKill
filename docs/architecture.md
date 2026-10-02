@@ -87,7 +87,9 @@ prisma.config.ts            Prisma CLI config: loads .env, schema and migrations
 docs/
 tests/
   e2e/                      Playwright specs and the expectAccessible helper
-.github/workflows/ci.yml    Lint, typecheck, unit, and e2e on every push and pull request
+.github/
+  actions/setup/action.yml  Composite action every CI job uses: pnpm, Node 24 with the pnpm cache, pnpm install
+  workflows/ci.yml          Parallel lint, typecheck, unit, and sharded e2e jobs, and the test gate, on every push and pull request
 ```
 
 Unit tests (`*.test.ts`, `*.test.tsx`) sit next to the file they test.
@@ -298,7 +300,7 @@ Consumers:
 
 ## Repository rules
 
-The `main` branch has a GitHub ruleset. Changes reach `main` only through a pull request, every review conversation must be resolved, the CI job "Lint, typecheck, unit, and e2e" must pass on a branch that is up to date with `main`, and force pushes and deletion are blocked. No approvals are required. The rules apply to people and agents alike, so a merge step that waits is waiting on a red check, an unresolved comment, or a branch that needs a rebase.
+The `main` branch has a GitHub ruleset. Changes reach `main` only through a pull request, every review conversation must be resolved, the CI jobs `lint`, `typecheck`, `unit`, and `e2e 1/4` to `e2e 4/4` must pass on a branch that is up to date with `main`, and force pushes and deletion are blocked. No approvals are required. The rules apply to people and agents alike, so a merge step that waits is waiting on a red check, an unresolved comment, or a branch that needs a rebase.
 
 ## Local infrastructure
 
@@ -318,7 +320,7 @@ The config function in `vite.config.ts` loads `.env` into `process.env` with `sr
 
 The global setup runs in the main process, so it passes the URL to the workers with `project.provide('testDatabaseUrl', url)`. `src/test/setup-database-url.ts`, the first setup file of the server project, reads it with `inject` and sets `DATABASE_URL_TEST` and `DATABASE_URL` in `process.env` before any test file imports `src/env.ts`. `src/server/db.test.ts` checks that the client is connected to that container's database.
 
-The CI workflow in `.github/workflows/ci.yml` runs one job with no database service: the unit and e2e runs start their containers on the runner's Docker. It runs `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm test:e2e`, and uploads the Playwright report.
+The CI workflow in `.github/workflows/ci.yml` runs its checks as parallel jobs. Each one checks out the repository and runs the composite action in `.github/actions/setup/action.yml`, which installs pnpm from `packageManager`, Node 24 with the pnpm cache, and the dependencies with `pnpm install --frozen-lockfile`. The `lint` job runs `pnpm lint`, which includes the contrast check, `typecheck` runs `pnpm typecheck`, and `unit` runs `pnpm test`. The `e2e` job is a matrix of four shards with `fail-fast` off. Each shard installs Chromium (the browser download is cached per Playwright version; every shard restores the cache and only shard 1 saves it on a miss), runs `pnpm test:e2e --shard=<n>/4`, and uploads its Playwright report as the artifact `playwright-report-<n>`. The shard count is set only by the matrix; the job name and `--shard` read it from `strategy.job-total`. There is no database service: the unit run and each e2e shard start their own containers on their runner's Docker, and each shard builds the app itself. The ruleset requires every job by name, each e2e shard included, so renaming a job or changing the shard count also means updating the ruleset. `lint` and `typecheck` time out after 10 minutes, `unit` after 15, and each e2e shard after 20, so a stalled job fails instead of holding the required check pending. A newer push to a pull request cancels the run for the older commit; runs for pushes to `main` are grouped per commit and never cancelled.
 
 ## Scaffold
 

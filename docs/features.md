@@ -293,6 +293,11 @@ Acceptance: a field named like an `Object.prototype` key renders as its own name
 Depends on: F06.
 Acceptance: `pnpm test` and `pnpm test:e2e` pass in a fresh worktree with no `.env` while Docker runs; two `pnpm test` runs in two worktrees at once both pass; `src/server/db.test.ts` checks it is connected to the container's database rather than a fixed name; CI runs both suites against Testcontainers; `.env.example`, README and `docs/architecture.md` describe the setup.
 
+### F74 Split CI into parallel jobs and shard the e2e tests (#156)
+CI runs `lint`, `typecheck`, `unit`, and `e2e` as separate jobs that start in parallel, so a PR gets its result sooner and a failure names the check that broke. Every job installs through one composite action in `.github/actions/setup/action.yml`. The e2e tests run in four shards with `fail-fast` off, and each shard uploads its own Playwright report. The `main` ruleset requires each job by name instead of the old single job: `lint`, `typecheck`, `unit`, and `e2e 1/4` to `e2e 4/4`. A newer push to a pull request cancels the older run. Merging the shard reports into one with the blob reporter is left out.
+Depends on: F73.
+Acceptance: CI runs lint, typecheck, unit and e2e as separate jobs that start in parallel; every job installs through the shared setup action; the e2e tests run as a sharded matrix with fail-fast off, and each shard uploads its report under its own artifact name; the `main` ruleset requires every job by name, each e2e shard included; a newer push to a pull request cancels the run for the older commit; the PR's run is green and finishes faster than the last single-job run on main; the docs that describe CI match the workflow.
+
 ### F39 Assistant data tools (#39)
 Pass the server tools from `src/tools/server.ts` (the F34 read tools and whatever F67 and F68 have added) to `chat()`. Render tool calls in the message list with name, status, and result summary. The four `needsApproval` tools (`archive_project`, `delete_task`, `delete_subtask`, `delete_comment`) are left out (`assistantTools`) until F40 adds the Approve and Deny prompt, since without it such a call would pause the run with nothing to answer it.
 Depends on: F38.
@@ -348,7 +353,7 @@ Depends on: F24.
 Acceptance: e2e asserts the title on each route.
 
 ### F50 Require passing CI checks before merging to main (#56)
-Add a `required_status_checks` rule to the `main` ruleset listing every CI job by name, with the up-to-date requirement. The ruleset already requires a pull request, resolved conversations, and blocks force pushes and deletion.
+Add a `required_status_checks` rule to the `main` ruleset with the up-to-date requirement. Since F74 the rule requires each CI job by name: `lint`, `typecheck`, `unit`, and the four e2e shards. The ruleset already requires a pull request, resolved conversations, and blocks force pushes and deletion.
 Depends on: F06.
 Acceptance: a PR with a failing check cannot merge; `docs/architecture.md` gains a "Repository rules" paragraph.
 

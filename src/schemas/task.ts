@@ -2,10 +2,15 @@ import * as z from 'zod'
 
 import { Priority } from '#/generated/prisma/enums'
 import { labelIdsSchema, labelOutputSchema } from '#/schemas/label'
-import { projectIdSchema } from '#/schemas/project'
+import { projectIdFieldSchema } from '#/schemas/project'
 import { statusIdSchema, statusOutputSchema } from '#/schemas/status'
 
 export const taskIdSchema = z.string().min(1)
+
+/** The task id as a tool argument, described for the model. */
+export const taskIdFieldSchema = taskIdSchema.meta({
+  description: 'The id of the task, from list_tasks or search.',
+})
 
 export const taskTitleSchema = z
   .string()
@@ -63,6 +68,12 @@ const moveFields = {
     .optional(),
 }
 
+function statusOrIndexGiven(input: { statusId?: string; index?: number }) {
+  return input.statusId !== undefined || input.index !== undefined
+}
+
+const statusOrIndexError = { error: 'Give a status, an index, or both.' }
+
 /**
  * Moves the task to `statusId` (default: its current status) at `index` among
  * that column's other tasks (default: the end of another status, or its
@@ -70,10 +81,7 @@ const moveFields = {
  */
 export const moveTaskSchema = z
   .object(moveFields)
-  .refine(
-    (input) => input.statusId !== undefined || input.index !== undefined,
-    { error: 'Give a status, an index, or both.' },
-  )
+  .refine(statusOrIndexGiven, statusOrIndexError)
 
 /**
  * The REST PATCH body: the update fields and the move fields together. Every
@@ -131,13 +139,35 @@ export const listTasksSchema = z
  */
 export const listTasksToolSchema = z
   .strictObject({
-    projectId: projectIdSchema.meta({
-      description: 'The id of the project, from list_projects or search.',
-    }),
+    projectId: projectIdFieldSchema,
     ...listTaskFilterShape,
     q: searchTextSchema.in,
   })
   .refine(dueRangeInOrder, dueRangeError)
+
+// The write tools' inputs: the id the service takes as its first argument,
+// beside the fields of the schema the service parses the rest with. Strict, so
+// a misnamed field is a validation error rather than a change silently dropped.
+
+/** The create_task tool's input: the project id and createTaskSchema's fields. */
+export const createTaskToolSchema = z.strictObject({
+  projectId: projectIdFieldSchema,
+  ...createTaskSchema.shape,
+})
+
+/** The update_task tool's input: the task id and updateTaskSchema's fields. */
+export const updateTaskToolSchema = z.strictObject({
+  taskId: taskIdFieldSchema,
+  ...updateTaskSchema.shape,
+})
+
+/** The move_task tool's input: the task id and moveTaskSchema's fields. */
+export const moveTaskToolSchema = z
+  .strictObject({ taskId: taskIdFieldSchema, ...moveFields })
+  .refine(statusOrIndexGiven, statusOrIndexError)
+
+/** The input of a tool that takes only a task id. */
+export const taskIdToolSchema = z.strictObject({ taskId: taskIdFieldSchema })
 
 /**
  * The due presets the filters offer. Overdue is due before today and not
@@ -176,6 +206,9 @@ export type ListTasksInput = z.input<typeof listTasksSchema>
 export type PatchTaskInput = z.input<typeof patchTaskSchema>
 export type ListTasksQuery = z.input<typeof listTasksQuerySchema>
 export type ListTasksToolInput = z.input<typeof listTasksToolSchema>
+export type CreateTaskToolInput = z.input<typeof createTaskToolSchema>
+export type UpdateTaskToolInput = z.input<typeof updateTaskToolSchema>
+export type MoveTaskToolInput = z.input<typeof moveTaskToolSchema>
 export type DueFilter = z.infer<typeof dueFilterSchema>
 
 /**

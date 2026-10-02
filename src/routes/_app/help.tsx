@@ -115,7 +115,7 @@ const terms: Array<{
     id: 'command-menu',
     term: 'Command menu',
     definition:
-      'A box that opens with the Search button or Ctrl+K. Type a few letters to find a page, a project or an action, such as New task, and press Enter to run it.',
+      'A box that opens with the Search button or Ctrl+K. Type a few letters to find a page or an action, such as New task. From two characters on it also finds projects by name or key and tasks by title, description or reference, such as TOK-12. Press Enter to run or open the one you picked.',
   },
   {
     id: 'assistant',
@@ -186,7 +186,8 @@ const shortcuts: Array<Shortcut> = [
   {
     keys: ['Ctrl', 'K'],
     kind: 'combo',
-    action: 'Open the command menu to go to a page or run an action.',
+    action:
+      'Open the command menu to go to a page, run an action, or find a project or task.',
   },
   {
     keys: ['⌘', 'K'],

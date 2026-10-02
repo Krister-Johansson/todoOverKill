@@ -1,5 +1,8 @@
 import * as z from 'zod'
 
+/** The longest search text the schema takes, after trimming. */
+export const MAX_SEARCH_LENGTH = 200
+
 /**
  * Strict, as the other schemas are, so a misspelled option is a ZodError
  * rather than silently dropped. The limit applies to each kind on its own.
@@ -9,7 +12,9 @@ export const searchSchema = z.strictObject({
     .string()
     .trim()
     .min(1, { error: 'Search text is required.' })
-    .max(200, { error: 'Search text must be 200 characters or fewer.' }),
+    .max(MAX_SEARCH_LENGTH, {
+      error: `Search text must be ${MAX_SEARCH_LENGTH} characters or fewer.`,
+    }),
   limit: z
     .int()
     .min(1, { error: 'Limit must be at least 1.' })

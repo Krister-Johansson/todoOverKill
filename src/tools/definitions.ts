@@ -74,7 +74,7 @@ export const getTaskDefinition = toolDefinition({
 export const searchDefinition = toolDefinition({
   name: 'search',
   description:
-    'Searches unarchived projects by name or key and their tasks by title, description or exact reference (such as TOK-42), ignoring case. Returns up to limit (1 to 50, default 10) projects and up to limit tasks. Within each, the task whose reference matches exactly and the names or titles that start with the query come first, then the other matches; each group is ordered most recently updated first. Use it when you know a name, some words or a reference but not an id.',
+    'Searches unarchived projects by name or key and their tasks by title, description or exact reference (such as TOK-42), ignoring case. Returns up to limit (1 to 50, default 10) projects and up to limit tasks. Within each, the project whose key is the query, the task whose reference matches exactly and the names or titles that start with the query come first, then the other matches; each group is ordered most recently updated first. Use it when you know a name, some words or a reference but not an id.',
   inputSchema: searchSchema,
   outputSchema: searchResultsOutputSchema,
 })

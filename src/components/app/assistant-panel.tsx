@@ -42,7 +42,8 @@ type Chat = ReturnType<typeof useChat>
  * The assistant panel: a right-hand Sheet headed "Assistant" that streams
  * text replies from /api/chat. It is non-modal, so the page beside it stays
  * usable (2.4.11, 3.2.5): no overlay, an outside click or focus leaves it
- * open, and Escape closes it only when focus is inside. Without
+ * open, and Escape closes it only when focus is inside; an Escape outside is
+ * left to the page with its default intact. Without
  * OPENROUTER_API_KEY it explains how to turn the assistant on and shows no
  * composer.
  *
@@ -84,6 +85,8 @@ export function AssistantPanel({
   // Whether the Stop button was the last element to take focus. Removing it
   // fires no focusin, so this stays true after it is gone.
   const stopHadFocus = useRef(false)
+  // Set while Radix handles an Escape pressed with focus outside the panel.
+  const ignoreClose = useRef(false)
   const chat = useChat({ connection: fetchServerSentEvents('/api/chat') })
   const { messages, isLoading, error } = chat
 
@@ -146,7 +149,14 @@ export function AssistantPanel({
   }, [isLoading, error, lastMessage, lastText, announce])
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} modal={false}>
+    <Sheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && ignoreClose.current) return
+        onOpenChange(next)
+      }}
+      modal={false}
+    >
       <SheetContent
         ref={contentRef}
         id="assistant-panel"
@@ -164,10 +174,17 @@ export function AssistantPanel({
         onEscapeKeyDown={(event) => {
           // Radix calls this only while the panel is the top dismissable
           // layer. A dialog opened over it, such as the command menu, takes
-          // that place and closes on Escape itself.
-          if (!contentRef.current?.contains(document.activeElement)) {
-            event.preventDefault()
-          }
+          // that place and closes on Escape itself. With focus outside, the
+          // Escape belongs to the page: it must keep its default, so a search
+          // field such as the filter bar's Text still clears. Radix prevents
+          // it itself before dismissing, so that call is made a no-op on this
+          // event and the close it asks for is ignored in onOpenChange.
+          if (contentRef.current?.contains(document.activeElement)) return
+          ignoreClose.current = true
+          queueMicrotask(() => {
+            ignoreClose.current = false
+          })
+          Object.defineProperty(event, 'preventDefault', { value: () => {} })
         }}
       >
         <SheetHeader className="border-b border-border">

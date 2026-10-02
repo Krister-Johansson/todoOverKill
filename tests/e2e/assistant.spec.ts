@@ -354,6 +354,24 @@ test('the page stays usable while the panel is open', async ({ page }) => {
   expect(mainBox!.x + mainBox!.width).toBeLessThanOrEqual(panelBox!.x + 1)
 })
 
+test('Escape in the filter Text field clears it while the panel is open', async ({
+  page,
+}) => {
+  const project = await seedProject('Assistant')
+  await page.goto(`/projects/${project.id}/board`, { waitUntil: 'networkidle' })
+  await assistantButton(page).click()
+  await expect(panel(page)).toBeVisible()
+
+  const text = page
+    .getByRole('form', { name: 'Filter tasks' })
+    .getByRole('searchbox', { name: 'Text' })
+  await text.fill('login')
+  await text.press('Escape')
+  await expect(text).toHaveValue('')
+  await expect(text).toBeFocused()
+  await expect(panel(page)).toBeVisible()
+})
+
 for (const theme of ['light', 'dark'] as const) {
   test(`the open panel has no axe violations in the ${theme} theme`, async ({
     page,

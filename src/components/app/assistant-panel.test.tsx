@@ -391,6 +391,32 @@ describe('AssistantPanel', () => {
     expect(screen.getByRole('dialog', { name: 'Assistant' })).toBeTruthy()
   })
 
+  it('leaves the default of an Escape outside it to the page', async () => {
+    renderPanel()
+    const panel = openPanel()
+    const wrapper = screen.getByText('Elsewhere').parentElement
+    wrapper?.removeAttribute('hidden')
+    const elsewhere = screen.getByText('Elsewhere')
+    elsewhere.focus()
+    let seenPrevented: boolean | undefined
+    elsewhere.addEventListener('keydown', (event) => {
+      seenPrevented = event.defaultPrevented
+    })
+
+    // fireEvent returns false when the default was prevented.
+    expect(fireEvent.keyDown(elsewhere, { key: 'Escape' })).toBe(true)
+    expect(seenPrevented).toBe(false)
+    expect(screen.getByRole('dialog', { name: 'Assistant' })).toBeTruthy()
+
+    // The ignored close does not swallow the next one, even one asked for
+    // while focus is still outside, as a click on Close in Safari leaves it.
+    await Promise.resolve()
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close' }))
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Assistant' })).toBeNull(),
+    )
+  })
+
   it('leaves Escape to a dialog opened over it', async () => {
     renderPanel()
     openPanel()

@@ -43,16 +43,29 @@ async function shutdown(code: number) {
 process.on('SIGTERM', () => void shutdown(0))
 process.on('SIGINT', () => void shutdown(0))
 
-/** Runs a command to completion and resolves with its exit code. */
+type Exit = { code: number; signal: NodeJS.Signals | null }
+
+/** Runs a command to completion and resolves with how it ended. */
 function run(command: string, args: Array<string>, env: NodeJS.ProcessEnv) {
-  return new Promise<number>((resolve) => {
+  return new Promise<Exit>((resolve) => {
     child = spawn(command, args, { env, stdio: 'inherit' })
-    child.once('exit', (code, signal) => resolve(code ?? (signal ? 1 : 0)))
+    child.once('exit', (code, signal) =>
+      resolve({ code: code ?? (signal ? 1 : 0), signal }),
+    )
     child.once('error', (error) => {
       console.error(error)
-      resolve(1)
+      resolve({ code: 1, signal: null })
     })
   })
+}
+
+/**
+ * Runs Vite with node rather than through pnpm: pnpm runs it in a separate
+ * process group, which Playwright's shutdown signal does not reach, so a build
+ * cut off by the web server timeout would go on writing dist/.
+ */
+function vite(args: Array<string>, env: NodeJS.ProcessEnv) {
+  return run(process.execPath, ['node_modules/vite/bin/vite.js', ...args], env)
 }
 
 async function main() {
@@ -73,29 +86,24 @@ async function main() {
     OPENROUTER_API_KEY: 'e2e-placeholder',
   }
 
-  const buildCode = await run('pnpm', ['build'], env)
+  // `pnpm build` is `vite build`.
+  const build = await vite(['build'], env)
   if (isExiting()) return
-  if (buildCode !== 0) {
-    console.error(`pnpm build failed with exit code ${buildCode}.`)
-    return shutdown(buildCode)
+  if (build.code !== 0) {
+    console.error(`vite build failed with exit code ${build.code}.`)
+    return shutdown(build.code)
   }
 
-  // Vite is started with node rather than pnpm exec: pnpm runs it in a
-  // separate process group, which Playwright's shutdown signal does not reach.
-  const previewCode = await run(
-    process.execPath,
-    [
-      'node_modules/vite/bin/vite.js',
-      'preview',
-      '--port',
-      port,
-      '--strictPort',
-    ],
-    env,
-  )
+  const preview = await vite(['preview', '--port', port, '--strictPort'], env)
   if (isExiting()) return
-  console.error(`vite preview exited with code ${previewCode}.`)
-  await shutdown(previewCode || 1)
+  // Playwright signals the whole process group, and the preview's exit can
+  // arrive before this process handles its own SIGTERM. That is a shutdown,
+  // not a crash.
+  if (preview.signal === 'SIGTERM' || preview.signal === 'SIGINT') {
+    return shutdown(0)
+  }
+  console.error(`vite preview exited with code ${preview.code}.`)
+  await shutdown(preview.code || 1)
 }
 
 main().catch(async (error: unknown) => {

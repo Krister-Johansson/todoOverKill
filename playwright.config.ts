@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -11,7 +12,19 @@ process.env.E2E_DATABASE_URL_FILE ??= join(
   `todo-over-kill-e2e-${process.pid}.url`,
 )
 
-const port = 3100
+// A free port per run, so e2e runs in several worktrees do not clash. The
+// main process asks the OS for one; the workers inherit the variable, as above.
+// Export E2E_PORT to choose it yourself.
+process.env.E2E_PORT ??= execFileSync(
+  process.execPath,
+  [
+    '-e',
+    "const s = require('node:net').createServer().listen(0, '127.0.0.1', () => { process.stdout.write(String(s.address().port)); s.close() })",
+  ],
+  { encoding: 'utf8' },
+)
+
+const port = Number(process.env.E2E_PORT)
 const baseURL = `http://localhost:${port}`
 
 export default defineConfig({

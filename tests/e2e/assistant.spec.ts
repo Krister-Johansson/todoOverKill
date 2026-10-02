@@ -239,12 +239,12 @@ const REPLY = 'Tasks live in projects. Open a project to see its board.'
 test.beforeEach(async ({ page }) => {
   await mockChatStream(page, { text: REPLY, delayMs: 40 })
   await page.goto('/', { waitUntil: 'networkidle' })
-  // A reused dev server without the key shows the disabled panel, and every
-  // test below would fail for a reason that is not the code's.
+  // A server without the key shows the disabled panel, and every test below
+  // would fail for a reason that is not the code's.
   await assistantButton(page).click()
   await expect(
     panel(page).getByText('The assistant is off.'),
-    'The server on port 3100 has no OPENROUTER_API_KEY. Stop the reused server, or export the variable, and run again.',
+    'The e2e server has no OPENROUTER_API_KEY. tests/e2e/serve.ts sets a placeholder for vite build and vite preview; check that it still does.',
   ).toHaveCount(0)
   await panel(page).getByRole('button', { name: 'Close' }).click()
   await expect(panel(page)).toHaveCount(0)

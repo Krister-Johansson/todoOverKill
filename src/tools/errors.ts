@@ -2,7 +2,13 @@ import * as z from 'zod'
 
 import { ConflictError, NotFoundError } from '#/server/errors'
 
-export type ToolErrorCode = 'not_found' | 'conflict' | 'validation' | 'internal'
+/**
+ * confirmation_required is the code MCP returns when archive_project,
+ * delete_task, delete_subtask or delete_comment is called without
+ * confirm: true.
+ */
+export type ToolErrorCode =
+  'not_found' | 'conflict' | 'validation' | 'internal' | 'confirmation_required'
 
 /**
  * A tool call that failed. For not_found, conflict and validation the message

@@ -214,9 +214,8 @@ export const deleteCommentTool = deleteCommentDefinition.server(
 )
 
 /**
- * The tools that only read. The MCP server registers these alone (F35); the
- * write tools reach MCP in F36, with its rule that archive_project,
- * delete_task, delete_subtask and delete_comment need `confirm: true`.
+ * The tools that only read. The MCP server marks these readOnlyHint true and
+ * every other tool readOnlyHint false.
  */
 export const readServerTools = [
   listProjectsTool,
@@ -230,8 +229,8 @@ export const readServerTools = [
 ]
 
 /**
- * Every server tool in toolDefinitions order, for chat() in the assistant
- * (F39) and MCP from F36.
+ * Every server tool in toolDefinitions order, for the MCP server (F36) and
+ * chat() in the assistant (F39).
  */
 export const serverTools = [
   listProjectsTool,

@@ -4,6 +4,8 @@ Each entry is one GitHub issue and one pull request (or one PR in a stack). Entr
 
 Every UI entry inherits the definition of done in `CLAUDE.md`: keyboard walkthrough, axe clean, both themes, 400% zoom, tests.
 
+The open entries are also arranged as epics, stories and tasks on the GitHub Project "todooverkill plan", where the blocked-by links and statuses live. `workflow.md` explains the plan and the design source. Entries added since the redesign also carry a "Blocked by" list, because UI work waits for the restyle of its screen.
+
 ## Milestone 0: foundation
 
 ### F01 Scaffold the TanStack Start app (#1)
@@ -351,3 +353,56 @@ Acceptance: a PR with a failing check cannot merge; `docs/architecture.md` gains
 Setup, commands, architecture summary with links to `docs/`, how to connect an MCP client, how to try voice and WebMCP in Chrome.
 Depends on: F43.
 Acceptance: a new developer can run the app from the README alone.
+
+## Redesign: refined product
+
+The app moves to the refined product look drawn in the Claude Design project "todoOverKill: refined product design". Each task names its design file. These entries use the prefix R instead of F.
+
+### R1 Redesign tokens: refined product palette and highlight colour (#141)
+New light and dark token values in `src/styles.css`, plus `--highlight`, `--highlight-foreground` and the decorative `--border-subtle`, with their pairs in `scripts/check-contrast.ts`.
+Acceptance: `pnpm lint` passes the contrast check with the new pairs; axe runs pass in both themes.
+
+### R2 Geist type, rounded corners and soft shadows (#142)
+Self-hosted Geist and Geist Mono, radius and shadow tokens, a Kbd component.
+Blocked by: R1.
+Acceptance: fonts load with no CDN request; no horizontal scroll at 320 px; axe clean.
+
+### R3 Restyle the sidebar, top bar and breadcrumbs (#143)
+Blocked by: R2. Design: Dashboard.
+Acceptance: the shell matches the design in both themes; current item marked by more than colour.
+
+### R4 Restyle the command palette (#144)
+Blocked by: R2. Design: Command palette.
+Acceptance: active option outlined with the ring, never filled; axe clean with the palette open.
+
+### R5 Restyle board columns and task cards (#145)
+Blocked by: R3. Design: Board.
+Acceptance: the board matches the design; 44 px card menu button; board tests pass.
+
+### R6 Restyle the list view table and filter bar (#146)
+Blocked by: R3. Design: List view.
+Acceptance: the table scrolls inside its focusable region at 320 px; axe clean.
+
+### R7 Restyle the dashboard (#147)
+Blocked by: R3. Design: Dashboard.
+Acceptance: four stat counts from the service layer with unit tests; axe clean.
+
+### R8 Restyle the task page (#148)
+Blocked by: R3. Design: Task detail.
+Acceptance: properties are a dl that follows the main column below md; axe clean.
+
+### R9 Restyle dialogs, menus, forms and toasts (#149)
+Blocked by: R2. Design: New task dialog, Confirm dialogs, Feedback states.
+Acceptance: input borders stay at 3:1; focus handling unchanged; axe clean with each dialog open.
+
+### R10 Restyle the Settings and Help pages (#150)
+Blocked by: R3. Design: Settings, Help.
+Acceptance: switches are role switch; segmented controls are radio groups; axe clean.
+
+### R11 Restyle the assistant panel and tool cards (#151)
+Blocked by: R3. Design: Assistant panel.
+Acceptance: the panel never covers the focused element from md up; replies capped at 72 characters per line.
+
+### Document the design and planning workflow (#152)
+`docs/workflow.md`, and links to it and to the design from `CLAUDE.md` and `project.md`.
+Acceptance: a reader can tell where the plan and the design live and what to do before starting an issue.

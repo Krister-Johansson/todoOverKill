@@ -25,6 +25,8 @@ Secondary users are agents: an MCP client such as Claude Code connected to `/api
 
 The reference point is tools like Linear and Height: dense but calm, strong typography, restrained colour, motion that explains state changes rather than decorates. Layout is a left sidebar for navigation, a top bar for context, search, and the voice button, and a content area. The assistant opens as a right-hand panel. Light and dark themes, both meeting AAA contrast.
 
+The design direction is called "refined product": a lightly tinted canvas with white cards, soft layered shadows, rounded corners (8 px controls, 10 px cards, 16 px dialogs), Geist for text and Geist Mono for task keys. A deep indigo carries primary actions, and a brighter violet highlight marks the current place, focus and live states. Quiet dividers are decorative; anything a person needs to see to use a control keeps 3:1 contrast. Every screen is drawn in the Claude Design project "todoOverKill: refined product design" (https://claude.ai/design/p/6030b21d-a242-48b1-b104-39cc6d92af81). The app moves to this look through the redesign tasks R1 to R11 in `features.md`; until R1 lands, `src/styles.css` still holds the earlier tokens.
+
 Motion guidelines:
 
 - Transitions between views are short (150 to 250 ms) and use opacity and small translations.

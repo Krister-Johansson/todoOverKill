@@ -385,6 +385,16 @@ describe('demoteHeadings', () => {
     )
   })
 
+  it('reads a backtick line with a backtick after the fence as inline code', () => {
+    expect(demoteHeadings('```npm i```\n# Plan', 2)).toBe(
+      '```npm i```\n### Plan',
+    )
+  })
+
+  it('reads a # without a space as paragraph text a setext line can head', () => {
+    expect(demoteHeadings('#Tasks\n===', 2)).toBe('### #Tasks')
+  })
+
   it('closes a code block left open at the end', () => {
     expect(demoteHeadings('```\nnotes', 2)).toBe('```\nnotes\n```')
     expect(demoteHeadings('~~~~\nnotes\n~~~', 2)).toBe('~~~~\nnotes\n~~~\n~~~~')

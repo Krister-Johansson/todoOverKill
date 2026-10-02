@@ -34,12 +34,14 @@ export function oneLine(text: string) {
   return text.replace(/\s+/g, ' ').trim()
 }
 
-const FENCE = /^ {0,3}(`{3,}|~{3,})/
+// A backtick fence's info string cannot hold a backtick: "```npm i```" on one
+// line is inline code in a paragraph, not the start of a code block.
+const FENCE = /^ {0,3}(`{3,}(?=[^`]*$)|~{3,})/
 const ATX_HEADING = /^ {0,3}(#{1,6})(?=[ \t]|$)/
 const SETEXT_UNDERLINE = /^ {0,3}(=+|-+)[ \t]*$/
 /** A line that cannot be the text of a setext heading. */
 const NOT_PARAGRAPH =
-  /^\s*$|^ {0,3}(#|>|[-*+][ \t]|\d{1,9}[.)][ \t])|^ {4}|^ {0,3}([-*_])([ \t]*\2){2,}[ \t]*$/
+  /^\s*$|^ {0,3}(#{1,6}(?:[ \t]|$)|>|[-*+][ \t]|\d{1,9}[.)][ \t])|^ {4}|^ {0,3}([-*_])([ \t]*\2){2,}[ \t]*$/
 
 /**
  * Markdown with every heading moved `depth` levels down, as the UI's Markdown

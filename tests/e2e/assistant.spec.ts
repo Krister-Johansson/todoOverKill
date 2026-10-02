@@ -36,7 +36,8 @@ test.afterAll(async () => {
 /**
  * Replaces fetch for /api/chat with a stream of AG-UI events, one word every
  * `delayMs`, so no request leaves the browser and the placeholder key is never
- * used. An aborted fetch is counted in `window.__chatAborts`, and the request's
+ * used. Requests are counted in `window.__chatRequests`, an aborted fetch is
+ * counted in `window.__chatAborts`, and the request's
  * Content-Type, which the route requires to be JSON, is kept in
  * `window.__chatContentType`.
  */
@@ -49,9 +50,11 @@ async function mockChatStream(
     // eslint-disable-next-line no-shadow
     ({ text, delayMs }) => {
       const state = window as unknown as {
+        __chatRequests: number
         __chatAborts: number
         __chatContentType: string | null
       }
+      state.__chatRequests = 0
       state.__chatAborts = 0
       state.__chatContentType = null
       const realFetch = window.fetch.bind(window)
@@ -65,6 +68,7 @@ async function mockChatStream(
         if (!new URL(url, location.href).pathname.startsWith('/api/chat')) {
           return realFetch(input, init)
         }
+        state.__chatRequests += 1
         state.__chatContentType = new Headers(init?.headers).get('content-type')
         const signal =
           init?.signal ?? (input instanceof Request ? input.signal : undefined)
@@ -296,6 +300,49 @@ test('Stop ends a streaming reply', async ({ page }) => {
   expect(textAtStop).not.toContain('board.')
   await expect(messageField(page)).toBeFocused()
   await expect(liveRegion(page)).toHaveText('Reply stopped')
+})
+
+test('a message over 20,000 characters is not sent', async ({ page }) => {
+  await assistantButton(page).click()
+  const long = 'x'.repeat(20_001)
+  await messageField(page).fill(long)
+  await page.keyboard.press('Enter')
+
+  const error = 'Messages can be up to 20,000 characters.'
+  await expect(panel(page).getByText(error)).toBeVisible()
+  await expect(liveRegion(page)).toHaveText(error)
+  await expect(messageField(page)).toHaveValue(long)
+  await expect(messageField(page)).toBeFocused()
+  await expect(conversation(page).getByRole('listitem')).toHaveCount(0)
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { __chatRequests: number }).__chatRequests,
+    ),
+  ).toBe(0)
+  await settle(page)
+  await expectAccessible(page)
+
+  // The next edit clears the error.
+  await page.keyboard.press('Backspace')
+  await expect(panel(page).getByText(error)).toHaveCount(0)
+})
+
+test('Clear conversation empties the list and keeps focus', async ({
+  page,
+}) => {
+  await assistantButton(page).click()
+  await messageField(page).fill('How do tasks work?')
+  await page.keyboard.press('Enter')
+  const items = conversation(page).getByRole('listitem')
+  await expect(items.nth(1)).toContainText(REPLY)
+
+  const clear = panel(page).getByRole('button', { name: 'Clear conversation' })
+  await clear.click()
+  await expect(items).toHaveCount(0)
+  await expect(panel(page)).toContainText('No messages yet')
+  await expect(liveRegion(page)).toHaveText('Conversation cleared')
+  await expect(clear).toBeFocused()
+  await expect(clear).toHaveAttribute('aria-disabled', 'true')
 })
 
 /**

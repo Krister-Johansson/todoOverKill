@@ -44,7 +44,18 @@ type ChatState = {
 
 const chat = vi.hoisted(() => {
   const state: ChatState = { messages: [], isLoading: false, error: undefined }
-  return { state, sendMessage: vi.fn(), stop: vi.fn() }
+  return {
+    state,
+    sendMessage: vi.fn(),
+    stop: vi.fn(),
+    clear: vi.fn(),
+    // What fetchServerSentEvents would send, and the connection the panel
+    // hands to useChat.
+    connect: vi.fn(),
+    connection: undefined as
+      | { connect: (messages: Array<unknown>, ...rest: Array<unknown>) => void }
+      | undefined,
+  }
 })
 
 // No fetch leaves the test: useChat is a stand-in driven by `chat.state`.
@@ -53,8 +64,9 @@ const chat = vi.hoisted(() => {
 vi.mock('@tanstack/ai-react', async () => {
   const React = await import('react')
   return {
-    fetchServerSentEvents: vi.fn(),
-    useChat: () => {
+    fetchServerSentEvents: () => ({ connect: chat.connect }),
+    useChat: (options: { connection: typeof chat.connection }) => {
+      chat.connection = options.connection
       const [sent, setSent] = React.useState<ChatState['messages']>([])
       return {
         ...chat.state,
@@ -71,6 +83,11 @@ vi.mock('@tanstack/ai-react', async () => {
           ])
         },
         stop: chat.stop,
+        clear: () => {
+          chat.clear()
+          chat.state = { ...chat.state, messages: [], error: undefined }
+          setSent([])
+        },
       }
     },
   }
@@ -103,6 +120,9 @@ afterEach(() => {
   chat.state = { messages: [], isLoading: false, error: undefined }
   chat.sendMessage.mockReset()
   chat.stop.mockReset()
+  chat.clear.mockReset()
+  chat.connect.mockReset()
+  chat.connection = undefined
 })
 
 /**
@@ -376,6 +396,130 @@ describe('AssistantPanel', () => {
         'Could not get a reply. Try again.',
       ),
     )
+  })
+
+  it('shows and announces a specific error for a refused request', async () => {
+    chat.state.isLoading = true
+    const { rerender } = renderPanel()
+    const panel = openPanel()
+    const text =
+      'The conversation is too long to send. Clear the conversation and try again.'
+
+    chat.state.isLoading = false
+    chat.state.error = new Error('HTTP error! status: 413 Payload Too Large')
+    rerender()
+    expect(panel.textContent).toContain(text)
+    expect(panel.textContent).not.toContain('Could not get a reply')
+    await waitFor(() => expect(liveRegion().textContent).toBe(text))
+  })
+
+  it('refuses a message over 20,000 characters and keeps it', async () => {
+    renderPanel()
+    const panel = openPanel()
+    const message = within(panel).getByRole('textbox', { name: 'Message' })
+    const long = 'x'.repeat(20_001)
+
+    fireEvent.change(message, { target: { value: long } })
+    fireEvent.keyDown(message, { key: 'Enter' })
+    expect(chat.sendMessage).not.toHaveBeenCalled()
+    expect((message as HTMLTextAreaElement).value).toBe(long)
+
+    const error = within(panel).getByText(
+      'Messages can be up to 20,000 characters.',
+    )
+    expect(message.getAttribute('aria-describedby')?.split(' ')).toContain(
+      error.id,
+    )
+    expect(message.getAttribute('aria-invalid')).toBe('true')
+    await waitFor(() =>
+      expect(liveRegion().textContent).toBe(
+        'Messages can be up to 20,000 characters.',
+      ),
+    )
+
+    // The next edit clears the error, and a message within the limit sends.
+    fireEvent.change(message, { target: { value: 'x'.repeat(20_000) } })
+    expect(
+      within(panel).queryByText('Messages can be up to 20,000 characters.'),
+    ).toBeNull()
+    expect(message.getAttribute('aria-describedby')).not.toContain(error.id)
+    fireEvent.keyDown(message, { key: 'Enter' })
+    expect(chat.sendMessage).toHaveBeenCalledWith('x'.repeat(20_000))
+  })
+
+  it('clears the conversation, announces it and keeps focus', async () => {
+    chat.state.messages = [
+      { id: 'm1', role: 'user', parts: [{ type: 'text', content: 'Hi' }] },
+    ]
+    const { rerender } = renderPanel()
+    const panel = openPanel()
+    const clear = within(panel).getByRole('button', {
+      name: 'Clear conversation',
+    })
+    expect(clear.getAttribute('aria-disabled')).toBe('false')
+
+    clear.focus()
+    fireEvent.click(clear)
+    rerender()
+    expect(chat.clear).toHaveBeenCalledOnce()
+    expect(chat.stop).not.toHaveBeenCalled()
+    expect(within(panel).queryAllByRole('listitem')).toHaveLength(0)
+    expect(panel.textContent).toContain('No messages yet')
+    expect(document.activeElement).toBe(clear)
+    expect(clear.getAttribute('aria-disabled')).toBe('true')
+    await waitFor(() =>
+      expect(liveRegion().textContent).toBe('Conversation cleared'),
+    )
+  })
+
+  it('clears a streaming reply without calling stop first', () => {
+    // clear() cancels the reply itself; stop() first would stop it from
+    // ignoring the cleared reply's late chunks.
+    chat.state.isLoading = true
+    chat.state.messages = [
+      { id: 'm1', role: 'user', parts: [{ type: 'text', content: 'Hi' }] },
+    ]
+    renderPanel()
+    const panel = openPanel()
+
+    fireEvent.click(
+      within(panel).getByRole('button', { name: 'Clear conversation' }),
+    )
+    expect(chat.clear).toHaveBeenCalledOnce()
+    expect(chat.stop).not.toHaveBeenCalled()
+  })
+
+  it('sends only the newest 100 messages', () => {
+    renderPanel()
+    const messages = Array.from({ length: 150 }, (_, index) => ({
+      id: `m${index}`,
+    }))
+    const signal = new AbortController().signal
+    chat.connection?.connect(messages, { extra: true }, signal)
+
+    expect(chat.connect).toHaveBeenCalledOnce()
+    const [sent, data, sentSignal] = chat.connect.mock.calls[0] as [
+      Array<{ id: string }>,
+      unknown,
+      AbortSignal,
+    ]
+    expect(sent).toHaveLength(100)
+    expect(sent[0].id).toBe('m50')
+    expect(sent.at(-1)?.id).toBe('m149')
+    expect(data).toEqual({ extra: true })
+    expect(sentSignal).toBe(signal)
+  })
+
+  it('does nothing on Clear conversation with no messages', () => {
+    renderPanel()
+    const panel = openPanel()
+    const clear = within(panel).getByRole('button', {
+      name: 'Clear conversation',
+    })
+    expect(clear.getAttribute('aria-disabled')).toBe('true')
+
+    fireEvent.click(clear)
+    expect(chat.clear).not.toHaveBeenCalled()
   })
 
   it('stays open on Escape while focus is outside it', () => {

@@ -1,8 +1,14 @@
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { Link, createFileRoute } from '@tanstack/react-router'
 
+import { ProjectProgress } from '#/components/app/project-progress'
+import { RecentActivity } from '#/components/app/recent-activity'
 import { TaskCardContent } from '#/components/app/task-card'
-import { dashboardQueryOptions } from '#/fns/dashboard'
+import {
+  dashboardQueryOptions,
+  projectProgressQueryOptions,
+  recentActivityQueryOptions,
+} from '#/fns/dashboard'
 import { toCalendarDay } from '#/lib/dates'
 
 import type { listDashboardTasksFn } from '#/fns/dashboard'
@@ -14,7 +20,7 @@ type DashboardTask = Awaited<
 const title = 'Dashboard'
 
 // What needs attention across the unarchived projects: tasks due today and
-// overdue tasks. Recent activity and project progress come with F64 (#92).
+// overdue tasks, then the latest activity and each project's progress.
 export const Route = createFileRoute('/_app/')({
   staticData: { title },
   head: () => ({ meta: [{ title: `${title} · todoOverKill` }] }),
@@ -22,16 +28,39 @@ export const Route = createFileRoute('/_app/')({
     // Today picks the tasks and the Overdue word. It travels with the loader
     // data, so the server render and hydration use the same day, as on the
     // board.
-    const today = toCalendarDay(new Date())
-    await context.queryClient.ensureQueryData(dashboardQueryOptions(today))
-    return { today }
+    // Now, which the activity's relative times count from, travels the same
+    // way.
+    const now = new Date()
+    const today = toCalendarDay(now)
+    // Nothing invalidates the dashboard keys, so cached data is shown at once
+    // and refetched in the background whenever it is stale, which with the
+    // default staleTime of 0 is every visit: after completing a task, the
+    // progress and the activity catch up without a reload.
+    const { queryClient } = context
+    await Promise.all([
+      queryClient.ensureQueryData({
+        ...dashboardQueryOptions(today),
+        revalidateIfStale: true,
+      }),
+      queryClient.ensureQueryData({
+        ...recentActivityQueryOptions(),
+        revalidateIfStale: true,
+      }),
+      queryClient.ensureQueryData({
+        ...projectProgressQueryOptions(),
+        revalidateIfStale: true,
+      }),
+    ])
+    return { today, now: now.toISOString() }
   },
   component: Dashboard,
 })
 
 function Dashboard() {
-  const { today } = Route.useLoaderData()
+  const { today, now } = Route.useLoaderData()
   const { data } = useSuspenseQuery(dashboardQueryOptions(today))
+  const { data: activity } = useSuspenseQuery(recentActivityQueryOptions())
+  const { data: progress } = useSuspenseQuery(projectProgressQueryOptions())
 
   return (
     <div className="flex flex-col gap-8">
@@ -50,6 +79,8 @@ function Dashboard() {
         tasks={data.overdue}
         today={today}
       />
+      <RecentActivity rows={activity} now={new Date(now)} />
+      <ProjectProgress rows={progress} />
     </div>
   )
 }

@@ -26,10 +26,17 @@ function calendarDate(day: string) {
   return new Date(`${day}T00:00:00.000Z`)
 }
 
+/** A moment `minutes` from now. */
+function minutesFromNow(minutes: number) {
+  return new Date(Date.now() + minutes * 60_000)
+}
+
 /**
  * A project with a task due today, an overdue high priority task with a long
  * title, and an overdue task completed in Done; and an archived project with
- * an overdue task. Only the first two belong on the dashboard.
+ * an overdue task. Only the first two belong on the dashboard. The activity
+ * rows are dated a little ahead, so the rows other specs write meanwhile do
+ * not push them out of the latest 20; they read "just now".
  */
 async function seed() {
   const today = toCalendarDay(new Date())
@@ -89,7 +96,40 @@ async function seed() {
   const archivedTask = await task(archived, 1, `Archived task ${run}`, {
     dueDate: calendarDate('2000-01-01'),
   })
-  return { project, dueToday, overdue, completed, archivedTask }
+  await db.activity.createMany({
+    data: [
+      {
+        projectId: project.id,
+        taskId: dueToday.id,
+        type: 'task.created',
+        payload: { number: 1, title: dueToday.title },
+        createdAt: minutesFromNow(30),
+      },
+      // A deleted task: its rows keep the project but lose the task.
+      {
+        projectId: project.id,
+        taskId: null,
+        type: 'task.deleted',
+        payload: { number: 9, title: `Dropped ${run}` },
+        createdAt: minutesFromNow(31),
+      },
+      {
+        projectId: project.id,
+        taskId: overdue.id,
+        type: 'task.moved',
+        payload: { number: 2, from: 'Backlog', to: 'Done' },
+        createdAt: minutesFromNow(32),
+      },
+      {
+        projectId: archived.id,
+        taskId: archivedTask.id,
+        type: 'task.created',
+        payload: { number: 1, title: archivedTask.title },
+        createdAt: minutesFromNow(33),
+      },
+    ],
+  })
+  return { project, archived, dueToday, overdue, completed, archivedTask }
 }
 
 test.beforeAll(async () => {
@@ -154,9 +194,137 @@ test('lists tasks due today and overdue tasks as links', async ({ page }) => {
 test('leaves out completed tasks and archived projects', async ({ page }) => {
   await openDashboard(page)
 
-  await expect(page.getByText(seeded.dueToday.title)).toBeVisible()
+  await expect(
+    page
+      .getByRole('region', { name: 'Due today' })
+      .getByText(seeded.dueToday.title),
+  ).toBeVisible()
   await expect(page.getByText(seeded.completed.title)).toHaveCount(0)
   await expect(page.getByText(seeded.archivedTask.title)).toHaveCount(0)
+})
+
+test('shows recent activity as sentences linking to tasks', async ({
+  page,
+}) => {
+  await openDashboard(page)
+  const { project, dueToday } = seeded
+  const region = page.getByRole('region', { name: 'Recent activity' })
+
+  await expect(
+    page.getByRole('heading', { level: 2, name: 'Recent activity' }),
+  ).toBeVisible()
+
+  const created = region.getByRole('listitem').filter({
+    has: page.locator(`a[href="/tasks/${dueToday.id}"]`),
+  })
+  await expect(created.getByRole('link')).toHaveText(`${project.key}-1`)
+  await expect(created).toContainText(project.name)
+  await expect(created).toContainText(`Created the task “${dueToday.title}”.`)
+
+  const deleted = region
+    .getByRole('listitem')
+    .filter({ hasText: `${project.key}-9` })
+  await expect(deleted).toContainText(`Deleted the task “Dropped ${run}”.`)
+  await expect(deleted.getByRole('link')).toHaveCount(0)
+
+  await expect(region).not.toContainText('Recorded the event')
+  await expect(region.getByText(seeded.archivedTask.title)).toHaveCount(0)
+
+  const mine = region
+    .getByRole('listitem')
+    .filter({ hasText: project.name })
+    .locator('time')
+  await expect(mine).toHaveCount(3)
+  for (const time of await mine.all()) {
+    await expect(time).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}T/)
+    await expect(time).toHaveText(/^(just now|.+ ago) \(.+\)$/)
+  }
+})
+
+test('lists unarchived projects with their progress', async ({ page }) => {
+  await openDashboard(page)
+  const { project, archived } = seeded
+  const region = page.getByRole('region', { name: 'Projects' })
+
+  await expect(
+    page.getByRole('heading', { level: 2, name: 'Projects' }),
+  ).toBeVisible()
+  const row = region
+    .getByRole('listitem')
+    .filter({ has: page.getByRole('link', { name: project.name }) })
+  await expect(row.getByRole('link')).toHaveAttribute(
+    'href',
+    `/projects/${project.id}/board`,
+  )
+  await expect(row).toContainText('1 of 3 tasks done')
+  await expect(region.getByText(archived.name)).toHaveCount(0)
+})
+
+test('updates progress and activity when returning to the dashboard', async ({
+  page,
+}) => {
+  const name = `Returning ${run}`
+  names.push(name)
+  const other = await db.project.create({
+    data: {
+      name,
+      key: `RE${run}`,
+      color: '#2563eb',
+      nextTaskNumber: 2,
+      statuses: { create: [{ name: 'Backlog', order: 1, category: 'todo' }] },
+    },
+    include: { statuses: true },
+  })
+  const task = await db.task.create({
+    data: {
+      projectId: other.id,
+      statusId: other.statuses[0].id,
+      number: 1,
+      title: `Finish ${run}`,
+      order: 1,
+    },
+  })
+  await openDashboard(page)
+  const row = page
+    .getByRole('region', { name: 'Projects' })
+    .getByRole('listitem')
+    .filter({ has: page.getByRole('link', { name }) })
+  await expect(row).toContainText('0 of 1 task done')
+
+  // Completed elsewhere, as the assistant or REST would.
+  await db.task.update({
+    where: { id: task.id },
+    data: { completedAt: new Date() },
+  })
+  await db.activity.create({
+    data: {
+      projectId: other.id,
+      taskId: task.id,
+      type: 'task.completed',
+      payload: { number: 1 },
+      createdAt: minutesFromNow(40),
+    },
+  })
+  const main = page.getByRole('navigation', { name: 'Main' })
+  await main.getByRole('link', { name: 'Help', exact: true }).click()
+  await expect(page).toHaveURL('/help')
+  // Marks the document: a full reload would lose it.
+  await page.evaluate(() => {
+    ;(window as { stayed?: boolean }).stayed = true
+  })
+  await main.getByRole('link', { name: 'Dashboard', exact: true }).click()
+  await expect(page).toHaveURL('/')
+
+  await expect(row).toContainText('1 of 1 task done')
+  await expect(
+    page
+      .getByRole('region', { name: 'Recent activity' })
+      .getByRole('listitem')
+      .filter({ hasText: `${other.key}-1` }),
+  ).toContainText('Completed the task.')
+  expect(
+    await page.evaluate(() => (window as { stayed?: boolean }).stayed),
+  ).toBe(true)
 })
 
 for (const theme of ['light', 'dark'] as const) {
@@ -172,6 +340,11 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(page.locator('html')).toHaveClass(/\bdark\b/)
     }
     await expect(taskLink(page, 'Overdue', seeded.overdue.id)).toBeVisible()
+    await expect(
+      page.getByRole('region', { name: 'Projects' }).getByRole('link', {
+        name: seeded.project.name,
+      }),
+    ).toBeVisible()
     await expectAccessible(page)
   })
 }
@@ -183,6 +356,11 @@ test('the dashboard reflows at 320 px without horizontal scrolling', async ({
   await openDashboard(page)
 
   await expect(taskLink(page, 'Overdue', seeded.overdue.id)).toBeVisible()
+  await expect(
+    page.getByRole('region', { name: 'Projects' }).getByRole('link', {
+      name: seeded.project.name,
+    }),
+  ).toBeVisible()
   const overflow = await page.evaluate(
     () =>
       document.documentElement.scrollWidth -

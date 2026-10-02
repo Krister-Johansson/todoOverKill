@@ -14,6 +14,8 @@ import {
 import { listTaskActivity } from '#/server/activity'
 import { createTask, getTask, listTasks, moveTask } from '#/server/tasks'
 
+import type { NotFoundEntity } from '#/server/errors'
+
 /** Turns the service's NotFoundError into the route's 404. */
 export async function orNotFound<T>(load: () => Promise<T>): Promise<T> {
   try {
@@ -48,20 +50,28 @@ export const listTaskActivityFn = createServerFn({ method: 'GET' })
   .handler(({ data: id }) => orNotFound(() => listTaskActivity(id)))
 
 /**
- * What createTaskFn returns. A project without statuses is an expected
- * outcome the dialog shows in its summary, so it comes back as a value. Any
- * other error is thrown and reaches the client as a plain Error, including
- * the NotFoundError of a project deleted while the dialog was open, and the
- * dialog shows a generic message.
+ * What createTaskFn returns. A project without statuses, and a project or
+ * status deleted while the dialog was open, are expected outcomes the dialog
+ * shows in its summary, so they come back as values; `entity` says which
+ * record was missing, so the dialog can say what to do. Any other error is
+ * thrown and reaches the client as a plain Error, and the dialog shows a
+ * generic message.
  */
 export type CreateTaskResult =
   | { ok: true; task: Awaited<ReturnType<typeof createTask>> }
   | { ok: false; code: 'conflict'; message: string }
+  | {
+      ok: false
+      code: 'not_found'
+      entity: NotFoundEntity | undefined
+      message: string
+    }
 
 /**
- * Runs a create and maps a ConflictError to the conflict result. Exported so
- * src/fns/tasks.test.ts can check the mapping against the database without
- * calling a server function under Vitest.
+ * Runs a create and maps a ConflictError to the conflict result and a
+ * NotFoundError to the not_found result. Exported so src/fns/tasks.test.ts can
+ * check the mapping against the database without calling a server function
+ * under Vitest.
  */
 export async function toCreateTaskResult(
   create: () => ReturnType<typeof createTask>,
@@ -71,6 +81,13 @@ export async function toCreateTaskResult(
   } catch (error) {
     if (hasCode(error, 'conflict')) {
       return { ok: false, code: 'conflict', message: error.message }
+    }
+    // By name rather than instanceof NotFoundError: the client bundle loads
+    // this module, and importing src/server/errors.ts would bring Prisma in.
+    // An error that only shares the code is rethrown.
+    if (hasCode(error, 'not_found') && error.name === 'NotFoundError') {
+      const { entity } = error as Error & { entity?: NotFoundEntity }
+      return { ok: false, code: 'not_found', entity, message: error.message }
     }
     throw error
   }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  dueDateInputHint,
   dueFilterRange,
   formatDateTime,
   formatDueDate,
@@ -116,5 +117,28 @@ describe('formatRelativeTime', () => {
     const event = new Date(2026, 8, 28, 23, 0)
     expect(formatRelativeTime(event, seen)).toBe('1 day ago')
     expect(formatRelativeTime(event, seen)).not.toMatch(/yesterday/)
+  })
+})
+
+describe('dueDateInputHint', () => {
+  it.each([
+    ['en-US', 'month, day and year', '10/01/2026'],
+    ['en-GB', 'day, month and year', '01/10/2026'],
+    ['sv-SE', 'year, month and day', '2026-10-01'],
+    // Buddhist years by default, but the field shows Gregorian ones.
+    ['th-TH', 'day, month and year', '01/10/2026'],
+    // The Persian calendar and digits by default.
+    ['fa-IR', 'year, month and day', '2026/10/01'],
+    // The options win over the locale's own calendar.
+    ['zh-CN-u-ca-chinese', 'year, month and day', '2026/10/01'],
+  ])('names the order and an example for %s', (locale, order, example) => {
+    expect(dueDateInputHint(locale)).toEqual({ order, example })
+  })
+
+  it('falls back to the ISO date for a locale it cannot read', () => {
+    expect(dueDateInputHint('en_US')).toEqual({
+      order: 'year, month and day',
+      example: '2026-10-01',
+    })
   })
 })

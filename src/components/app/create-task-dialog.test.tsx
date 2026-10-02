@@ -100,6 +100,34 @@ function title() {
   })
 }
 
+function dueDate() {
+  return screen.getByLabelText<HTMLInputElement>('Due date')
+}
+
+/** The text of the elements an input's aria-describedby names. */
+function description(input: HTMLElement) {
+  return (input.getAttribute('aria-describedby') ?? '')
+    .split(' ')
+    .map((id) => document.getElementById(id)?.textContent)
+    .join(' ')
+}
+
+/** What Chrome reports for a date with no year: an empty, bad value. */
+function typePartOfADate(input: HTMLInputElement) {
+  Object.defineProperty(input, 'validity', {
+    configurable: true,
+    value: { badInput: true, valid: false },
+  })
+}
+
+function errorSummary() {
+  const summary = screen.getByRole('heading', {
+    name: /Fix these fields|There is a problem/,
+  }).parentElement
+  if (!summary) throw new Error('no summary')
+  return summary
+}
+
 function select(name: string) {
   return screen.getByRole<HTMLSelectElement>('combobox', { name })
 }
@@ -194,6 +222,126 @@ describe('CreateTaskDialog', () => {
     expect(create).not.toHaveBeenCalled()
   })
 
+  it('describes the due date in the order and format of the locale', () => {
+    renderDialog()
+
+    // jsdom's navigator.language is en-US, which Chrome shows as mm/dd/yyyy.
+    expect(navigator.language).toBe('en-US')
+    expect(description(dueDate())).toBe(
+      'Optional. Month, day and year, such as 10/01/2026.',
+    )
+  })
+
+  it('blocks a partly typed due date with one error linked from the summary', async () => {
+    renderDialog()
+    fireEvent.change(title(), { target: { value: 'Write copy' } })
+    typePartOfADate(dueDate())
+
+    await submit()
+
+    expect(document.activeElement).toBe(errorSummary())
+    const links = screen.getAllByRole('link', { name: /^Due date:/ })
+    expect(links).toHaveLength(1)
+    expect(links[0].textContent).toBe(
+      'Due date: Enter the whole date, with day, month and year, or clear the field.',
+    )
+    expect(links[0].getAttribute('href')).toBe(`#${dueDate().id}`)
+    expect(dueDate().getAttribute('aria-invalid')).toBe('true')
+    expect(description(dueDate())).toContain(
+      'Enter the whole date, with day, month and year, or clear the field.',
+    )
+    expect(create).not.toHaveBeenCalled()
+
+    fireEvent.click(links[0])
+    expect(document.activeElement).toBe(dueDate())
+  })
+
+  it('lists a partly typed due date beside other field errors', async () => {
+    renderDialog()
+    typePartOfADate(dueDate())
+
+    await submit()
+
+    expect(
+      Array.from(
+        errorSummary().querySelectorAll('a'),
+        (a) => a.textContent.split(':')[0],
+      ),
+    ).toEqual(['Title', 'Due date'])
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('creates the task once the due date is complete again', async () => {
+    create.mockResolvedValue({ ok: true, task: task() })
+    renderDialog()
+    fireEvent.change(title(), { target: { value: 'Write copy' } })
+    typePartOfADate(dueDate())
+    await submit()
+    expect(create).not.toHaveBeenCalled()
+
+    // Back to the input's own validity, then a whole date.
+    Reflect.deleteProperty(dueDate(), 'validity')
+    fireEvent.change(dueDate(), { target: { value: '2026-10-01' } })
+    await submit()
+
+    expect(create).toHaveBeenCalledOnce()
+    expect(create.mock.calls[0][0].data.data.dueDate).toBe('2026-10-01')
+  })
+
+  it('drops the due date error as soon as the partly typed date is cleared', async () => {
+    renderDialog()
+    fireEvent.change(title(), { target: { value: 'Write copy' } })
+    typePartOfADate(dueDate())
+    await submit()
+
+    // Another digit that still leaves the year out keeps the error.
+    fireEvent.keyUp(dueDate(), { key: '1' })
+    expect(dueDate().getAttribute('aria-invalid')).toBe('true')
+    expect(screen.getAllByRole('link', { name: /^Due date:/ })).toHaveLength(1)
+
+    // Chrome sends neither input nor change while the value stays '', so
+    // clearing the segments is seen on the key.
+    Reflect.deleteProperty(dueDate(), 'validity')
+    fireEvent.keyUp(dueDate(), { key: 'Backspace' })
+
+    expect(dueDate().getAttribute('aria-invalid')).toBeNull()
+    expect(description(dueDate())).not.toContain('Enter the whole date')
+    expect(screen.queryByRole('link', { name: /^Due date:/ })).toBeNull()
+    expect(
+      screen.queryByRole('heading', { name: 'Fix these fields' }),
+    ).toBeNull()
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['status', 'That status no longer exists; choose another.'],
+    [
+      'project',
+      'This project no longer exists, so the task cannot be added to it. Close this dialog.',
+    ],
+    ['label', 'Could not create the task. Try again.'],
+  ] as const)(
+    'shows its own message in the focused summary for a missing %s',
+    async (entity, message) => {
+      create.mockResolvedValue({
+        ok: false,
+        code: 'not_found',
+        entity,
+        message: `No ${entity} with id x1.`,
+      })
+      renderDialog()
+
+      fireEvent.change(title(), { target: { value: 'Write copy' } })
+      await submit()
+
+      expect(document.activeElement).toBe(errorSummary())
+      expect(document.activeElement?.textContent).toBe(
+        `There is a problem${message}`,
+      )
+      expect(screen.getByRole('dialog')).toBeTruthy()
+    },
+  )
+
   it('shows a conflict in the focused summary', async () => {
     create.mockResolvedValue({
       ok: false,
@@ -213,7 +361,7 @@ describe('CreateTaskDialog', () => {
   })
 
   it('shows a generic error in the same summary when the server fails', async () => {
-    create.mockRejectedValue(new Error('No project with id p1.'))
+    create.mockRejectedValue(new Error('Connection lost.'))
     const { queryClient } = renderDialog()
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
 
@@ -225,12 +373,22 @@ describe('CreateTaskDialog', () => {
       'Could not create the task. Try again.',
     )
     expect(screen.getByRole('dialog')).toBeTruthy()
-    // So a deleted status leaves the select before the next try.
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['projects', 'p1'] })
+    // So a deleted status leaves the select before the next try, and only
+    // the project: the board's task list under its key is left alone.
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ['projects', 'p1'],
+      exact: true,
+    })
+    expect(queryClient.getQueryState(tasksKey)?.isInvalidated).toBe(false)
   })
 
   it('sends a current status after a refetch drops the chosen one', async () => {
-    create.mockRejectedValueOnce(new Error('No status with id s2.'))
+    create.mockResolvedValueOnce({
+      ok: false,
+      code: 'not_found',
+      entity: 'status',
+      message: 'No status with id s2 in this project.',
+    })
     create.mockResolvedValueOnce({ ok: true, task: task({ statusId: 's1' }) })
     const queryClient = new QueryClient({
       defaultOptions: { mutations: { retry: false } },
@@ -270,9 +428,7 @@ describe('CreateTaskDialog', () => {
 
     fireEvent.change(title(), { target: { value: 'Write copy' } })
     await submit()
-    expect(
-      screen.getByRole('button', { name: 'Creating task…' }),
-    ).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Creating task…' })).toBeTruthy()
 
     fireEvent.keyDown(title(), { key: 'Escape' })
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))

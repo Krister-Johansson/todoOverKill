@@ -58,6 +58,42 @@ function titleField(page: Page) {
   return dialog(page).getByRole('textbox', { name: 'Title (required)' })
 }
 
+function dueDateField(page: Page) {
+  return dialog(page).getByLabel('Due date')
+}
+
+function errorSummary(page: Page, heading: string) {
+  return dialog(page).getByRole('heading', { name: heading }).locator('..')
+}
+
+/** Counts the server function calls the page makes from now on. */
+function countServerCalls(page: Page) {
+  const calls = { count: 0 }
+  page.on('requestfinished', (request) => {
+    if (request.url().includes('/_serverFn/')) calls.count += 1
+  })
+  return calls
+}
+
+/**
+ * Records the task list requests the page sends from now on. listTasksFn is
+ * the GET whose payload names a projectId; getProjectFn sends the bare id.
+ */
+function recordTaskListRequests(page: Page) {
+  const urls: Array<string> = []
+  page.on('request', (request) => {
+    const url = decodeURIComponent(request.url())
+    if (
+      request.method() === 'GET' &&
+      url.includes('/_serverFn/') &&
+      url.includes('projectId')
+    ) {
+      urls.push(url)
+    }
+  })
+  return urls
+}
+
 /** Waits for hydration, so clicks and key presses reach React. */
 async function openBoard(page: Page, projectId: string) {
   await page.goto(`/projects/${projectId}/board`, { waitUntil: 'networkidle' })
@@ -266,6 +302,119 @@ test('an empty submit shows the error inline and in a focused summary', async ({
   await expect(titleField(page)).toBeFocused()
 })
 
+test('the due date help text matches the format the field shows', async ({
+  page,
+}) => {
+  const project = await seedProject('Help')
+  await openBoard(page, project.id)
+  await openDialog(page)
+
+  // Playwright's Chrome runs in en-US, where the field reads mm/dd/yyyy.
+  await expect(dueDateField(page)).toHaveAccessibleDescription(
+    'Optional. Month, day and year, such as 10/01/2026.',
+  )
+})
+
+test('a partly typed due date is an error linked from the summary', async ({
+  page,
+}) => {
+  const project = await seedProject('Partial date')
+  await openBoard(page, project.id)
+  await openDialog(page)
+
+  await titleField(page).fill('Write copy')
+  await dueDateField(page).focus()
+  // Month and day, no year.
+  await page.keyboard.type('1001')
+  await dialog(page).getByRole('button', { name: 'Create task' }).click()
+
+  const summary = errorSummary(page, 'Fix these fields')
+  await expect(summary).toBeFocused()
+  const message =
+    'Enter the whole date, with day, month and year, or clear the field.'
+  const link = summary.getByRole('link', { name: `Due date: ${message}` })
+  await expect(link).toBeVisible()
+  await expect(summary.getByRole('link')).toHaveCount(1)
+  await expect(dueDateField(page)).toHaveAttribute('aria-invalid', 'true')
+  await expect(dueDateField(page)).toHaveAccessibleDescription(
+    new RegExp(`${message}$`),
+  )
+  // The summary's render left the typed month and day in place.
+  expect(
+    await dueDateField(page).evaluate(
+      (input: HTMLInputElement) => input.validity.badInput,
+    ),
+  ).toBe(true)
+  await expect(dialog(page)).toBeVisible()
+  expect(await db.task.count({ where: { projectId: project.id } })).toBe(0)
+
+  await link.click()
+  await expect(dueDateField(page)).toBeFocused()
+})
+
+test('clearing a partly typed due date removes its error', async ({ page }) => {
+  const project = await seedProject('Cleared date')
+  await openBoard(page, project.id)
+  await openDialog(page)
+
+  await titleField(page).fill('Write copy')
+  await dueDateField(page).focus()
+  await page.keyboard.type('1001')
+  await dialog(page).getByRole('button', { name: 'Create task' }).click()
+  await expect(dueDateField(page)).toHaveAttribute('aria-invalid', 'true')
+
+  // Focus lands on the month; clear it, then the day. Chrome sends no input
+  // or change event for either, as the value stays ''.
+  await dueDateField(page).focus()
+  await page.keyboard.press('Backspace')
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Backspace')
+  expect(
+    await dueDateField(page).evaluate(
+      (input: HTMLInputElement) => input.validity.badInput,
+    ),
+  ).toBe(false)
+
+  // Still in the field, so the key, not leaving it, removed the error.
+  await expect(dueDateField(page)).toBeFocused()
+  await expect(dueDateField(page)).not.toHaveAttribute('aria-invalid')
+  await expect(dueDateField(page)).toHaveAccessibleDescription(
+    'Optional. Month, day and year, such as 10/01/2026.',
+  )
+  await expect(
+    dialog(page).getByRole('heading', { name: 'Fix these fields' }),
+  ).toBeHidden()
+  await expect(
+    dialog(page).getByRole('link', { name: /^Due date:/ }),
+  ).toHaveCount(0)
+})
+
+test('a status deleted elsewhere is named in the focused summary', async ({
+  page,
+}) => {
+  const project = await seedProject('Deleted status')
+  await openBoard(page, project.id)
+  await openDialog(page)
+
+  await titleField(page).fill('Write copy')
+  const status = dialog(page).getByRole('combobox', { name: 'Status' })
+  await status.selectOption({ label: 'Doing' })
+  await db.status.deleteMany({
+    where: { projectId: project.id, name: 'Doing' },
+  })
+  await dialog(page).getByRole('button', { name: 'Create task' }).click()
+
+  const summary = errorSummary(page, 'There is a problem')
+  await expect(summary).toBeFocused()
+  await expect(summary).toContainText(
+    'That status no longer exists; choose another.',
+  )
+  // The project refetch drops Doing, and the select shows what is sent next.
+  await expect(status.locator('option')).toHaveText(['Backlog', 'Done'])
+  await expect(status.locator('option:checked')).toHaveText('Backlog')
+  await expect(dialog(page)).toBeVisible()
+})
+
 test('a deleted project keeps the dialog open with a focused summary', async ({
   page,
 }) => {
@@ -275,14 +424,23 @@ test('a deleted project keeps the dialog open with a focused summary', async ({
 
   await db.project.delete({ where: { id: project.id } })
   await titleField(page).fill('Write copy')
+  const calls = countServerCalls(page)
+  const taskLists = recordTaskListRequests(page)
   await dialog(page).getByRole('button', { name: 'Create task' }).click()
 
-  const summary = dialog(page)
-    .getByRole('heading', { name: 'There is a problem' })
-    .locator('..')
+  const summary = errorSummary(page, 'There is a problem')
   await expect(summary).toBeFocused()
-  await expect(summary).toContainText('Could not create the task. Try again.')
+  const message =
+    'This project no longer exists, so the task cannot be added to it. Close this dialog.'
+  await expect(summary).toContainText(message)
+  // The create, then the project refetch, which fails, and may retry. The
+  // route keeps the cached project, so the dialog and its message stay.
+  await expect.poll(() => calls.count).toBeGreaterThanOrEqual(2)
+  // The refetch is exact: the board's task list, under the same key prefix,
+  // is not fetched again.
+  expect(taskLists).toEqual([])
   await expect(dialog(page)).toBeVisible()
+  await expect(summary).toContainText(message)
 })
 
 for (const theme of ['light', 'dark'] as const) {

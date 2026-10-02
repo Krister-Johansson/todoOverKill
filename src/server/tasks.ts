@@ -38,19 +38,19 @@ function flatten(task: TaskRow) {
 }
 
 function projectNotFound(id: string) {
-  return new NotFoundError(`No project with id ${id}.`)
+  return new NotFoundError(`No project with id ${id}.`, 'project')
 }
 
 function taskNotFound(id: string) {
-  return new NotFoundError(`No task with id ${id}.`)
+  return new NotFoundError(`No task with id ${id}.`, 'task')
 }
 
 function statusNotFound(id: string) {
-  return new NotFoundError(`No status with id ${id} in this project.`)
+  return new NotFoundError(`No status with id ${id} in this project.`, 'status')
 }
 
 function labelNotFound(id: string) {
-  return new NotFoundError(`No label with id ${id} in this project.`)
+  return new NotFoundError(`No label with id ${id} in this project.`, 'label')
 }
 
 /**

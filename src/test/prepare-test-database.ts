@@ -53,7 +53,10 @@ export async function prepareTestDatabase(): Promise<() => void> {
       )
     }
     try {
+      // The compose file publishes DB_PORT, so the database comes up on the
+      // port DATABASE_URL_TEST names even when 5434 is taken.
       execFileSync('docker', ['compose', 'up', '--detach', '--wait', 'db'], {
+        env: { ...process.env, DB_PORT: String(dbPort) },
         stdio: 'inherit',
       })
     } catch (error) {
@@ -71,7 +74,10 @@ export async function prepareTestDatabase(): Promise<() => void> {
 
   const teardown = () => {
     if (startedDb) {
-      execFileSync('docker', ['compose', 'stop', 'db'], { stdio: 'inherit' })
+      execFileSync('docker', ['compose', 'stop', 'db'], {
+        env: { ...process.env, DB_PORT: String(dbPort) },
+        stdio: 'inherit',
+      })
     }
   }
 

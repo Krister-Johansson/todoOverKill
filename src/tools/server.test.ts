@@ -19,6 +19,7 @@ import {
   getTaskTool,
   listProjectsTool,
   listTasksTool,
+  readServerTools,
   searchTool,
   serverTools,
 } from '#/tools/server'
@@ -89,6 +90,16 @@ describe('tool definitions', () => {
       'search',
     ])
     expect(new Set(names).size).toBe(names.length)
+  })
+
+  it('lists only the read tools for the MCP server', () => {
+    expect(readServerTools.map((tool) => tool.name)).toEqual([
+      'list_projects',
+      'get_project',
+      'list_tasks',
+      'get_task',
+      'search',
+    ])
   })
 })
 

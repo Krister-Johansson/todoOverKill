@@ -232,7 +232,7 @@ Acceptance: the document validates; the page is axe clean.
 ## Milestone 3: tool definitions and MCP server
 
 ### F34 Tool definitions: pattern and read tools (#34)
-`src/tools/definitions.ts` with TanStack AI's `toolDefinition({ name, description, inputSchema, outputSchema })` and `src/tools/server.ts` with `.server()` implementations for the read tools: `list_projects`, `get_project`, `list_tasks` (with the filters `listTasks` takes), `get_task` and `search`. Input schemas come from `src/schemas/`, are strict, so an unknown key is a validation error, and have no transforms, so they convert to JSON Schema in both of `z.toJSONSchema`'s modes; output schemas are objects, as MCP structured output needs (`list_projects` returns `{ projects }` and `list_tasks` `{ tasks }`), and describe the JSON the tools return (ISO timestamps, `YYYY-MM-DD` due dates). Each description says what the tool returns and when to use it. Each `.server()` implementation calls the service in `src/server/` and adds no logic of its own; a shared helper parses the arguments with the input schema and maps a `NotFoundError`, `ConflictError` or `ZodError` to a `ToolError` (`src/tools/errors.ts`) with a code and a readable message; any other error is logged and becomes a `ToolError` with code `internal` and a generic message. The server tools are exported as one list, `serverTools`, for F35 and F39. Scope was reduced on 2026-10-02 to keep it to one PR: the write tools for projects and tasks moved to F67 (#100), the subtask, label and comment tools to F68 (#101), and the UI tools (`navigate`, `open_task`, `set_filter`, `set_theme`) come with their client implementations in F40.
+`src/tools/definitions.ts` with TanStack AI's `toolDefinition({ name, description, inputSchema, outputSchema })` and `src/tools/server.ts` with `.server()` implementations for the read tools: `list_projects`, `get_project`, `list_tasks` (with the filters `listTasks` takes), `get_task` and `search`. Input schemas come from `src/schemas/`, are strict, so an unknown key is a validation error, and have no transforms, so they convert to JSON Schema in both of `z.toJSONSchema`'s modes; output schemas are objects, as MCP structured output needs (`list_projects` returns `{ projects }` and `list_tasks` `{ tasks }`), and describe the JSON the tools return (ISO timestamps, `YYYY-MM-DD` due dates). Each description says what the tool returns and when to use it. Each `.server()` implementation calls the service in `src/server/` and adds no logic of its own; a shared helper parses the arguments with the input schema and maps a `NotFoundError`, `ConflictError` or `ZodError` to a `ToolError` (`src/tools/errors.ts`) with a code and a readable message; any other error is logged and becomes a `ToolError` with code `internal` and a generic message. The server tools are exported as one list, `serverTools`, which F39 takes; F35 added `readServerTools`, the read tools only, which the MCP server takes until F36. Scope was reduced on 2026-10-02 to keep it to one PR: the write tools for projects and tasks moved to F67 (#100), the subtask, label and comment tools to F68 (#101), and the UI tools (`navigate`, `open_task`, `set_filter`, `set_theme`) come with their client implementations in F40.
 Depends on: F12, F25.
 Acceptance: unit tests call each server tool against the test database, including a not-found case and an invalid-input case; `docs/architecture.md`'s tool section describes the pattern and lists which issue adds which tools.
 
@@ -247,7 +247,7 @@ Depends on: F34.
 Acceptance: unit tests call each server tool against the test database; a test asserts which tools carry `needsApproval`; `docs/architecture.md`'s tool list matches the definitions.
 
 ### F35 MCP server: read tools (#35)
-`/api/mcp` server route with `@modelcontextprotocol/sdk` Streamable HTTP; registers `list_projects`, `get_project`, `list_tasks`, `get_task`, `search`.
+`/api/mcp` server route with `@modelcontextprotocol/sdk` Streamable HTTP; registers `list_projects`, `get_project`, `list_tasks`, `get_task`, `search`. `createMcpServer()` in `src/tools/mcp.ts` registers `readServerTools` from `src/tools/server.ts`, not `serverTools`, so F67's write tools stay off MCP until F36 adds confirmation. The route is stateless: a new server and transport per POST, JSON responses, no session id, and a 405 JSON-RPC error for GET and DELETE. `docs/mcp.md` covers the tools, the error results and the Claude Code setup.
 Depends on: F34.
 Acceptance: a Vitest test uses the SDK client to list tools and call `list_projects`; `docs/mcp.md` shows how to add the server to Claude Code.
 
@@ -269,7 +269,7 @@ Depends on: F34, F26.
 Acceptance: axe clean; streaming can be stopped; e2e uses a mocked SSE response.
 
 ### F39 Assistant data tools (#39)
-Pass `serverTools` from `src/tools/server.ts` (the F34 read tools and whatever F67 and F68 have added) to `chat()`. Render tool calls in the message list with name, status, and result summary.
+Pass `serverTools` from `src/tools/server.ts` (the F34 read tools and whatever F67 and F68 have added) to `chat()`. The MCP server takes `readServerTools` instead until F36. Render tool calls in the message list with name, status, and result summary.
 Depends on: F38.
 Acceptance: e2e with a mocked model response that calls `list_tasks` renders the tool card.
 

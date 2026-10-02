@@ -57,8 +57,20 @@ export const searchTool = searchDefinition.server(
   serve(searchDefinition, ({ query, limit }) => search(query, { limit })),
 )
 
-/** Every server tool, for chat() in the assistant (F39) and the MCP server (F35). */
+/**
+ * Every server tool, for chat() in the assistant (F39). The MCP server takes
+ * readServerTools instead until F36 adds confirmation to the write tools.
+ */
 export const serverTools = [
+  listProjectsTool,
+  getProjectTool,
+  listTasksTool,
+  getTaskTool,
+  searchTool,
+]
+
+/** The tools that only read, which the MCP server (F35) registers. */
+export const readServerTools = [
   listProjectsTool,
   getProjectTool,
   listTasksTool,

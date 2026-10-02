@@ -20,8 +20,8 @@ import { Markdown } from './markdown'
 
 import type { UIMessage } from '@tanstack/ai-react'
 
-/** Lets the shell move focus to the composer, as `a` does on an open panel. */
-export type AssistantPanelHandle = { focusComposer: () => void }
+/** Lets the shell move focus into the open panel, as `a` does. */
+export type AssistantPanelHandle = { focus: () => void }
 
 const REPLY_ERROR = 'Could not get a reply. Try again.'
 
@@ -36,14 +36,22 @@ function messageText(message: UIMessage) {
     .join('')
 }
 
+type Chat = ReturnType<typeof useChat>
+
 /**
  * The assistant panel: a right-hand Sheet headed "Assistant" that streams
  * text replies from /api/chat. It is non-modal, so the page beside it stays
  * usable (2.4.11, 3.2.5): no overlay, an outside click or focus leaves it
- * open, and Escape closes it only when focus is inside. `useChat` lives here,
- * and the panel stays mounted while closed, so the conversation survives a
- * close and reopen. Without OPENROUTER_API_KEY it explains how to turn the
- * assistant on and shows no composer.
+ * open, and Escape closes it only when focus is inside. Without
+ * OPENROUTER_API_KEY it explains how to turn the assistant on and shows no
+ * composer.
+ *
+ * Radix unmounts the Sheet's content while it is closed, so `useChat` lives
+ * here, outside it: the conversation survives a close and reopen, and a reply
+ * that is still streaming when the panel closes runs on and is announced
+ * when it ends. The reply is announced once it has finished, not while it
+ * streams, so a screen reader reads it once. A stop announces "Reply
+ * stopped", and an error is shown under the list and announced too.
  *
  * Focus: opening moves it to the Message field (or the Close button when the
  * assistant is off). Closing returns it to `returnFocusTo`, the top bar's
@@ -66,12 +74,31 @@ export function AssistantPanel({
   ref?: React.Ref<AssistantPanelHandle>
 }) {
   const { data: status } = useSuspenseQuery(assistantStatusQueryOptions())
+  const announce = useAnnounce()
   const contentRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
+  const stopRef = useRef<HTMLButtonElement>(null)
   const wasOpen = useRef(open)
+  const wasLoading = useRef(false)
+  const stopped = useRef(false)
+  // Whether the Stop button was the last element to take focus. Removing it
+  // fires no focusin, so this stays true after it is gone.
+  const stopHadFocus = useRef(false)
+  const chat = useChat({ connection: fetchServerSentEvents('/api/chat') })
+  const { messages, isLoading, error } = chat
+
+  const lastMessage = messages.at(-1)
+  const lastText = lastMessage ? messageText(lastMessage) : ''
 
   useImperativeHandle(ref, () => ({
-    focusComposer: () => composerRef.current?.focus(),
+    focus: () => {
+      const target =
+        composerRef.current ??
+        contentRef.current?.querySelector<HTMLElement>(
+          '[data-slot="sheet-close"]',
+        )
+      target?.focus()
+    },
   }))
 
   useEffect(() => {
@@ -84,6 +111,39 @@ export function AssistantPanel({
     }
     wasOpen.current = open
   }, [open, returnFocusTo])
+
+  useEffect(() => {
+    function onFocusIn(event: FocusEvent) {
+      stopHadFocus.current = event.target === stopRef.current
+    }
+    document.addEventListener('focusin', onFocusIn)
+    return () => document.removeEventListener('focusin', onFocusIn)
+  }, [])
+
+  useEffect(() => {
+    if (wasLoading.current && !isLoading) {
+      // The Stop button has gone. If it had focus, or was just pressed,
+      // focus would drop to the body, so it moves to the Message field. Focus
+      // the user moved anywhere else, even onto plain text beside the
+      // panel, stays where it is (3.2.5).
+      const focusLost =
+        document.activeElement === null ||
+        document.activeElement === document.body
+      if (focusLost && (stopHadFocus.current || stopped.current)) {
+        composerRef.current?.focus()
+      }
+      stopHadFocus.current = false
+      if (stopped.current) {
+        announce('Reply stopped')
+      } else if (error) {
+        announce(REPLY_ERROR)
+      } else if (lastMessage?.role === 'assistant' && lastText) {
+        announce(`Assistant: ${lastText}`)
+      }
+      stopped.current = false
+    }
+    wasLoading.current = isLoading
+  }, [isLoading, error, lastMessage, lastText, announce])
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} modal={false}>
@@ -117,7 +177,15 @@ export function AssistantPanel({
           </SheetDescription>
         </SheetHeader>
         {status.enabled ? (
-          <Conversation composerRef={composerRef} />
+          <Conversation
+            chat={chat}
+            composerRef={composerRef}
+            stopRef={stopRef}
+            onStop={() => {
+              stopped.current = true
+              chat.stop()
+            }}
+          />
         ) : (
           <div className="flex flex-col gap-2 p-4">
             <p>The assistant is off.</p>
@@ -134,52 +202,37 @@ export function AssistantPanel({
 }
 
 /**
- * The message list and composer. The reply is announced through the live
- * region once it has finished, not while it streams, so a screen reader reads
- * it once. A stop announces "Reply stopped", and an error is shown under the
- * list and announced too.
+ * The message list and composer, mounted only while the panel is open. New
+ * messages scroll into view; while a reply streams, the list follows it only
+ * if it was already scrolled to the end, so rereading earlier messages is
+ * not interrupted.
  */
 function Conversation({
+  chat: { messages, sendMessage, isLoading, error },
   composerRef,
+  stopRef,
+  onStop,
 }: {
+  chat: Chat
   composerRef: React.RefObject<HTMLTextAreaElement | null>
+  stopRef: React.RefObject<HTMLButtonElement | null>
+  onStop: () => void
 }) {
-  const announce = useAnnounce()
   const id = useId()
   const listEnd = useRef<HTMLDivElement>(null)
-  const stopFocused = useRef(false)
-  const stopped = useRef(false)
-  const wasLoading = useRef(false)
-  const { messages, sendMessage, isLoading, error, stop } = useChat({
-    connection: fetchServerSentEvents('/api/chat'),
-  })
+  const atEnd = useRef(true)
+  const shownCount = useRef(0)
 
   const lastMessage = messages.at(-1)
   const lastText = lastMessage ? messageText(lastMessage) : ''
 
   useEffect(() => {
-    listEnd.current?.scrollIntoView({ block: 'nearest' })
-  }, [messages.length, lastText])
-
-  useEffect(() => {
-    if (wasLoading.current && !isLoading) {
-      // The Stop button has gone. If it had focus, focus would drop to the
-      // body, so it moves to the Message field instead.
-      if (stopFocused.current || document.activeElement === document.body) {
-        composerRef.current?.focus()
-      }
-      stopFocused.current = false
-      if (stopped.current) {
-        announce('Reply stopped')
-      } else if (error) {
-        announce(REPLY_ERROR)
-      } else if (lastMessage?.role === 'assistant' && lastText) {
-        announce(`Assistant: ${lastText}`)
-      }
-      stopped.current = false
+    const added = messages.length !== shownCount.current
+    shownCount.current = messages.length
+    if (added || atEnd.current) {
+      listEnd.current?.scrollIntoView({ block: 'nearest' })
     }
-    wasLoading.current = isLoading
-  }, [isLoading, error, lastMessage, lastText, announce, composerRef])
+  }, [messages.length, lastText])
 
   function send() {
     const composer = composerRef.current
@@ -192,7 +245,14 @@ function Conversation({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex-1 overflow-y-auto p-4">
+      <div
+        className="flex-1 overflow-y-auto p-4"
+        onScroll={(event) => {
+          const list = event.currentTarget
+          atEnd.current =
+            list.scrollHeight - list.scrollTop - list.clientHeight < 32
+        }}
+      >
         <h3 id={`${id}-conversation`} className="sr-only">
           Conversation
         </h3>
@@ -255,14 +315,10 @@ function Conversation({
           </Button>
           {isLoading ? (
             <Button
+              ref={stopRef}
               type="button"
               variant="outline"
-              onFocus={() => (stopFocused.current = true)}
-              onBlur={() => (stopFocused.current = false)}
-              onClick={() => {
-                stopped.current = true
-                stop()
-              }}
+              onClick={onStop}
             >
               <Square aria-hidden="true" />
               Stop

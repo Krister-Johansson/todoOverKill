@@ -36,7 +36,9 @@ test.afterAll(async () => {
 /**
  * Replaces fetch for /api/chat with a stream of AG-UI events, one word every
  * `delayMs`, so no request leaves the browser and the placeholder key is never
- * used. An aborted fetch is counted in `window.__chatAborts`.
+ * used. An aborted fetch is counted in `window.__chatAborts`, and the request's
+ * Content-Type, which the route requires to be JSON, is kept in
+ * `window.__chatContentType`.
  */
 async function mockChatStream(
   page: Page,
@@ -46,8 +48,12 @@ async function mockChatStream(
     // Runs in the page, so it takes its values as an argument.
     // eslint-disable-next-line no-shadow
     ({ text, delayMs }) => {
-      const state = window as unknown as { __chatAborts: number }
+      const state = window as unknown as {
+        __chatAborts: number
+        __chatContentType: string | null
+      }
       state.__chatAborts = 0
+      state.__chatContentType = null
       const realFetch = window.fetch.bind(window)
       window.fetch = (input, init) => {
         const url =
@@ -59,6 +65,7 @@ async function mockChatStream(
         if (!new URL(url, location.href).pathname.startsWith('/api/chat')) {
           return realFetch(input, init)
         }
+        state.__chatContentType = new Headers(init?.headers).get('content-type')
         const signal =
           init?.signal ?? (input instanceof Request ? input.signal : undefined)
         const body = JSON.parse(
@@ -220,6 +227,48 @@ test('a sent message appears and the reply streams in', async ({ page }) => {
   await expect(panel(page).getByRole('button', { name: 'Stop' })).toHaveCount(0)
   await expect(messageField(page)).toBeFocused()
   await expect(liveRegion(page)).toHaveText(`Assistant: ${REPLY}`)
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { __chatContentType: string | null })
+          .__chatContentType,
+    ),
+  ).toBe('application/json')
+})
+
+test('the conversation survives closing and opening the panel', async ({
+  page,
+}) => {
+  await assistantButton(page).click()
+  await messageField(page).fill('First question')
+  await page.keyboard.press('Enter')
+  const items = conversation(page).getByRole('listitem')
+  await expect(items.nth(1)).toContainText(REPLY)
+
+  await page.keyboard.press('Escape')
+  await expect(panel(page)).toHaveCount(0)
+  await page.keyboard.press('a')
+  await expect(items).toHaveCount(2)
+  await expect(items.first()).toContainText('First question')
+  await expect(items.nth(1)).toContainText(REPLY)
+  await expect(panel(page)).not.toContainText('No messages yet')
+
+  // A reply still streaming when the panel closes runs on and is listed when
+  // the panel opens again.
+  await messageField(page).fill('Second question')
+  await page.keyboard.press('Enter')
+  await expect(panel(page).getByRole('button', { name: 'Stop' })).toBeVisible()
+  await messageField(page).press('Escape')
+  await expect(panel(page)).toHaveCount(0)
+  await assistantButton(page).click()
+  await expect(items).toHaveCount(4)
+  await expect(items.nth(2)).toContainText('Second question')
+  await expect(items.nth(3)).toContainText(REPLY)
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { __chatAborts: number }).__chatAborts,
+    ),
+  ).toBe(0)
 })
 
 test('Stop ends a streaming reply', async ({ page }) => {

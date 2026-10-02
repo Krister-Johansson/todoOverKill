@@ -36,7 +36,8 @@ export const Route = createFileRoute('/_app')({
 /**
  * The single-key shortcut `a` (through useHotkeys, so it obeys the shortcuts
  * setting and does nothing while typing in a field) opens the assistant
- * panel, or moves focus to its Message field when it is already open.
+ * panel, or moves focus into it when it is already open: to the Message
+ * field, or to the Close button when the assistant is off.
  */
 function useAssistantPanel() {
   const [open, setOpen] = useState(false)
@@ -45,7 +46,7 @@ function useAssistantPanel() {
 
   useHotkeys({
     a: () => {
-      if (open) panelRef.current?.focusComposer()
+      if (open) panelRef.current?.focus()
       else setOpen(true)
     },
   })

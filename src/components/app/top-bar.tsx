@@ -79,7 +79,8 @@ export function TopBar({
           ref={assistantButtonRef}
           variant="outline"
           aria-expanded={assistantOpen}
-          // The panel is in the DOM only while open.
+          // Radix renders the panel's content only while it is open; the
+          // conversation is kept outside it.
           aria-controls={assistantOpen ? 'assistant-panel' : undefined}
           aria-keyshortcuts={shortcuts === 'on' ? 'a' : undefined}
           onClick={onAssistantToggle}

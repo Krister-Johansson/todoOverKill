@@ -8,7 +8,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
-import { useRef, useState } from 'react'
+import { createRef, useRef, useState } from 'react'
 import {
   afterAll,
   afterEach,
@@ -30,6 +30,8 @@ import {
 import { AssistantPanel } from './assistant-panel'
 import { LiveRegionProvider } from './live-region'
 
+import type { AssistantPanelHandle } from './assistant-panel'
+
 type ChatState = {
   messages: Array<{
     id: string
@@ -46,14 +48,33 @@ const chat = vi.hoisted(() => {
 })
 
 // No fetch leaves the test: useChat is a stand-in driven by `chat.state`.
-vi.mock('@tanstack/ai-react', () => ({
-  fetchServerSentEvents: vi.fn(),
-  useChat: () => ({
-    ...chat.state,
-    sendMessage: chat.sendMessage,
-    stop: chat.stop,
-  }),
-}))
+// A sent message is kept in the hook's own state, as the real hook keeps it,
+// so it is lost if the component that calls useChat unmounts.
+vi.mock('@tanstack/ai-react', async () => {
+  const React = await import('react')
+  return {
+    fetchServerSentEvents: vi.fn(),
+    useChat: () => {
+      const [sent, setSent] = React.useState<ChatState['messages']>([])
+      return {
+        ...chat.state,
+        messages: [...chat.state.messages, ...sent],
+        sendMessage: (text: string) => {
+          chat.sendMessage(text)
+          setSent((messages) => [
+            ...messages,
+            {
+              id: `sent-${messages.length}`,
+              role: 'user',
+              parts: [{ type: 'text', content: text }],
+            },
+          ])
+        },
+        stop: chat.stop,
+      }
+    },
+  }
+})
 
 vi.mock('#/fns/assistant', () => ({
   assistantStatusQueryOptions: () => ({ queryKey: ['assistant', 'status'] }),
@@ -89,7 +110,7 @@ afterEach(() => {
  * while the panel is open, as the shell grid is below `md`, and the panel
  * renders beside it.
  */
-function Harness() {
+function Harness({ panelRef }: { panelRef?: React.Ref<AssistantPanelHandle> }) {
   const [open, setOpen] = useState(false)
   const buttonRef = useRef<HTMLButtonElement>(null)
   return (
@@ -107,6 +128,7 @@ function Harness() {
         <main id="main" tabIndex={-1} />
       </div>
       <AssistantPanel
+        ref={panelRef}
         open={open}
         onOpenChange={setOpen}
         returnFocusTo={buttonRef}
@@ -129,7 +151,13 @@ function StackedDialog() {
   )
 }
 
-function renderPanel({ enabled = true } = {}) {
+function renderPanel({
+  enabled = true,
+  panelRef,
+}: {
+  enabled?: boolean
+  panelRef?: React.Ref<AssistantPanelHandle>
+} = {}) {
   const queryClient = new QueryClient()
   queryClient.setQueryData(['assistant', 'status'], {
     enabled,
@@ -139,7 +167,7 @@ function renderPanel({ enabled = true } = {}) {
   const ui = () => (
     <QueryClientProvider client={queryClient}>
       <LiveRegionProvider>
-        <Harness />
+        <Harness panelRef={panelRef} />
         <StackedDialog />
       </LiveRegionProvider>
     </QueryClientProvider>
@@ -171,6 +199,19 @@ describe('AssistantPanel', () => {
     expect(within(panel).queryByRole('textbox')).toBeNull()
     expect(within(panel).getByRole('button', { name: 'Close' })).toBe(
       document.activeElement,
+    )
+  })
+
+  it('moves focus to Close when asked to focus a panel that is off', () => {
+    const panelRef = createRef<AssistantPanelHandle>()
+    renderPanel({ enabled: false, panelRef })
+    const panel = openPanel()
+    ;(document.activeElement as HTMLElement).blur()
+    expect(document.activeElement).toBe(document.body)
+
+    act(() => panelRef.current?.focus())
+    expect(document.activeElement).toBe(
+      within(panel).getByRole('button', { name: 'Close' }),
     )
   })
 
@@ -243,6 +284,63 @@ describe('AssistantPanel', () => {
       document.activeElement,
     )
     await waitFor(() => expect(liveRegion().textContent).toBe('Reply stopped'))
+  })
+
+  it('keeps the conversation when the panel closes and opens again', async () => {
+    renderPanel()
+    let panel = openPanel()
+    const message = within(panel).getByRole('textbox', { name: 'Message' })
+    fireEvent.change(message, { target: { value: 'Hello' } })
+    fireEvent.keyDown(message, { key: 'Enter' })
+
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close' }))
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Assistant' })).toBeNull(),
+    )
+    panel = openPanel()
+
+    const items = within(
+      within(panel).getByRole('list', { name: 'Conversation' }),
+    ).getAllByRole('listitem')
+    expect(items.map((item) => item.textContent)).toEqual(['YouHello'])
+    expect(panel.textContent).not.toContain('No messages yet')
+  })
+
+  it('lets a reply run on and announces it when the panel closes', async () => {
+    chat.state.isLoading = true
+    const { rerender } = renderPanel()
+    const panel = openPanel()
+    fireEvent.click(within(panel).getByRole('button', { name: 'Close' }))
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Assistant' })).toBeNull(),
+    )
+    expect(chat.stop).not.toHaveBeenCalled()
+
+    chat.state.isLoading = false
+    chat.state.messages = [
+      {
+        id: 'm2',
+        role: 'assistant',
+        parts: [{ type: 'text', content: 'Done.' }],
+      },
+    ]
+    rerender()
+    await waitFor(() =>
+      expect(liveRegion().textContent).toBe('Assistant: Done.'),
+    )
+  })
+
+  it('leaves focus alone when a reply ends after focus left the panel', () => {
+    chat.state.isLoading = true
+    const { rerender } = renderPanel()
+    openPanel()
+    // As a click on plain text beside the panel does.
+    ;(document.activeElement as HTMLElement).blur()
+    expect(document.activeElement).toBe(document.body)
+
+    chat.state.isLoading = false
+    rerender()
+    expect(document.activeElement).toBe(document.body)
   })
 
   it('announces a finished reply', async () => {

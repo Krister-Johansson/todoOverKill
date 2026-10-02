@@ -58,11 +58,14 @@ export function isSingleKeyShortcut(event: KeyboardEvent) {
 
 /**
  * Whether a keydown is the command palette's key chord: Control+K, or
- * Command+K on a Mac, with no Alt or Shift. On a layout without Latin letters,
- * such as Russian, the key in the K position counts too; on one that moves
- * the letters, such as Dvorak, only the key that types k does.
+ * Command+K on a Mac, with no Alt or Shift, not mid-composition in an input
+ * method, and not already handled (its default prevented). On a layout
+ * without Latin letters, such as Russian, the key in the K position counts
+ * too; on one that moves the letters, such as Dvorak, only the key that types
+ * k does.
  */
 export function isCommandPaletteKey(event: KeyboardEvent) {
+  if (event.defaultPrevented || event.isComposing) return false
   if (!(event.ctrlKey || event.metaKey)) return false
   if (event.altKey || event.shiftKey) return false
   // Chrome's autofill dispatches a keydown with no key.
@@ -74,14 +77,11 @@ export function isCommandPaletteKey(event: KeyboardEvent) {
 
 /**
  * Whether a keydown opens the command palette: its key chord
- * (isCommandPaletteKey), not a held key repeating, not mid-composition, and
- * nothing modal open (isModalOpen). Unlike a single-key shortcut it works
- * while typing in a field, and the single-key shortcuts setting does not turn
- * it off.
+ * (isCommandPaletteKey), not a held key repeating, and nothing modal open
+ * (isModalOpen). Unlike a single-key shortcut it works while typing in a
+ * field, and the single-key shortcuts setting does not turn it off.
  */
 export function isCommandPaletteShortcut(event: KeyboardEvent) {
-  if (event.defaultPrevented) return false
-  if (!isCommandPaletteKey(event)) return false
-  if (event.repeat || event.isComposing) return false
+  if (!isCommandPaletteKey(event) || event.repeat) return false
   return !isModalOpen()
 }

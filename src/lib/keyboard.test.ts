@@ -157,6 +157,17 @@ describe('isCommandPaletteKey', () => {
     expect(isCommandPaletteKey(event)).toBe(false)
   })
 
+  it('fails while composing and once another handler prevented the default', () => {
+    const button = element('<button>Go</button>')
+    const init = { key: 'k', ctrlKey: true }
+    expect(
+      isCommandPaletteKey(keydown(button, { ...init, isComposing: true })),
+    ).toBe(false)
+    button.addEventListener('keydown', (event) => event.preventDefault())
+    const event = keydown(button, { ...init, cancelable: true })
+    expect(isCommandPaletteKey(event)).toBe(false)
+  })
+
   it('passes the chord while a dialog is open', () => {
     document.body.innerHTML = '<input><div role="dialog"></div>'
     const input = document.querySelector('input')!

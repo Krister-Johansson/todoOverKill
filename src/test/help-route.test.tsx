@@ -85,6 +85,7 @@ describe('help route', () => {
     const names = terms.map((term) => term.textContent)
     for (const name of [
       'Backlog',
+      'Command menu',
       'Priority',
       'Label',
       'Assistant',
@@ -117,6 +118,7 @@ describe('help route', () => {
       'Not available yet. Arrives in a later release.',
     )
     expect(definitionOf('term-backlog')).not.toContain('Not available yet')
+    expect(definitionOf('term-command-menu')).not.toContain('Not available yet')
     // F30 shipped the project and status endpoints.
     expect(definitionOf('term-rest-api')).not.toContain('Not available yet')
   })
@@ -141,11 +143,12 @@ describe('help route', () => {
         row.querySelectorAll('kbd[data-slot="kbd"]').length,
       ).toBeGreaterThan(0)
     }
+    // F65 shipped the command menu, the last shortcut with the note.
     expect(
-      within(table).getAllByText(
+      within(table).queryAllByText(
         'Not available yet. Arrives in a later release.',
       ),
-    ).toHaveLength(2)
+    ).toHaveLength(0)
     expect(
       screen.getByRole('link', { name: 'Settings' }).getAttribute('href'),
     ).toBe('/settings')
@@ -194,7 +197,11 @@ describe('help route', () => {
 
     // Ctrl and ⌘ are read as Control and Command (3.1.4, 1.1.1).
     for (const [action, glyph, name] of [
-      ['Open the command menu to find a task or an action.', 'Ctrl', 'Control'],
+      [
+        'Open the command menu to go to a page or run an action.',
+        'Ctrl',
+        'Control',
+      ],
       ['On a Mac, open the command menu.', '⌘', 'Command'],
     ]) {
       const cell = keysCell(action)

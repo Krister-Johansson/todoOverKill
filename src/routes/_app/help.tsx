@@ -112,6 +112,12 @@ const terms: Array<{
     definition: 'The first page you see when you open the app.',
   },
   {
+    id: 'command-menu',
+    term: 'Command menu',
+    definition:
+      'A box that opens with the Search button or Ctrl+K. Type a few letters to find a page, a project or an action, such as New task, and press Enter to run it.',
+  },
+  {
     id: 'assistant',
     term: 'Assistant',
     definition:
@@ -181,14 +187,12 @@ const shortcuts: Array<Shortcut> = [
   {
     keys: ['Ctrl', 'K'],
     kind: 'combo',
-    action: 'Open the command menu to find a task or an action.',
-    later: true,
+    action: 'Open the command menu to go to a page or run an action.',
   },
   {
     keys: ['⌘', 'K'],
     kind: 'combo',
     action: 'On a Mac, open the command menu.',
-    later: true,
   },
 ]
 
@@ -291,6 +295,12 @@ function HelpPage() {
             Settings
           </Link>
           .
+        </p>
+        <p>
+          <ShortcutKeys keys={['Ctrl', 'K']} kind="combo" /> and{' '}
+          <ShortcutKeys keys={['⌘', 'K']} kind="combo" /> work even while you
+          type in a field. They are not single-key shortcuts, so that setting
+          does not turn them off.
         </p>
       </HelpSection>
 

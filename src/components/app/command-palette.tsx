@@ -329,12 +329,20 @@ function PaletteBody({
   // lands under that text and never shows as the newer text's results.
   const search = useQuery({
     ...searchQueryOptions(searched),
-    enabled: wantsSearch && searched.length >= MIN_SEARCH_LENGTH,
+    enabled:
+      wantsSearch &&
+      searched.length >= MIN_SEARCH_LENGTH &&
+      searched.length <= MAX_SEARCH_LENGTH,
     retry: false,
   })
   // While the debounced text lags the input, search.data answers older text.
-  const searching = wantsSearch && (searched !== trimmed || search.isPending)
-  const failed = wantsSearch && !searching && search.isError
+  // A fetch counts too, so a retry after an error is not shown as a failure.
+  const searching =
+    wantsSearch &&
+    (searched !== trimmed || search.isPending || search.isFetching)
+  // A failed refetch keeps the last good answer rather than failing.
+  const failed =
+    wantsSearch && !searching && search.isError && search.data === undefined
 
   const actions = useMemo(() => {
     const opposite = resolved === 'dark' ? 'light' : 'dark'

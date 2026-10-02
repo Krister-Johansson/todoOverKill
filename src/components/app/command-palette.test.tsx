@@ -60,7 +60,7 @@ vi.mock('#/fns/search', () => ({
   searchQueryOptions: (text: string) => ({
     queryKey: ['search', text.trim()],
     queryFn: () => searchMock(text.trim()),
-    staleTime: Infinity,
+    staleTime: 0,
   }),
 }))
 
@@ -744,6 +744,35 @@ describe('CommandPalette', () => {
       expect(screen.getByRole('dialog', { name: 'Command menu' })).toBeTruthy()
       expect(optionNames()).toHaveLength(5)
       expect(screen.queryByRole('group', { name: 'Tasks' })).toBeNull()
+    })
+
+    it('shows a retry after a failed search as searching, not failed', async () => {
+      const retry = deferred()
+      let goCalls = 0
+      searchMock.mockImplementation((query) => {
+        if (query !== 'go') return Promise.resolve(NOTHING)
+        goCalls += 1
+        return goCalls === 1
+          ? Promise.reject(new Error('Network down'))
+          : retry.promise
+      })
+      await renderAt('/')
+      openFromButton()
+      type('go')
+      await screen.findByText('Search failed. Try again.')
+
+      type('gox')
+      await waitFor(() => expect(searchMock).toHaveBeenCalledWith('gox'))
+      type('go')
+      await waitFor(() => expect(goCalls).toBe(2))
+
+      expect(screen.queryByText('Search failed. Try again.')).toBeNull()
+      expect(screen.getByText('Searching…')).toBeTruthy()
+      act(() => retry.resolve({ projects: [], tasks: [launch] }))
+      await waitFor(() =>
+        expect(optionNames()).toContain('APO-4, Launch plan, Apollo'),
+      )
+      expect(screen.queryByText('Search failed. Try again.')).toBeNull()
     })
 
     it('lists a result that comes back twice once', async () => {

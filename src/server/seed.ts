@@ -448,6 +448,8 @@ async function seedIn(tx: Prisma.TransactionClient, now: Date) {
     const subtasks: Array<Prisma.SubtaskCreateManyInput> = []
     const taskLabels: Array<Prisma.TaskLabelCreateManyInput> = []
     const comments: Array<Prisma.CommentCreateManyInput> = []
+    // Task numbers by id, for the comment rows written after the bulk insert.
+    const taskNumber = new Map<string, number>()
     const activity: Array<Prisma.ActivityCreateManyInput> = [
       {
         projectId: project.id,
@@ -493,6 +495,7 @@ async function seedIn(tx: Prisma.TransactionClient, now: Date) {
         },
         select: { id: true },
       })
+      taskNumber.set(task.id, number)
       const event = (
         type: string,
         payload: Prisma.InputJsonObject,
@@ -534,7 +537,6 @@ async function seedIn(tx: Prisma.TransactionClient, now: Date) {
       for (const [i, body] of (item.comments ?? []).entries()) {
         const at = commentTimes[i]
         comments.push({ taskId: task.id, body, createdAt: at, updatedAt: at })
-        activity.push(event(ACTIVITY_TYPES.commentAdded, { body }, at))
       }
       if (completedAt) {
         activity.push(
@@ -548,7 +550,24 @@ async function seedIn(tx: Prisma.TransactionClient, now: Date) {
 
     await tx.subtask.createMany({ data: subtasks })
     await tx.taskLabel.createMany({ data: taskLabels })
-    await tx.comment.createMany({ data: comments })
+    // One insert for the project's comments; each comment.added row needs the
+    // id it returns.
+    const created = await tx.comment.createManyAndReturn({
+      data: comments,
+      select: { id: true, taskId: true, createdAt: true },
+    })
+    for (const comment of created) {
+      activity.push({
+        projectId: project.id,
+        taskId: comment.taskId,
+        type: ACTIVITY_TYPES.commentAdded,
+        payload: {
+          number: taskNumber.get(comment.taskId)!,
+          commentId: comment.id,
+        },
+        createdAt: comment.createdAt,
+      })
+    }
     await tx.activity.createMany({ data: activity })
     result[spec.key] = { tasks: spec.tasks.length }
   }

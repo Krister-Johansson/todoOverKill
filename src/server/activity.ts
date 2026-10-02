@@ -15,6 +15,8 @@ export const ACTIVITY_TYPES = {
   taskCompleted: 'task.completed',
   taskDeleted: 'task.deleted',
   commentAdded: 'comment.added',
+  commentUpdated: 'comment.updated',
+  commentDeleted: 'comment.deleted',
   subtaskAdded: 'subtask.added',
   subtaskUpdated: 'subtask.updated',
   subtaskCompleted: 'subtask.completed',

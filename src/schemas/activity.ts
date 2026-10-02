@@ -14,6 +14,8 @@ export const activityTypeSchema = z.enum([
   'task.completed',
   'task.deleted',
   'comment.added',
+  'comment.updated',
+  'comment.deleted',
   'subtask.added',
   'subtask.updated',
   'subtask.completed',
@@ -27,6 +29,14 @@ export type ActivityTypeName = z.infer<typeof activityTypeSchema>
 // The payloads are loose: a row keeps whatever its writer stored, and the
 // seed leaves out the number on task.moved and task.completed.
 const taskNumberSchema = z.number().int().optional()
+
+// The comments service writes the task number and the comment id, never the
+// comment's text. Every field is optional, because rows written before it
+// hold `{ body }` or `{ number, excerpt }`, and those must still parse.
+const commentPayloadSchema = z.looseObject({
+  number: taskNumberSchema,
+  commentId: z.string().optional(),
+})
 
 export const activityPayloadSchemas = {
   'project.created': z.looseObject({ name: z.string(), key: z.string() }),
@@ -49,7 +59,9 @@ export const activityPayloadSchemas = {
     number: taskNumberSchema,
     title: z.string(),
   }),
-  'comment.added': z.looseObject({ body: z.string().optional() }),
+  'comment.added': commentPayloadSchema,
+  'comment.updated': commentPayloadSchema,
+  'comment.deleted': commentPayloadSchema,
   // The seed's subtask.added rows hold only the title.
   'subtask.added': z.looseObject({
     number: taskNumberSchema,

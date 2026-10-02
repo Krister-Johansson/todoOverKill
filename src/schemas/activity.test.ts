@@ -42,6 +42,26 @@ describe('activityPayloadSchemas', () => {
     ).toBe(true)
   })
 
+  it('accepts the comment payloads, old and new', () => {
+    for (const type of [
+      'comment.added',
+      'comment.updated',
+      'comment.deleted',
+    ] as const) {
+      const schema = activityPayloadSchemas[type]
+      expect(
+        schema.safeParse({ number: 1, commentId: 'c1' }).success,
+        type,
+      ).toBe(true)
+      expect(
+        schema.safeParse({ number: 1, excerpt: 'Looks good' }).success,
+        type,
+      ).toBe(true)
+      expect(schema.safeParse({ body: 'Looks good' }).success, type).toBe(true)
+      expect(schema.safeParse({}).success, type).toBe(true)
+    }
+  })
+
   it('keeps keys it does not know', () => {
     expect(
       activityPayloadSchemas['task.completed'].parse({ number: 3, by: 'me' }),

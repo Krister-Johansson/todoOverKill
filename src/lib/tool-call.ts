@@ -95,16 +95,23 @@ function count(items: Array<unknown>, [one, many]: readonly [string, string]) {
  * A one-line summary of a tool's output, never the output itself: a list
  * is counted ("2 tasks"), search counts both lists ("1 project and 2
  * tasks"), and a single item is its title, name or text, cut to
- * MAX_SUMMARY_LENGTH. Anything else is "Done".
+ * MAX_SUMMARY_LENGTH. Anything else is "Done". A list counts only when it is
+ * the whole output, as the list tools return it: a task's labels or a
+ * project's statuses belong to the item, which is named instead.
  */
 export function toolResultSummary(output: unknown) {
   if (!isRecord(output)) return 'Done'
-  if (Array.isArray(output.projects) && Array.isArray(output.tasks)) {
+  const keys = Object.keys(output).sort().join(',')
+  if (
+    keys === 'projects,tasks' &&
+    Array.isArray(output.projects) &&
+    Array.isArray(output.tasks)
+  ) {
     return `${count(output.projects, NOUNS.projects)} and ${count(output.tasks, NOUNS.tasks)}`
   }
   for (const [key, nouns] of Object.entries(NOUNS)) {
     const items = output[key]
-    if (Array.isArray(items)) return count(items, nouns)
+    if (keys === key && Array.isArray(items)) return count(items, nouns)
   }
   for (const key of ['title', 'name', 'body']) {
     const text = output[key]

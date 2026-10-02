@@ -142,6 +142,44 @@ describe('toolResultSummary', () => {
     expect(summary.endsWith('…')).toBe(true)
   })
 
+  it('names a task or project by its title, not its labels or statuses', () => {
+    const label = { id: 'l1', name: 'Bug', color: '#000000' }
+    const status = { id: 's1', name: 'To do', order: 0, isDone: false }
+    const task = {
+      id: 't1',
+      projectId: 'p1',
+      statusId: 's1',
+      number: 4,
+      title: 'Launch',
+      description: null,
+      priority: 'NONE',
+      dueDate: null,
+      order: 1,
+      completedAt: null,
+      createdAt: '2026-10-01T10:00:00.000Z',
+      updatedAt: '2026-10-01T10:00:00.000Z',
+      status,
+      labels: [],
+    }
+    expect(toolResultSummary(task)).toBe('Launch')
+    expect(toolResultSummary({ ...task, labels: [label, label] })).toBe(
+      'Launch',
+    )
+    expect(
+      toolResultSummary({
+        id: 'p1',
+        name: 'Website',
+        key: 'WEB',
+        color: null,
+        archivedAt: null,
+        statuses: [status, status],
+      }),
+    ).toBe('Website')
+    expect(
+      toolResultSummary({ id: 'c1', taskId: 't1', body: 'Looks good' }),
+    ).toBe('Looks good')
+  })
+
   it('never shows a full result', () => {
     const comments = Array.from({ length: 50 }, () => ({
       body: 'x'.repeat(5_000),

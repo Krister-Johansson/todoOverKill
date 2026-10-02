@@ -566,7 +566,7 @@ describe('CommandPalette', () => {
       await waitFor(() => expect(paletteRegion().textContent).toBe('3 options'))
     })
 
-    it('shows Searching… while a search with nothing to show yet is out', async () => {
+    it('shows Searching… while a search is out', async () => {
       searchMock.mockReturnValue(deferred().promise)
       await renderAt('/')
       openFromButton()
@@ -574,6 +574,49 @@ describe('CommandPalette', () => {
 
       expect(screen.getByText('Searching…')).toBeTruthy()
       expect(screen.queryByText('No results')).toBeNull()
+
+      // Also when actions match.
+      type('go to')
+      expect(optionNames()).toHaveLength(5)
+      expect(screen.getByText('Searching…')).toBeTruthy()
+    })
+
+    it('never runs a result for older text while the search is out', async () => {
+      const later = deferred()
+      searchMock.mockImplementation((query) =>
+        query === 'apo-12'
+          ? later.promise
+          : Promise.resolve({ projects: [], tasks: [launch] }),
+      )
+      const router = await renderAt('/settings')
+      openFromButton()
+      type('apo')
+      await waitFor(() =>
+        expect(optionNames()).toContain('APO-4, Launch plan, Apollo'),
+      )
+
+      type('apo-12')
+      // Inside the debounce, the results for "apo" are gone at once.
+      expect(optionNames()).toEqual([])
+      expect(screen.getByText('Searching…')).toBeTruthy()
+      press('Enter')
+      // And while the request for "apo-12" is out.
+      await waitFor(() => expect(searchMock).toHaveBeenCalledWith('apo-12'))
+      expect(optionNames()).toEqual([])
+      press('Enter')
+      await wait(50)
+      expect(router.state.location.pathname).toBe('/settings')
+      expect(screen.getByRole('dialog', { name: 'Command menu' })).toBeTruthy()
+
+      act(() =>
+        later.resolve({ projects: [], tasks: [task('t12', 12, 'Rocket')] }),
+      )
+      await waitFor(() =>
+        expect(optionNames()).toEqual(['APO-12, Rocket, Apollo']),
+      )
+      press('Enter')
+      await screen.findByRole('heading', { name: 'Task' })
+      expect(router.state.location.pathname).toBe('/tasks/t12')
     })
 
     it('opens a task on Enter and moves focus to the main landmark', async () => {

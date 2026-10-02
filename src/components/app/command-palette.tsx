@@ -1,4 +1,4 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import {
   CircleHelp,
@@ -326,17 +326,14 @@ function PaletteBody({
   }, [trimmed])
 
   // Each text has its own cache entry, so a slow response for older text
-  // lands under that text and never shows as the newer text's results. The
-  // previous results stay on screen while the next ones load.
+  // lands under that text and never shows as the newer text's results.
   const search = useQuery({
     ...searchQueryOptions(searched),
     enabled: wantsSearch && searched.length >= MIN_SEARCH_LENGTH,
-    placeholderData: keepPreviousData,
     retry: false,
   })
-  const searching =
-    wantsSearch &&
-    (searched !== trimmed || search.isPending || search.isPlaceholderData)
+  // While the debounced text lags the input, search.data answers older text.
+  const searching = wantsSearch && (searched !== trimmed || search.isPending)
   const failed = wantsSearch && !searching && search.isError
 
   const actions = useMemo(() => {
@@ -405,10 +402,11 @@ function PaletteBody({
   )
 
   // One flat list in screen order drives the active option and the keys;
-  // the groups are only how it is drawn.
+  // the groups are only how it is drawn. Results for older text are left out
+  // while the search for the current text is out, so Enter never runs one.
   const matches = [
     ...matching(actions, text),
-    ...(wantsSearch && !failed ? results : []),
+    ...(wantsSearch && !searching && !failed ? results : []),
   ]
   const found = matches.findIndex((option) => option.id === activeKey)
   const activeIndex = found === -1 ? 0 : found
@@ -471,7 +469,8 @@ function PaletteBody({
 
   let status: string | null = null
   if (failed) status = SEARCH_FAILED
-  else if (count === 0) status = searching ? 'Searching…' : 'No results'
+  else if (searching) status = 'Searching…'
+  else if (count === 0) status = 'No results'
 
   return (
     <>
